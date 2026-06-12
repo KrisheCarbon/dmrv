@@ -1,53 +1,121 @@
-import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import React, { useEffect, useState, useCallback } from "react";
+import { useFonts } from "expo-font";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { View, ActivityIndicator } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { colors } from "./constants/theme";
+import { supabase } from "./services/supabase";
+import "./database";
+import { initISTClock } from "./services/trustedtime";
+import { arePermissionsGranted } from "./services/permissions";
+import {
+  startSyncListener,
+  stopSyncListener,
+  processSyncQueue
+} from "./services/syncService";
+import LoginScreen from "./screens/LoginScreen";
+import PermissionsScreen from "./screens/PermissionsScreen";
+import HomeScreen from "./screens/HomeScreen";
+import FarmerDashboardScreen from "./screens/FarmerDashboardScreen";
+import AddFarmerScreen from "./screens/AddFarmerScreen";
+import EditFarmerScreen from "./screens/EditFarmerScreen";
 
-import WelcomeScreen from './screens/WelcomeScreen';
-import LoginScreen from './screens/LoginScreen';
-import HomeScreen from './screens/HomeScreen';
-import DashboardScreen from "./screens/DashboardScreen";
-import FarmersScreen from './screens/FarmersScreen';
-import FarmersListScreen from './screens/FarmersListScreen';
-import AddFarmerScreen from './screens/AddFarmerScreen';
-import BiomassDeliveryScreen from './screens/BiomassDeliveryScreen';
-import SubmissionSuccessScreen from './screens/SubmissionSuccessScreen';
-import ProductionScreen from './screens/ProductionScreen';
-import BiocharEndUseScreen from './screens/BiocharEndUseScreen';
-import ApplicationScreen from './screens/ApplicationScreen';
-import MixingScreen from './screens/MixingScreen';
-import InvoicingScreen from './screens/BioCharIvoicingScreen';
-import MoistureContentScreen from './screens/MoistureContentScreen';
-import DryOvenScreen from './screens/InternalScreens/DryOvenScreen';
-import BulkDensityScreen from './screens/InternalScreens/BulkDensityScreen';
-import MeterScreen from './screens/InternalScreens/MeterScreen';
-import ReceiptScreen from './screens/ReceiptScreen';
+const Stack = createNativeStackNavigator();
 
-const Stack = createStackNavigator();
+function MainStack() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen
+        name="FarmerDashboard"
+        component={FarmerDashboardScreen}
+      />
+      <Stack.Screen name="AddFarmer" component={AddFarmerScreen} />
+      <Stack.Screen name="EditFarmer" component={EditFarmerScreen} />
+    </Stack.Navigator>
+  );
+}
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [permissionsOk, setPermissionsOk] = useState(false);
+
+  const [fontsLoaded] = useFonts({
+    SatoshiRegular: require("./assets/Satoshi_Complete/Fonts/OTF/Satoshi-Regular.otf"),
+    SatoshiMedium: require("./assets/Satoshi_Complete/Fonts/OTF/Satoshi-Medium.otf"),
+    SatoshiBold: require("./assets/Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf")
+  });
+
+  const handlePermissionsComplete = useCallback(() => {
+    setPermissionsOk(true);
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data }) => {
+      setSession(data.session);
+
+      if (data.session) {
+        initISTClock();
+        setPermissionsOk(await arePermissionsGranted());
+        startSyncListener();
+        processSyncQueue();
+      }
+
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      setSession(newSession);
+
+      if (newSession) {
+        initISTClock();
+        setPermissionsOk(await arePermissionsGranted());
+        startSyncListener();
+        processSyncQueue();
+      } else {
+        stopSyncListener();
+        setPermissionsOk(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      stopSyncListener();
+    };
+  }, []);
+
+  if (!fontsLoaded || loading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: colors.white
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.brunswick} />
+      </View>
+    );
+  }
+
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Welcome">
-        <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} /> 
-        <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="Dashboard" component={DashboardScreen} />
-        <Stack.Screen name="FarmersScreen" component={FarmersScreen} />
-        <Stack.Screen name="FarmersList" component={FarmersListScreen} />
-        <Stack.Screen name="AddFarmer" component={AddFarmerScreen} />
-        <Stack.Screen name="BiomassDelivery" component={BiomassDeliveryScreen} />
-        <Stack.Screen name="SubmissionSuccess" component={SubmissionSuccessScreen} />
-        <Stack.Screen name="Production" component={ProductionScreen} />
-        <Stack.Screen name="BiocharEndUse" component={BiocharEndUseScreen} />
-        <Stack.Screen name="Application" component={ApplicationScreen} />
-        <Stack.Screen name="Mixing" component={MixingScreen} />
-        <Stack.Screen name="Invoicing" component={InvoicingScreen} />
-        <Stack.Screen name="MoistureContent" component={MoistureContentScreen} />
-        <Stack.Screen name="DryOven" component={DryOvenScreen} />
-        <Stack.Screen name="BulkDensity" component={BulkDensityScreen} />
-        <Stack.Screen name="Meter" component={MeterScreen} />
-        <Stack.Screen name="Receipt" component={ReceiptScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        {!session ? (
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Login" component={LoginScreen} />
+          </Stack.Navigator>
+        ) : !permissionsOk ? (
+          <PermissionsScreen onComplete={handlePermissionsComplete} />
+        ) : (
+          <MainStack />
+        )}
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

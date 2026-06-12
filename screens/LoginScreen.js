@@ -1,4 +1,4 @@
-import React, { useState , useEffect} from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -6,132 +6,277 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
-  Image
-} from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "../firebaseConfig"; 
+  ScrollView
+} from "react-native";
+import { supabase } from "../services/supabase";
+import { colors, fonts, spacing, radius, logos } from "../constants/theme";
+import PrimaryButton from "../components/PrimaryButton";
+
+const loginBg = colors.white;
+const loginSurface = colors.chalk;
 
 export default function LoginScreen() {
-  const navigation = useNavigation();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const handleLogin = async () => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [mode, setMode] = useState("password");
+  const [otpSent, setOtpSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  function switchMode(nextMode) {
+    setMode(nextMode);
+    setOtpSent(false);
+    setOtp("");
+    setPassword("");
+  }
+
+  async function handlePasswordLogin() {
     if (!email || !password) {
-      Alert.alert("Error", "Please fill in both email and password");
+      Alert.alert("Missing details", "Enter your email and password.");
       return;
     }
 
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      console.log("✅ Login successful");
-      navigation.replace("Home");
-    } catch (error) {
-      console.error("❌ Login Error:", error);
-      Alert.alert("Login Failed", error.message);
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password
+    });
+    setLoading(false);
+
+    if (error) Alert.alert("Login failed", error.message);
+  }
+
+  async function handleSendOtp() {
+    if (!email) {
+      Alert.alert("Missing email", "Enter your email to receive a code.");
+      return;
     }
-  };
 
-  // Rotating subtitle logic
-  const phrases = [
-    "Lead climate action",
-    "Empower farmers",
-    "Grow your impact"
-  ];
-  const [currentIndex, setCurrentIndex] = useState(0);
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim()
+    });
+    setLoading(false);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentIndex((prevIndex) => (prevIndex + 1) % phrases.length);
-    }, 2000); // changes every 2 seconds
-    return () => clearInterval(interval);
-  }, []);
+    if (error) {
+      Alert.alert("Login failed", error.message);
+      return;
+    }
 
+    setOtpSent(true);
+    Alert.alert("Check your email", "We sent a one-time login code.");
+  }
+
+  async function handleVerifyOtp() {
+    if (!otp) {
+      Alert.alert("Missing code", "Enter the OTP from your email.");
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: otp,
+      type: "email"
+    });
+    setLoading(false);
+
+    if (error) Alert.alert("Invalid code", error.message);
+  }
+
+  function handleSubmit() {
+    if (mode === "password") return handlePasswordLogin();
+    if (!otpSent) return handleSendOtp();
+    return handleVerifyOtp();
+  }
+
+  const submitLabel =
+    loading
+      ? "Please wait..."
+      : mode === "password"
+      ? "Sign In"
+      : otpSent
+      ? "Verify Code"
+      : "Send Code to Email";
 
   return (
-    <View style={styles.container}>
-      {/* Title */}
-      <Text style={styles.title}>Welcome, Change-Maker</Text>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.hero}>
+          <Image
+            source={logos.verticalWhite}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </View>
 
-      {/* Animated Subtitle */}
-      <Text style={styles.subtitle}>{phrases[currentIndex]}</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Sign in to your account</Text>
 
-      {/* Email */}
-      <TextInput
-        style={styles.input}
-        placeholder="Enter your email"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
+          <View style={styles.modeRow}>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === "password" && styles.modeActive]}
+              onPress={() => switchMode("password")}
+            >
+              <Text
+                style={[
+                  styles.modeText,
+                  mode === "password" && styles.modeTextActive
+                ]}
+              >
+                Password
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === "otp" && styles.modeActive]}
+              onPress={() => switchMode("otp")}
+            >
+              <Text
+                style={[styles.modeText, mode === "otp" && styles.modeTextActive]}
+              >
+                Email Code
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-      {/* Password */}
-      <TextInput
-        style={styles.input}
-        placeholder="Enter your password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="you@example.com"
+            placeholderTextColor={colors.smokeLight}
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            editable={mode === "password" || !otpSent}
+          />
 
-      {/* Login Button */}
-      <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-        <Text style={styles.loginText}>Login</Text>
-      </TouchableOpacity>
-    </View>
+          {mode === "password" ? (
+            <>
+              <Text style={styles.label}>Password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Your password"
+                placeholderTextColor={colors.smokeLight}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+            </>
+          ) : null}
+
+          {mode === "otp" && otpSent ? (
+            <>
+              <Text style={styles.label}>One-time code</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter 6-digit code"
+                placeholderTextColor={colors.smokeLight}
+                value={otp}
+                onChangeText={setOtp}
+                keyboardType="number-pad"
+              />
+            </>
+          ) : null}
+
+          <PrimaryButton
+            title={submitLabel}
+            onPress={handleSubmit}
+            loading={loading}
+          />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#f5fdf7',
+    backgroundColor: loginBg
   },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-    color: '#25632D',
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xl,
+    justifyContent: "center"
   },
-  subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 30,
-    color: '#4a4a4a',
-    fontStyle: 'italic',
+  hero: {
+    alignItems: "center",
+    marginBottom: spacing.xl,
+    backgroundColor: loginBg
+  },
+  logo: {
+    width: 200,
+    height: 200
+  },
+  card: {
+    backgroundColor: loginSurface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontFamily: fonts.bold,
+    color: colors.brunswick,
+    marginBottom: spacing.md
+  },
+  modeRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.lg
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: radius.sm,
+    backgroundColor: loginBg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center"
+  },
+  modeActive: {
+    backgroundColor: colors.brunswick,
+    borderColor: colors.brunswick
+  },
+  modeText: {
+    fontFamily: fonts.medium,
+    fontSize: 14,
+    color: colors.brunswick
+  },
+  modeTextActive: {
+    color: colors.white
+  },
+  label: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    marginBottom: 8
   },
   input: {
+    backgroundColor: loginBg,
     borderWidth: 1,
-    borderColor: '#dcdcdc',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 15,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
     fontSize: 16,
-    backgroundColor: '#fff',
-  },
-  loginButton: {
-    backgroundColor: '#25632D',
-    paddingVertical: 15,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-    marginTop: 10,
-  },
-  loginText: {
-    color: '#fff',
-    fontSize: 18,
-    textAlign: 'center',
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
+    fontFamily: fonts.regular,
+    color: colors.text,
+    marginBottom: spacing.md
+  }
 });

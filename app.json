@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "dmrv-app",
+    "name": "KC",
     "slug": "dmrv-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.anonymous.dmrvapp"
@@ -29,8 +29,32 @@
     },
     "extra": {
       "eas": {
-        "projectId": "f483bfd4-7f49-47ca-9303-b3d5520105e2"
+        "projectId": "e9a771cb-5212-4ec4-b4dc-7ee75d62a623"
       }
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-sqlite",
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "DMRV needs your location to capture farm GPS coordinates and address."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DMRV needs photo access to upload farmer consent documents.",
+          "cameraPermission": "DMRV needs camera access to photograph consent forms."
+        }
+      ]
+    ],
+    "owner": "shanmukh-krishe",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/e9a771cb-5212-4ec4-b4dc-7ee75d62a623"
     }
   }
 }
