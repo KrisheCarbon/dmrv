@@ -2,27 +2,23 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
-export default function FarmerCard({ farmer, onPress }) {
-  const syncLabel =
-    farmer.sync_status === "pending"
-      ? "Pending"
-      : farmer.sync_status === "error"
-      ? "Failed"
-      : "Synced";
+function getSyncMeta(status) {
+  switch (status) {
+    case "syncing":
+      return { label: "Syncing", color: colors.brunswick, bg: colors.chalk };
+    case "pending":
+      return { label: "Pending", color: colors.warning, bg: colors.warningBg };
+    case "error":
+      return { label: "Failed", color: colors.error, bg: colors.errorBg };
+    default:
+      return { label: "Synced", color: colors.success, bg: colors.successBg };
+  }
+}
 
-  const syncColor =
-    farmer.sync_status === "pending"
-      ? colors.warning
-      : farmer.sync_status === "error"
-      ? colors.error
-      : colors.success;
-
-  const syncBg =
-    farmer.sync_status === "pending"
-      ? colors.warningBg
-      : farmer.sync_status === "error"
-      ? colors.errorBg
-      : colors.successBg;
+export default function FarmerCard({ farmer, syncProgress = 0, onPress }) {
+  const { label, color, bg } = getSyncMeta(farmer.sync_status);
+  const isSyncing = farmer.sync_status === "syncing";
+  const progress = Math.min(100, Math.max(0, syncProgress));
 
   return (
     <TouchableOpacity
@@ -35,15 +31,23 @@ export default function FarmerCard({ farmer, onPress }) {
           <Text style={styles.name} numberOfLines={1}>
             {farmer.farmer_name}
           </Text>
-          <View style={[styles.badge, { backgroundColor: syncBg }]}>
-            <Text style={[styles.badgeText, { color: syncColor }]}>
-              {syncLabel}
-            </Text>
+          <View style={[styles.badge, { backgroundColor: bg }]}>
+            <Text style={[styles.badgeText, { color }]}>{label}</Text>
           </View>
         </View>
         <Text style={styles.mobile}>{farmer.mobile_number}</Text>
+
+        {isSyncing && (
+          <View style={styles.progressWrap}>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progress}%` }]} />
+            </View>
+            <Text style={styles.progressText}>{Math.round(progress)}%</Text>
+          </View>
+        )}
       </View>
-      <Text style={styles.chevron}>›</Text>
+
+      {!isSyncing && <Text style={styles.chevron}>›</Text>}
     </TouchableOpacity>
   );
 }
@@ -90,6 +94,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.smoke,
     fontFamily: fonts.regular
+  },
+  progressWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
+    overflow: "hidden"
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: radius.pill,
+    backgroundColor: colors.chartreuse
+  },
+  progressText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: colors.brunswick,
+    minWidth: 32,
+    textAlign: "right"
   },
   chevron: {
     fontSize: 24,

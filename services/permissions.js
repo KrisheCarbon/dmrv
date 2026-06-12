@@ -1,6 +1,7 @@
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import * as MediaLibrary from "expo-media-library";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const PERMISSIONS_KEY = "dmrv_permissions_granted";
@@ -31,6 +32,10 @@ export async function requestAllPermissions() {
   const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
   results.media = media.status === "granted";
 
+  const mediaLibrary = await MediaLibrary.requestPermissionsAsync(true);
+  results.media =
+    results.media || mediaLibrary.status === "granted";
+
   return results;
 }
 
@@ -41,6 +46,17 @@ export async function pickConsentDocument() {
   });
 }
 
+async function savePhotoToGallery(uri) {
+  try {
+    const { status } = await MediaLibrary.requestPermissionsAsync(true);
+    if (status !== "granted") return;
+
+    await MediaLibrary.createAssetAsync(uri);
+  } catch (err) {
+    console.warn("Could not save photo to gallery:", err.message);
+  }
+}
+
 export async function pickConsentImageFromCamera() {
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["images"],
@@ -49,7 +65,10 @@ export async function pickConsentImageFromCamera() {
 
   if (result.canceled) return null;
 
-  return result.assets[0];
+  const asset = result.assets[0];
+  await savePhotoToGallery(asset.uri);
+
+  return asset;
 }
 
 export async function pickConsentImageFromGallery() {

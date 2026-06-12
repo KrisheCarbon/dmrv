@@ -11,6 +11,7 @@ import {
   Modal
 } from "react-native";
 import { supabase } from "../services/supabase";
+import { getStoredAuthUser } from "../services/auth";
 import { ScreenShell } from "../components/ScreenHeader";
 import { getSyncStatusSummary } from "../services/syncService";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
@@ -181,25 +182,25 @@ export default function HomeScreen({ navigation }) {
   }, [navigation]);
 
   async function loadSummary() {
-    const summary = await getSyncStatusSummary();
+    const user = await getStoredAuthUser();
+    const summary = await getSyncStatusSummary(user?.id);
     setSync(summary);
 
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
     if (user) {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("full_name")
-        .eq("id", user.id)
-        .single();
-
-      const fullName =
-        profile?.full_name?.trim() ||
+      let fullName =
         user.user_metadata?.full_name?.trim() ||
         user.user_metadata?.name?.trim() ||
         "";
+
+      if (summary.online) {
+        const { data: profile } = await supabase
+          .from("users")
+          .select("full_name")
+          .eq("id", user.id)
+          .single();
+
+        fullName = profile?.full_name?.trim() || fullName;
+      }
 
       setUserName(fullName);
     }

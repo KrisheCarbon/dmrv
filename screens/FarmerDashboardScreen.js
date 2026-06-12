@@ -1,67 +1,138 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  View
+  Pressable
 } from "react-native";
 import FarmerCard from "../components/FarmerCard";
 import { ScreenShell } from "../components/ScreenHeader";
 import { getAllFarmersLocal } from "../services/farmerService";
-import { processSyncQueue } from "../services/syncService";
+import { getStoredAuthUser } from "../services/auth";
+import {
+  processSyncQueue,
+  subscribeSyncEvents,
+  getAllSyncProgress
+} from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
-function getTodayStartMs() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today.getTime();
-}
+const FILTERS = {
+  all: { key: "all", label: "All entries", heading: "All farmers" },
+  synced: { key: "synced", label: "Synced", heading: "Synced farmers" },
+  pending: {
+    key: "pending",
+    label: "Pending sync",
+    heading: "Pending sync"
+  }
+};
 
 function buildStats(farmers) {
-  const todayStart = getTodayStartMs();
-
   return {
     total: farmers.length,
-    today: farmers.filter((f) => f.createdAt >= todayStart).length,
-    pendingSync: farmers.filter((f) => f.syncStatus === "pending").length
+    synced: farmers.filter((f) => f.syncStatus === "synced").length,
+    pendingSync: farmers.filter((f) =>
+      ["pending", "syncing", "error"].includes(f.syncStatus)
+    ).length
   };
 }
 
-function StatTile({ label, value }) {
+function filterFarmers(farmers, activeFilter) {
+  if (activeFilter === "synced") {
+    return farmers.filter((f) => f.sync_status === "synced");
+  }
+
+  if (activeFilter === "pending") {
+    return farmers.filter((f) =>
+      ["pending", "syncing", "error"].includes(f.sync_status)
+    );
+  }
+
+  return farmers;
+}
+
+function StatTile({ label, value, active, onPress }) {
   return (
-    <View style={styles.statTile}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    <Pressable
+      style={[styles.statTile, active && styles.statTileActive]}
+      onPress={onPress}
+    >
+      <Text style={[styles.statValue, active && styles.statValueActive]}>
+        {value}
+      </Text>
+      <Text style={[styles.statLabel, active && styles.statLabelActive]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
 export default function FarmerDashboardScreen({ navigation }) {
   const [farmers, setFarmers] = useState([]);
-  const [stats, setStats] = useState({ total: 0, today: 0, pendingSync: 0 });
+  const [stats, setStats] = useState({ total: 0, synced: 0, pendingSync: 0 });
   const [refreshing, setRefreshing] = useState(false);
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [syncProgress, setSyncProgress] = useState({});
 
   const loadData = useCallback(async () => {
-    const localFarmers = await getAllFarmersLocal();
+    const user = await getStoredAuthUser();
+    if (!user) {
+      setFarmers([]);
+      setStats({ total: 0, synced: 0, pendingSync: 0 });
+      return;
+    }
+
+    const localFarmers = await getAllFarmersLocal(user.id);
     setStats(buildStats(localFarmers));
     setFarmers(localFarmers.map((f) => f.toFormData()));
+    setSyncProgress(getAllSyncProgress());
   }, []);
 
-  React.useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
-      loadData();
-      processSyncQueue().then(() => loadData());
+  useEffect(() => {
+    loadData();
+
+    const unsubscribeNav = navigation.addListener("focus", loadData);
+
+    const unsubscribeSync = subscribeSyncEvents((event) => {
+      if (event.type === "progress") {
+        setSyncProgress((prev) => ({
+          ...prev,
+          [event.farmerId]: event.progress
+        }));
+      }
+
+      if (
+        event.type === "farmerSyncComplete" ||
+        event.type === "syncEnd" ||
+        event.type === "syncStart" ||
+        event.type === "reconcileComplete"
+      ) {
+        loadData();
+      }
     });
-    return unsubscribe;
+
+    return () => {
+      unsubscribeNav();
+      unsubscribeSync();
+    };
   }, [navigation, loadData]);
+
+  const filteredFarmers = useMemo(
+    () => filterFarmers(farmers, activeFilter),
+    [farmers, activeFilter]
+  );
 
   async function onRefresh() {
     setRefreshing(true);
     await processSyncQueue();
     await loadData();
     setRefreshing(false);
+  }
+
+  function handleFarmerPress(farmer) {
+    navigation.navigate("FarmerDetail", { farmerId: farmer.id });
   }
 
   return (
@@ -82,14 +153,29 @@ export default function FarmerDashboardScreen({ navigation }) {
       </View>
 
       <View style={styles.statsRow}>
-        <StatTile label="Total uploaded" value={stats.total} />
-        <StatTile label="Entered today" value={stats.today} />
-        <StatTile label="Pending sync" value={stats.pendingSync} />
+        <StatTile
+          label={FILTERS.all.label}
+          value={stats.total}
+          active={activeFilter === "all"}
+          onPress={() => setActiveFilter("all")}
+        />
+        <StatTile
+          label={FILTERS.synced.label}
+          value={stats.synced}
+          active={activeFilter === "synced"}
+          onPress={() => setActiveFilter("synced")}
+        />
+        <StatTile
+          label={FILTERS.pending.label}
+          value={stats.pendingSync}
+          active={activeFilter === "pending"}
+          onPress={() => setActiveFilter("pending")}
+        />
       </View>
 
       <FlatList
         style={styles.list}
-        data={farmers}
+        data={filteredFarmers}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -101,24 +187,31 @@ export default function FarmerDashboardScreen({ navigation }) {
           />
         }
         ListHeaderComponent={
-          farmers.length > 0 ? (
-            <Text style={styles.listHeading}>All farmers</Text>
+          filteredFarmers.length > 0 ? (
+            <Text style={styles.listHeading}>
+              {FILTERS[activeFilter].heading}
+            </Text>
           ) : null
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No farmers yet</Text>
+            <Text style={styles.emptyTitle}>
+              {activeFilter === "all"
+                ? "No farmers yet"
+                : `No ${FILTERS[activeFilter].heading.toLowerCase()}`}
+            </Text>
             <Text style={styles.emptyText}>
-              Tap + to onboard your first farmer.
+              {activeFilter === "all"
+                ? "Tap + to onboard your first farmer."
+                : "Try another filter or pull to refresh."}
             </Text>
           </View>
         }
         renderItem={({ item }) => (
           <FarmerCard
             farmer={item}
-            onPress={() =>
-              navigation.navigate("EditFarmer", { farmerId: item.id })
-            }
+            syncProgress={syncProgress[item.id] ?? 0}
+            onPress={() => handleFarmerPress(item)}
           />
         )}
       />
@@ -140,22 +233,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
     flex: 1
-  },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  backText: {
-    fontSize: 22,
-    color: colors.brunswick,
-    fontFamily: fonts.medium,
-    marginTop: -2
   },
   headerTitle: {
     fontSize: 22,
@@ -195,11 +272,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     alignItems: "center"
   },
+  statTileActive: {
+    backgroundColor: colors.chalk,
+    borderColor: colors.brunswick
+  },
   statValue: {
     fontSize: 22,
     fontFamily: fonts.bold,
     color: colors.brunswick,
     marginBottom: 2
+  },
+  statValueActive: {
+    color: colors.brunswick
   },
   statLabel: {
     fontSize: 10,
@@ -207,6 +291,9 @@ const styles = StyleSheet.create({
     color: colors.smoke,
     textAlign: "center",
     lineHeight: 13
+  },
+  statLabelActive: {
+    color: colors.brunswick
   },
   list: {
     flex: 1

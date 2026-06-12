@@ -62,7 +62,12 @@ function getConsentDisplayName(form) {
   return fileName ? decodeURIComponent(fileName) : "Consent file";
 }
 
-function ToggleRow({ label, value, onChange }) {
+function ToggleRow({
+  label,
+  value,
+  onChange,
+  pressedStyle = styles.surfacePressed
+}) {
   return (
     <View style={styles.toggleSection}>
       <Text style={styles.section}>{label}</Text>
@@ -71,7 +76,7 @@ function ToggleRow({ label, value, onChange }) {
           style={({ pressed }) => [
             styles.toggleButton,
             value && styles.activeToggle,
-            pressed && !value && styles.surfacePressed
+            pressed && !value && pressedStyle
           ]}
           onPress={() => onChange(true)}
         >
@@ -83,7 +88,7 @@ function ToggleRow({ label, value, onChange }) {
           style={({ pressed }) => [
             styles.toggleButton,
             !value && styles.activeToggle,
-            pressed && value && styles.surfacePressed
+            pressed && value && pressedStyle
           ]}
           onPress={() => onChange(false)}
         >
@@ -102,7 +107,8 @@ export default function FarmerForm({
   initialData,
   onSubmit,
   submitLabel = "Save Farmer",
-  loading = false
+  loading = false,
+  useChalkHighlight = true
 }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initialData });
   const [locationLoading, setLocationLoading] = useState(false);
@@ -115,6 +121,9 @@ export default function FarmerForm({
   const [harvestDate, setHarvestDate] = useState(new Date());
   const [showSowingPicker, setShowSowingPicker] = useState(false);
   const [showHarvestPicker, setShowHarvestPicker] = useState(false);
+  const pressedStyle = useChalkHighlight
+    ? styles.surfacePressed
+    : styles.surfacePressedNeutral;
 
   useEffect(() => {
     if (mode === "edit" && initialData) {
@@ -301,7 +310,7 @@ export default function FarmerForm({
           style={({ pressed }) => [
             styles.secondaryBtn,
             styles.locationBtnLeft,
-            pressed && styles.surfacePressed
+            pressed && pressedStyle
           ]}
           onPress={captureLocation}
           disabled={locationLoading}
@@ -313,7 +322,7 @@ export default function FarmerForm({
         <Pressable
           style={({ pressed }) => [
             styles.secondaryBtn,
-            pressed && styles.surfacePressed
+            pressed && pressedStyle
           ]}
           onPress={openMapPicker}
         >
@@ -381,7 +390,7 @@ export default function FarmerForm({
       <Pressable
         style={({ pressed }) => [
           styles.dateButton,
-          pressed && styles.surfacePressed
+          pressed && pressedStyle
         ]}
         onPress={() => setShowSowingPicker(true)}
       >
@@ -403,7 +412,7 @@ export default function FarmerForm({
       <Pressable
         style={({ pressed }) => [
           styles.dateButton,
-          pressed && styles.surfacePressed
+          pressed && pressedStyle
         ]}
         onPress={() => setShowHarvestPicker(true)}
       >
@@ -443,6 +452,7 @@ export default function FarmerForm({
       <ToggleRow
         label="Farmer Interested in Biochar *"
         value={form.interested_in_biochar}
+        pressedStyle={pressedStyle}
         onChange={(val) =>
           setForm((prev) => ({ ...prev, interested_in_biochar: val }))
         }
@@ -451,6 +461,7 @@ export default function FarmerForm({
       <ToggleRow
         label="Prior Biochar Experience *"
         value={form.prior_biochar_exp}
+        pressedStyle={pressedStyle}
         onChange={(val) =>
           setForm((prev) => ({
             ...prev,
@@ -503,7 +514,7 @@ export default function FarmerForm({
         <Pressable
           style={({ pressed }) => [
             styles.uploadCard,
-            pressed && styles.surfacePressed
+            pressed && pressedStyle
           ]}
           onPress={showConsentOptions}
         >
@@ -585,6 +596,9 @@ const styles = StyleSheet.create({
   },
   surfacePressed: {
     backgroundColor: colors.chalk
+  },
+  surfacePressedNeutral: {
+    backgroundColor: colors.overlay
   },
   secondaryBtnText: {
     fontFamily: fonts.medium,

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { View, Alert, ActivityIndicator } from "react-native";
-import { supabase } from "../services/supabase";
+import { getStoredAuthUser } from "../services/auth";
 import FarmerForm from "../components/FarmerForm";
 import { ScreenShell } from "../components/ScreenHeader";
 import { getFarmerByIdLocal, saveFarmerLocal } from "../services/farmerService";
-import { processSyncQueue } from "../services/syncService";
+import { isFarmerSyncing, processSyncQueue } from "../services/syncService";
 import { colors } from "../constants/theme";
 
 export default function EditFarmerScreen({ route, navigation }) {
@@ -20,6 +20,16 @@ export default function EditFarmerScreen({ route, navigation }) {
   async function loadFarmer() {
     try {
       const farmer = await getFarmerByIdLocal(farmerId);
+
+      if (farmer.syncStatus === "syncing") {
+        Alert.alert(
+          "Sync in progress",
+          "This farmer is currently syncing. You can edit after sync completes.",
+          [{ text: "OK", onPress: () => navigation.goBack() }]
+        );
+        return;
+      }
+
       setInitialData(farmer.toFormData());
     } catch (err) {
       Alert.alert("Error", err.message, [
@@ -34,9 +44,15 @@ export default function EditFarmerScreen({ route, navigation }) {
     try {
       setLoading(true);
 
-      const {
-        data: { user }
-      } = await supabase.auth.getUser();
+      if (await isFarmerSyncing(farmerId)) {
+        Alert.alert(
+          "Sync in progress",
+          "This farmer is currently syncing. Try again after sync completes."
+        );
+        return;
+      }
+
+      const user = await getStoredAuthUser();
 
       if (!user) {
         Alert.alert("Error", "You must be logged in.");
@@ -77,6 +93,7 @@ export default function EditFarmerScreen({ route, navigation }) {
         onSubmit={handleSubmit}
         submitLabel="Update Farmer"
         loading={loading}
+        useChalkHighlight={false}
       />
     </ScreenShell>
   );

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Alert } from "react-native";
-import { supabase } from "../services/supabase";
+import { getStoredAuthUser } from "../services/auth";
 import FarmerForm from "../components/FarmerForm";
 import { ScreenShell } from "../components/ScreenHeader";
 import { saveFarmerLocal } from "../services/farmerService";
@@ -13,9 +13,7 @@ export default function AddFarmerScreen({ navigation }) {
     try {
       setLoading(true);
 
-      const {
-        data: { user }
-      } = await supabase.auth.getUser();
+      const user = await getStoredAuthUser();
 
       if (!user) {
         Alert.alert("Error", "You must be logged in.");

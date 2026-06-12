@@ -1,8 +1,16 @@
+import NetInfo from "@react-native-community/netinfo";
 import * as Location from "expo-location";
 import { getMapboxToken, mapboxReverseGeocode } from "./mapbox";
 
+async function isOffline() {
+  const net = await NetInfo.fetch();
+  return !net.isConnected || net.isInternetReachable === false;
+}
+
 export async function reverseGeocodeAddress(latitude, longitude) {
-  if (getMapboxToken()) {
+  const offline = await isOffline();
+
+  if (!offline && getMapboxToken()) {
     try {
       return await mapboxReverseGeocode(latitude, longitude);
     } catch {
@@ -10,43 +18,68 @@ export async function reverseGeocodeAddress(latitude, longitude) {
     }
   }
 
-  try {
-    const results = await Location.reverseGeocodeAsync({
-      latitude,
-      longitude
-    });
+  if (!offline) {
+    try {
+      const results = await Location.reverseGeocodeAsync({
+        latitude,
+        longitude
+      });
 
-    if (!results?.length) {
-      return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      if (results?.length) {
+        const place = results[0];
+        const parts = [
+          place.name,
+          place.street,
+          place.district || place.subregion,
+          place.city || place.region,
+          place.postalCode,
+          place.country
+        ].filter(Boolean);
+
+        if (parts.length) {
+          return parts.join(", ");
+        }
+      }
+    } catch {
+      // fall through to coordinates
     }
-
-    const place = results[0];
-    const parts = [
-      place.name,
-      place.street,
-      place.district || place.subregion,
-      place.city || place.region,
-      place.postalCode,
-      place.country
-    ].filter(Boolean);
-
-    return parts.join(", ") || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-  } catch {
-    return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
   }
+
+  return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 }
 
 export async function getCurrentFarmLocation() {
-  const { status } =
-    await Location.requestForegroundPermissionsAsync();
+  const { status } = await Location.requestForegroundPermissionsAsync();
 
   if (status !== "granted") {
-    throw new Error("Location permission is required to onboard farmers.");
+    throw new Error(
+      "Location permission is required. Open Settings and allow location for KC."
+    );
   }
 
-  const position = await Location.getCurrentPositionAsync({
-    accuracy: Location.Accuracy.High
-  });
+  const servicesEnabled = await Location.hasServicesEnabledAsync();
+  if (!servicesEnabled) {
+    throw new Error(
+      "GPS is turned off. Enable Location in your phone settings, then try again."
+    );
+  }
+
+  let position = null;
+
+  try {
+    position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.BestForNavigation,
+      mayShowUserSettingsDialog: true
+    });
+  } catch {
+    position = await Location.getLastKnownPositionAsync();
+  }
+
+  if (!position) {
+    throw new Error(
+      "Could not get a GPS fix. GPS works offline but needs a clear view of the sky — try stepping outside and waiting a few seconds."
+    );
+  }
 
   const { latitude, longitude } = position.coords;
   const address = await reverseGeocodeAddress(latitude, longitude);
@@ -64,14 +97,24 @@ export async function getInitialMapCoordinate(existingLat, existingLng) {
 
   try {
     const { status } = await Location.getForegroundPermissionsAsync();
-    if (status === "granted") {
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced
-      });
-      return {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude
-      };
+    if (status === "granted" && (await Location.hasServicesEnabledAsync())) {
+      let position = null;
+
+      try {
+        position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          mayShowUserSettingsDialog: false
+        });
+      } catch {
+        position = await Location.getLastKnownPositionAsync();
+      }
+
+      if (position) {
+        return {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        };
+      }
     }
   } catch {
     // fall through to default

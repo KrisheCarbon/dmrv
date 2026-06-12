@@ -2,10 +2,17 @@ import { Q } from "@nozbe/watermelondb";
 import { database } from "../database";
 import { calculateEstimatedBiomass } from "../utils/biomass";
 
-export async function getAllFarmersLocal() {
+function userScopeQuery(userId) {
+  return Q.or(
+    Q.where("created_by", userId),
+    Q.where("assigned_to", userId)
+  );
+}
+
+export async function getAllFarmersLocal(userId) {
   return database
     .get("farmers")
-    .query(Q.sortBy("created_at", Q.desc))
+    .query(userScopeQuery(userId), Q.sortBy("created_at", Q.desc))
     .fetch();
 }
 
@@ -46,7 +53,6 @@ export async function saveFarmerLocal(form, userId, existingId = null) {
         record.syncError = null;
         record.updatedAt = now;
       });
-
     } else {
       const farmer = await database.get("farmers").create((record) => {
         record.farmerName = form.farmer_name.trim();
@@ -113,11 +119,12 @@ async function enqueueSync(entityLocalId, operation) {
   });
 }
 
-export async function getPendingSyncCount() {
-  const pendingFarmers = await database
+export async function getPendingSyncCount(userId) {
+  return database
     .get("farmers")
-    .query(Q.where("sync_status", "pending"))
+    .query(
+      userScopeQuery(userId),
+      Q.where("sync_status", "pending")
+    )
     .fetchCount();
-
-  return pendingFarmers;
 }

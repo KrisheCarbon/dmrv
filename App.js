@@ -20,6 +20,7 @@ import HomeScreen from "./screens/HomeScreen";
 import FarmerDashboardScreen from "./screens/FarmerDashboardScreen";
 import AddFarmerScreen from "./screens/AddFarmerScreen";
 import EditFarmerScreen from "./screens/EditFarmerScreen";
+import FarmerDetailScreen from "./screens/FarmerDetailScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -32,6 +33,7 @@ function MainStack() {
         component={FarmerDashboardScreen}
       />
       <Stack.Screen name="AddFarmer" component={AddFarmerScreen} />
+      <Stack.Screen name="FarmerDetail" component={FarmerDetailScreen} />
       <Stack.Screen name="EditFarmer" component={EditFarmerScreen} />
     </Stack.Navigator>
   );

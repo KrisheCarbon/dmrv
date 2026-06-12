@@ -49,6 +49,14 @@
           "photosPermission": "DMRV needs photo access to upload farmer consent documents.",
           "cameraPermission": "DMRV needs camera access to photograph consent forms."
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "DMRV needs access to save consent photos to your gallery.",
+          "savePhotosPermission": "DMRV saves consent photos to your device gallery.",
+          "isAccessMediaLocationEnabled": false
+        }
       ]
     ],
     "owner": "shanmukh-krishe",
