@@ -1,0 +1,18 @@
+name: Render backend keep-alive
+
+on:
+  schedule:
+    # Every 5 minutes — prevents Render free tier idle sleep (~15 min)
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health
+        run: |
+          url="https://krishecarbon-backend.onrender.com/health"
+          echo "Pinging $url"
+          curl -fsS --max-time 60 "$url"
+          echo " OK"
