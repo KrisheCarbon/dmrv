@@ -1,0 +1,87 @@
+{
+  "expo": {
+    "name": "KC",
+    "slug": "dmrv-app",
+    "scheme": "dmrv-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.dmrvapp",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "DMRV needs Bluetooth to connect to kiln temperature sensors.",
+        "NSBluetoothPeripheralUsageDescription": "DMRV needs Bluetooth to download encrypted batch data from kiln sensors."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "edgeToEdgeEnabled": true,
+      "usesCleartextTraffic": true,
+      "package": "com.anonymous.dmrvapp",
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e9a771cb-5212-4ec4-b4dc-7ee75d62a623"
+      }
+    },
+    "plugins": [
+      "expo-dev-client",
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "neverForLocation": true
+        }
+      ],
+      "expo-sqlite",
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "DMRV needs your location to capture farm GPS coordinates and address."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DMRV needs photo access to upload farmer consent documents.",
+          "cameraPermission": "DMRV needs camera access to photograph consent forms."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "DMRV needs access to save consent photos to your gallery.",
+          "savePhotosPermission": "DMRV saves consent photos to your device gallery.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ],
+    "owner": "shanmukh-krishe",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/e9a771cb-5212-4ec4-b4dc-7ee75d62a623"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "krishecarbon",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "Web",
+    "Mobile",
+    "Backend",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "npm run dev --workspace=@krishecarbon/web",
+    "dev:mobile": "npm run start --workspace=@krishecarbon/mobile",
+    "dev:backend": "npm run start:dev --workspace=@krishecarbon/backend",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "docker:backend:build": "docker build -f Backend/Dockerfile -t krishecarbon-backend .",
+    "docker:backend:up": "docker compose -f Backend/docker-compose.yml up --build",
+    "docker:backend:down": "docker compose -f Backend/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@11.6.0"
+}
