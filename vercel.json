@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build --workspace=@krishecarbon/shared && npm run build --workspace=@krishecarbon/web",
+  "builds": [
+    {
+      "src": "Web/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "Web/$1" }
+  ]
+}
