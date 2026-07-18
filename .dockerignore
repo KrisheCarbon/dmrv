@@ -1,0 +1,33 @@
+# Dependencies and build artifacts (rebuilt inside the image)
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+**/.turbo
+*.tsbuildinfo
+
+# Other apps in the monorepo (not needed for the backend image)
+Web
+Mobile
+
+# Git and IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Environment and secrets (inject at runtime)
+.env
+.env.*
+!.env.example
+
+# Logs and OS noise
+*.log
+npm-debug.log*
+.DS_Store
+
+# Mobile / Expo build outputs
+.expo
+Mobile/android/app/build
+Mobile/ios/build

@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# Expo / React Native
+.expo/
+Mobile/android/app/build/
+Mobile/ios/build/
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+
+# NestJS
+Backend/dist/
+
+# Legacy hardware prototypes (separate git repos)
+Hardware/

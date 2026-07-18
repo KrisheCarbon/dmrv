@@ -1,0 +1,58 @@
+@import "tailwindcss";
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --brand-green: #8CC63E;
+  --brand-grey: #797979;
+  --brand-dark: #1A3C2A;
+  --brand-dark-hover: #25632D;
+  --brand-cream: #fffdf8;
+  --brand-surface: #f7f3ea;
+  --brand-green-soft: #fbfff5;
+
+  --font-satoshi: "Satoshi";
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand-green: var(--brand-green);
+  --color-brand-grey: var(--brand-grey);
+  --color-brand-dark: var(--brand-dark);
+  --color-brand-dark-hover: var(--brand-dark-hover);
+  --color-brand-cream: var(--brand-cream);
+  --color-brand-surface: var(--brand-surface);
+  --color-brand-green-soft: var(--brand-green-soft);
+  --font-sans: var(--font-satoshi), "Satoshi";
+  --font-mono: var(--font-satoshi), "Satoshi";
+}
+
+body { font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+
+@keyframes mixing-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.biochar-right-drawer {
+  animation: mixing-drawer-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html { font-size: clamp(14px, 1.1vw + 10px, 16px); }
+
+/* Simple utility classes for Satoshi weights/styles */
+.Snormal { font-family: var(--font-satoshi-regular), var(--font-satoshi), "Satoshi"; font-weight: 400; font-style: normal; }
+.Smedium { font-family: var(--font-satoshi-medium), var(--font-satoshi), "Satoshi"; font-weight: 500; font-style: normal; }
+.Sbold { font-family: var(--font-satoshi-bold), var(--font-satoshi), "Satoshi"; font-weight: 700; font-style: normal; }
+.Sitalic { font-family: var(--font-satoshi-italic), var(--font-satoshi), "Satoshi"; font-weight: 400; font-style: italic; }
+
+/* Ensure native form controls inherit Satoshi */
+input, select, textarea, button {
+  font: inherit;
+  font-family: inherit;
+}
+
