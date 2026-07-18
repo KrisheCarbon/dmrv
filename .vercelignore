@@ -1,0 +1,14 @@
+node_modules
+.next
+.turbo
+Mobile
+Hardware
+Backend/dist
+Backend/node_modules
+Web/.next
+Web/node_modules
+.git
+.expo
+*.tsbuildinfo
+Web/tsconfig.tsbuildinfo
+Backend/tsconfig.tsbuildinfo

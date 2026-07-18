@@ -19,7 +19,7 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://YOUR-BACKEND.onrender.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://glowworm-apostle-unfixed.ngrok-free.dev"
       }
     },
     "production": {
