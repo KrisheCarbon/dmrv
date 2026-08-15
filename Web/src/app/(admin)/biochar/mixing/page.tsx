@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { MixingEntryReviewStatus, MixingPyrolysisLinkRecord } from "@krishecarbon/shared";
+import {
+  MIXING_ENTRY_REVIEW_STATUS_VALUES,
+  mixingEntryReviewStatusLabel,
+  type MixingEntryReviewStatus,
+  type MixingPyrolysisLinkRecord,
+} from "@krishecarbon/shared";
 import DataTable from "@/components/table/DataTable";
+import ListToolbar from "@/components/table/ListToolbar";
+import { useSearchFilterChips } from "@/hooks/useSearchFilterChips";
+import { hasActiveListFilters, matchesAllSearchTerms } from "@/lib/listFilters";
 import StatusBadge from "../production/StatusBadge";
 import MixingEntryReviewPanel from "./MixingEntryReviewPanel";
 import BiocharRightDrawer, { BIOCHAR_DRAWER_OFFSET_CLASS } from "../BiocharRightDrawer";
@@ -29,6 +37,15 @@ export default function MixingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const {
+    searchDraft,
+    setSearchDraft,
+    searchFilters,
+    addSearchFilter,
+    removeSearchFilter,
+    clearSearchFilters,
+  } = useSearchFilterChips();
+  const [statusFilter, setStatusFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +78,30 @@ export default function MixingPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const batchLabels = row.pyrolysis_links
+          .map((link) => formatLinkedBatchLabel(link))
+          .join(" ");
+        const matchesStatus = !statusFilter || row.status_raw === statusFilter;
+        const matchesQuery = matchesAllSearchTerms(
+          searchFilters,
+          row.time,
+          row.farm_name,
+          row.material,
+          row.ratio,
+          row.operator_name,
+          row.status,
+          batchLabels,
+        );
+        return matchesStatus && matchesQuery;
+      }),
+    [rows, searchFilters, statusFilter],
+  );
+
+  const filtersActive = hasActiveListFilters(searchFilters, statusFilter);
 
   function handleEntrySubmitted(entry: MixingEntryDetail) {
     const reviewStatus = resolveReviewStatus(entry);
@@ -121,8 +162,38 @@ export default function MixingPage() {
         </div>
       ) : null}
 
+      <ListToolbar
+        searchDraft={searchDraft}
+        onSearchDraftChange={setSearchDraft}
+        searchFilters={searchFilters}
+        onAddSearchFilter={addSearchFilter}
+        onRemoveSearchFilter={removeSearchFilter}
+        onClearSearchFilters={clearSearchFilters}
+        searchPlaceholder="Search farm, operator, material, batch…"
+        filteredCount={filteredRows.length}
+        totalCount={rows.length}
+        filters={[
+          {
+            id: "review-status",
+            label: "Review status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: "", label: "All statuses" },
+              ...MIXING_ENTRY_REVIEW_STATUS_VALUES.map((status) => ({
+                value: status,
+                label: mixingEntryReviewStatusLabel(status),
+              })),
+            ],
+          },
+        ]}
+      />
+
       <DataTable
         loading={loading}
+        emptyText={
+          filtersActive ? "No entries match your search or filters" : "No data found"
+        }
         selectedRowId={selectedId}
         onRowClick={(row) => setSelectedId(String(row.id))}
         columns={[
@@ -162,7 +233,7 @@ export default function MixingPage() {
             ),
           },
         ]}
-        rows={rows}
+        rows={filteredRows}
         actions={(row) => (
           <button
             type="button"

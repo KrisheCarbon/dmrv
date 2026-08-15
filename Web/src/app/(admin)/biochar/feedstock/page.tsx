@@ -1,21 +1,45 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
+import ListToolbar from "@/components/table/ListToolbar";
+import { useSearchFilterChips } from "@/hooks/useSearchFilterChips";
+import { hasActiveListFilters, matchesAllSearchTerms } from "@/lib/listFilters";
 import { listFeedstocks } from "./actions";
 import {
   formatLabStatus,
+  LAB_STATUS_OPTIONS,
   producerLabel,
   resolveFeedstockProducer,
 } from "./feedstockLib";
-import type { FeedstockDetail, FeedstockTableRow } from "@/types";
+import type { FeedstockDetail, FeedstockLabStatus } from "@/types";
+
+type FeedstockListRow = {
+  id: string;
+  biomass_type: string;
+  producer: string;
+  producer_id: string;
+  lab_status: string;
+  lab_status_raw: FeedstockLabStatus;
+  bulk_density: string;
+  carbon_content: string;
+};
 
 export default function FeedstockPage() {
-  const [rows, setRows] = useState<FeedstockTableRow[]>([]);
+  const [rows, setRows] = useState<FeedstockListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const {
+    searchDraft,
+    setSearchDraft,
+    searchFilters,
+    addSearchFilter,
+    removeSearchFilter,
+    clearSearchFilters,
+  } = useSearchFilterChips();
+  const [labStatusFilter, setLabStatusFilter] = useState("");
   const router = useRouter();
 
   const fetchFeedstocks = useCallback(async () => {
@@ -33,6 +57,7 @@ export default function FeedstockPage() {
             producer: producerLabel(producer),
             producer_id: producer?.id ?? feedstock.biochar_producer_id,
             lab_status: formatLabStatus(feedstock.lab_status),
+            lab_status_raw: feedstock.lab_status,
             bulk_density: `${feedstock.biochar_bulk_density_kg_m3} kg/m³`,
             carbon_content: `${feedstock.carbon_content_percent}%`,
           };
@@ -49,6 +74,26 @@ export default function FeedstockPage() {
   useEffect(() => {
     fetchFeedstocks();
   }, [fetchFeedstocks]);
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const matchesLabStatus =
+          !labStatusFilter || row.lab_status_raw === labStatusFilter;
+        const matchesQuery = matchesAllSearchTerms(
+          searchFilters,
+          row.biomass_type,
+          row.producer,
+          row.lab_status,
+          row.bulk_density,
+          row.carbon_content,
+        );
+        return matchesLabStatus && matchesQuery;
+      }),
+    [rows, searchFilters, labStatusFilter],
+  );
+
+  const filtersActive = hasActiveListFilters(searchFilters, labStatusFilter);
 
   return (
     <div className="space-y-4">
@@ -76,8 +121,38 @@ export default function FeedstockPage() {
         </div>
       ) : null}
 
+      <ListToolbar
+        searchDraft={searchDraft}
+        onSearchDraftChange={setSearchDraft}
+        searchFilters={searchFilters}
+        onAddSearchFilter={addSearchFilter}
+        onRemoveSearchFilter={removeSearchFilter}
+        onClearSearchFilters={clearSearchFilters}
+        searchPlaceholder="Search biomass type, producer, lab status…"
+        filteredCount={filteredRows.length}
+        totalCount={rows.length}
+        filters={[
+          {
+            id: "lab-status",
+            label: "Lab status",
+            value: labStatusFilter,
+            onChange: setLabStatusFilter,
+            options: [
+              { value: "", label: "All lab statuses" },
+              ...LAB_STATUS_OPTIONS.map((option) => ({
+                value: option.value,
+                label: option.label,
+              })),
+            ],
+          },
+        ]}
+      />
+
       <DataTable
         loading={loading}
+        emptyText={
+          filtersActive ? "No feedstock matches your search or filters" : "No data found"
+        }
         columns={[
           { key: "biomass_type", label: "Biomass type" },
           { key: "producer", label: "Producer" },
@@ -85,7 +160,7 @@ export default function FeedstockPage() {
           { key: "carbon_content", label: "Carbon content" },
           { key: "lab_status", label: "Lab status" },
         ]}
-        rows={rows}
+        rows={filteredRows}
         actions={(row) => (
           <button
             type="button"

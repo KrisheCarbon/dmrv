@@ -1,11 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { PyrolysisBatchStatusValue } from "@krishecarbon/shared";
+import {
+  PYROLYSIS_BATCH_STATUS_VALUES,
+  pyrolysisBatchStatusValueLabel,
+  type PyrolysisBatchStatusValue,
+} from "@krishecarbon/shared";
 import BiocharRightDrawer, { BIOCHAR_DRAWER_OFFSET_CLASS } from "../BiocharRightDrawer";
 import DataTable from "@/components/table/DataTable";
+import ListToolbar from "@/components/table/ListToolbar";
+import { useSearchFilterChips } from "@/hooks/useSearchFilterChips";
+import { hasActiveListFilters, matchesAllSearchTerms } from "@/lib/listFilters";
 import PyrolysisBatchReviewPanel from "./PyrolysisBatchReviewPanel";
 import StatusBadge from "./StatusBadge";
 import { listPyrolysisBatches } from "./actions";
@@ -27,6 +34,16 @@ export default function ProductionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const {
+    searchDraft,
+    setSearchDraft,
+    searchFilters,
+    addSearchFilter,
+    removeSearchFilter,
+    clearSearchFilters,
+  } = useSearchFilterChips();
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +77,42 @@ export default function ProductionPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const sessionStatusOptions = useMemo(() => {
+    const values = [...new Set(rows.map((row) => row.session_status).filter(Boolean))].sort();
+    return [
+      { value: "", label: "All sessions" },
+      ...values.map((value) => ({ value, label: value })),
+    ];
+  }, [rows]);
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const matchesStatus =
+          !statusFilter || row.review_status_raw === statusFilter;
+        const matchesSession =
+          !sessionFilter || row.session_status === sessionFilter;
+        const matchesQuery = matchesAllSearchTerms(
+          searchFilters,
+          row.batch_label,
+          row.kontikki_code,
+          row.producer,
+          row.operator_name,
+          row.session_status,
+          row.review_status,
+          row.yield_percent,
+        );
+        return matchesStatus && matchesSession && matchesQuery;
+      }),
+    [rows, searchFilters, statusFilter, sessionFilter],
+  );
+
+  const filtersActive = hasActiveListFilters(
+    searchFilters,
+    statusFilter,
+    sessionFilter,
+  );
 
   function handleBatchSubmitted(batch: PyrolysisBatchDetail) {
     const status = batch.batch_status?.status ?? "pending";
@@ -97,8 +150,45 @@ export default function ProductionPage() {
         </div>
       ) : null}
 
+      <ListToolbar
+        searchDraft={searchDraft}
+        onSearchDraftChange={setSearchDraft}
+        searchFilters={searchFilters}
+        onAddSearchFilter={addSearchFilter}
+        onRemoveSearchFilter={removeSearchFilter}
+        onClearSearchFilters={clearSearchFilters}
+        searchPlaceholder="Search batch, kontikki, producer, operator…"
+        filteredCount={filteredRows.length}
+        totalCount={rows.length}
+        filters={[
+          {
+            id: "review-status",
+            label: "Review status",
+            value: statusFilter,
+            onChange: setStatusFilter,
+            options: [
+              { value: "", label: "All statuses" },
+              ...PYROLYSIS_BATCH_STATUS_VALUES.map((status) => ({
+                value: status,
+                label: pyrolysisBatchStatusValueLabel(status),
+              })),
+            ],
+          },
+          {
+            id: "session-status",
+            label: "Session status",
+            value: sessionFilter,
+            onChange: setSessionFilter,
+            options: sessionStatusOptions,
+          },
+        ]}
+      />
+
       <DataTable
         loading={loading}
+        emptyText={
+          filtersActive ? "No batches match your search or filters" : "No data found"
+        }
         selectedRowId={selectedId}
         onRowClick={(row) => setSelectedId(String(row.id))}
         columns={[
@@ -136,7 +226,7 @@ export default function ProductionPage() {
           },
           { key: "yield_percent", label: "Yield" },
         ]}
-        rows={rows}
+        rows={filteredRows}
         actions={(row) => (
           <button
             type="button"
