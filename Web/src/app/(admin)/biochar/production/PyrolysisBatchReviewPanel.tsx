@@ -256,6 +256,10 @@ export default function PyrolysisBatchReviewPanel({
           onPhotoFlagChange={(photoKey, flagged) =>
             setPhotoFlags((current) => ({ ...current, [photoKey]: flagged }))
           }
+          onYieldUpdated={(updated) => {
+            setData(updated);
+            onSubmitted?.(updated);
+          }}
         />
       </div>
     </div>

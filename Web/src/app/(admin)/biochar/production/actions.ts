@@ -40,3 +40,10 @@ export async function submitPyrolysisBatchStatus(
     body: JSON.stringify(payload),
   });
 }
+
+export async function updatePyrolysisBatchYield(id: string, yieldPercent: number) {
+  return backendFetch<PyrolysisBatchDetail>(`/pyrolysis-batches/${id}/yield`, {
+    method: "PATCH",
+    body: JSON.stringify({ yield_percent: yieldPercent }),
+  });
+}

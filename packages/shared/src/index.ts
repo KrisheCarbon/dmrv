@@ -287,6 +287,7 @@ export type {
   PyrolysisBatchStatusFlag,
   PyrolysisBatchStatusRecord,
   SubmitPyrolysisBatchStatusPayload,
+  UpdatePyrolysisBatchYieldPayload,
 } from "./pyrolysisBatchStatus";
 export {
   MIXING_MATERIAL_TYPES,

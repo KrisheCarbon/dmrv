@@ -1,5 +1,8 @@
-import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
-import type { SubmitPyrolysisBatchStatusPayload } from '@krishecarbon/shared';
+import { Body, Controller, Get, Param, Patch, Put, UseGuards } from '@nestjs/common';
+import type {
+  SubmitPyrolysisBatchStatusPayload,
+  UpdatePyrolysisBatchYieldPayload,
+} from '@krishecarbon/shared';
 import { AuthUser } from '../auth/auth-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
@@ -27,5 +30,14 @@ export class PyrolysisBatchesController {
     @Body() body: SubmitPyrolysisBatchStatusPayload,
   ) {
     return this.pyrolysisBatchesService.submitBatchStatus(user, id, body);
+  }
+
+  @Patch(':id/yield')
+  updateYield(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: UpdatePyrolysisBatchYieldPayload,
+  ) {
+    return this.pyrolysisBatchesService.updateYield(user, id, body.yield_percent);
   }
 }
