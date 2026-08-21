@@ -77,6 +77,10 @@ export interface SubmitPyrolysisBatchStatusPayload {
   flags: PyrolysisBatchStatusFlag[];
 }
 
+export interface UpdatePyrolysisBatchYieldPayload {
+  yield_percent: number;
+}
+
 const PHOTO_KEY_LABELS: Record<PyrolysisBatchStatusPhotoKey, string> = {
   feedstock_photo: "Feedstock photo",
   feedstock_size_photo: "Feedstock size photo",

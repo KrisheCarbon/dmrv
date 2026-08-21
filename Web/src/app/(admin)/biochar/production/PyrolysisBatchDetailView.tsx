@@ -15,6 +15,7 @@ import type { PyrolysisBatchStatusPhotoKey } from "@krishecarbon/shared";
 import PyrolysisPhotoThumb from "./PyrolysisPhotoThumb";
 import PyrolysisBatchMixingSection from "./PyrolysisBatchMixingSection";
 import StatusBadge from "./StatusBadge";
+import YieldEditField from "./YieldEditField";
 import {
   batchPhotoUrl,
   formatDateTime,
@@ -40,6 +41,7 @@ export default function PyrolysisBatchDetailView({
   canReview = false,
   photoFlags,
   onPhotoFlagChange,
+  onYieldUpdated,
   photoLayout = "drawer",
   showMixingSection = false,
 }: {
@@ -47,6 +49,7 @@ export default function PyrolysisBatchDetailView({
   canReview?: boolean;
   photoFlags?: Record<string, boolean>;
   onPhotoFlagChange?: (photoKey: string, flagged: boolean) => void;
+  onYieldUpdated?: (batch: PyrolysisBatchDetail) => void;
   photoLayout?: "drawer" | "page";
   showMixingSection?: boolean;
 }) {
@@ -93,7 +96,12 @@ export default function PyrolysisBatchDetailView({
             </DetailRow>
           ) : null}
           <DetailRow label="Yield">
-            {data.yield_percent != null ? `${data.yield_percent}%` : "—"}
+            <YieldEditField
+              batchId={data.id}
+              yieldPercent={data.yield_percent}
+              canEdit
+              onSaved={onYieldUpdated}
+            />
           </DetailRow>
         </dl>
       </section>
@@ -172,7 +180,12 @@ export default function PyrolysisBatchDetailView({
             {section === "yield" ? (
               <dl className="mt-3">
                 <DetailRow label="Yield %">
-                  {workflow.yield_percent != null ? `${workflow.yield_percent}%` : "—"}
+                  <YieldEditField
+                    batchId={data.id}
+                    yieldPercent={workflow.yield_percent}
+                    canEdit
+                    onSaved={onYieldUpdated}
+                  />
                 </DetailRow>
                 <DetailRow label="Comment">{workflow.comment?.trim() || "—"}</DetailRow>
               </dl>

@@ -39,6 +39,19 @@ export interface PyrolysisBatchListItem {
   pyrolysis_completed: boolean;
   review_status: PyrolysisBatchStatusValue;
   reviewed_at?: string | null;
+  farm_name?: string | null;
+  feedstock_name?: string | null;
+  feedstock_id?: string | null;
+  feedstock_quantity?: number | null;
+  avg_feedstock_size_cm?: number | null;
+  sample_id?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_address?: string | null;
+  comment?: string | null;
+  reviewer_notes?: string | null;
+  review_flag_text?: string[];
+  moisture_readings?: (number | null)[];
   created_at?: string;
   updated_at?: string;
 }
@@ -62,6 +75,21 @@ const BATCH_LIST_SELECT = `
   session_id,
   yield_percent,
   pyrolysis_completed,
+  farm_name,
+  feedstock_name,
+  feedstock_id,
+  feedstock_quantity,
+  avg_feedstock_size_cm,
+  sample_id,
+  location_lat,
+  location_lng,
+  location_address,
+  comment,
+  moisture_reading_1,
+  moisture_reading_2,
+  moisture_reading_3,
+  moisture_reading_4,
+  moisture_reading_5,
   created_at,
   updated_at,
   pyrolysis_sessions!inner (
@@ -84,7 +112,13 @@ const BATCH_LIST_SELECT = `
   pyrolysis_batch_status (
     id,
     status,
-    reviewed_at
+    reviewed_at,
+    reviewer_notes,
+    pyrolysis_batch_status_flags (
+      target_type,
+      target_key,
+      notes
+    )
   )
 `;
 
@@ -244,6 +278,37 @@ export class PyrolysisBatchesService {
     return this.findById(user, batchId);
   }
 
+  async updateYield(
+    user: AuthenticatedUser,
+    batchId: string,
+    yieldPercent: number,
+  ): Promise<PyrolysisBatchDetail> {
+    this.assertPortalAccess(user);
+    await this.findById(user, batchId);
+
+    const value = typeof yieldPercent === 'number' ? yieldPercent : Number(yieldPercent);
+    if (!Number.isFinite(value)) {
+      throw new BadRequestException('Yield percent must be a number.');
+    }
+    if (value < 0 || value > 100) {
+      throw new BadRequestException('Yield percent must be between 0 and 100.');
+    }
+
+    const now = new Date().toISOString();
+    const { error } = await this.supabase
+      .from('pyrolysis_batches')
+      .update({
+        yield_percent: value,
+        yield_saved_at: now,
+        updated_at: now,
+      })
+      .eq('id', batchId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    return this.findById(user, batchId);
+  }
+
   private validateBatchStatusPayload(payload: SubmitPyrolysisBatchStatusPayload) {
     if (!payload.status) {
       throw new BadRequestException('Batch status is required.');
@@ -265,6 +330,8 @@ export class PyrolysisBatchesService {
     const kontikki = this.unwrap(row.kontikkis);
     const producer = this.unwrap(kontikki?.biochar_producer);
     const batchStatus = this.unwrap(row.pyrolysis_batch_status);
+    const flags = this.unwrapArray(batchStatus?.pyrolysis_batch_status_flags);
+    const numeric = (value: unknown) => (value != null ? Number(value) : null);
 
     return {
       id: row.id as string,
@@ -281,6 +348,23 @@ export class PyrolysisBatchesService {
       pyrolysis_completed: Boolean(row.pyrolysis_completed),
       review_status: (batchStatus?.status as PyrolysisBatchStatusValue) ?? 'pending',
       reviewed_at: (batchStatus?.reviewed_at as string) ?? null,
+      farm_name: (row.farm_name as string) ?? null,
+      feedstock_name: (row.feedstock_name as string) ?? null,
+      feedstock_id: (row.feedstock_id as string) ?? null,
+      feedstock_quantity: numeric(row.feedstock_quantity),
+      avg_feedstock_size_cm: numeric(row.avg_feedstock_size_cm),
+      sample_id: (row.sample_id as string) ?? null,
+      location_lat: numeric(row.location_lat),
+      location_lng: numeric(row.location_lng),
+      location_address: (row.location_address as string) ?? null,
+      comment: (row.comment as string) ?? null,
+      reviewer_notes: (batchStatus?.reviewer_notes as string) ?? null,
+      review_flag_text: flags.flatMap((flag) =>
+        [flag.target_type, flag.target_key, flag.notes].filter(Boolean).map(String),
+      ),
+      moisture_readings: [1, 2, 3, 4, 5].map((index) =>
+        numeric(row[`moisture_reading_${index}`]),
+      ),
       created_at: row.created_at as string | undefined,
       updated_at: row.updated_at as string | undefined,
     };
