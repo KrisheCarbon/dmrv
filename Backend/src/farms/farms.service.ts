@@ -13,6 +13,7 @@ import {
   type Farmer,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
+import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 @Injectable()
@@ -22,24 +23,23 @@ export class FarmsService {
   ) {}
 
   async findAll(user: AuthenticatedUser): Promise<Farmer[]> {
-    let query = this.supabase
-      .from('farms')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const seeAll = canAccessWebPortal(user.role);
 
-    if (!canAccessWebPortal(user.role)) {
-      query = query.or(
-        `created_by.eq.${user.id},assigned_to.eq.${user.id}`,
-      );
-    }
+    return fetchAllPages<Farmer>((from, to) => {
+      let query = this.supabase
+        .from('farms')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(from, to);
 
-    const { data, error } = await query;
+      if (!seeAll) {
+        query = query.or(
+          `created_by.eq.${user.id},assigned_to.eq.${user.id}`,
+        );
+      }
 
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    return (data ?? []) as Farmer[];
+      return query;
+    });
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<Farmer> {

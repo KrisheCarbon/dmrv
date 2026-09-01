@@ -61,8 +61,6 @@ export function stagePhotoMetadataKey(
 export type PyrolysisBatchFlatRow = {
   batch_number?: string | null;
   feedstock_quantity?: number | null;
-  farm_id?: string | null;
-  farm_name?: string | null;
   avg_feedstock_size_cm?: number | null;
   feedstock_id?: string | null;
   feedstock_name?: string | null;
@@ -138,8 +136,6 @@ export function kontikkiDataToFlatRow(data: PyrolysisKontikkiData): PyrolysisBat
   const row: PyrolysisBatchLocalRow = {
     batch_number: data.batch_number ?? null,
     feedstock_quantity: data.feedstock_quantity ?? null,
-    farm_id: data.farm_id ?? null,
-    farm_name: data.farm_name ?? null,
     avg_feedstock_size_cm: data.avg_feedstock_size_cm ?? null,
     feedstock_id: data.feedstock_id ?? null,
     feedstock_name: data.feedstock_name ?? null,
@@ -225,8 +221,6 @@ export function flatRowToKontikkiData(row: PyrolysisBatchLocalRow): PyrolysisKon
   return {
     batch_number: row.batch_number ?? undefined,
     feedstock_quantity: row.feedstock_quantity ?? null,
-    farm_id: row.farm_id ?? null,
-    farm_name: row.farm_name ?? null,
     avg_feedstock_size_cm: row.avg_feedstock_size_cm ?? null,
     feedstock_id: row.feedstock_id ?? null,
     feedstock_name: row.feedstock_name ?? null,

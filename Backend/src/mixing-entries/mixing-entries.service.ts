@@ -8,7 +8,7 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
-  canAccessWebPortal,
+  canAccessNetwork,
   canReviewMixingEntries,
   isMixingEntryPhotoKey,
   MIXING_MATERIAL_TYPES,
@@ -160,10 +160,29 @@ export class MixingEntriesService {
   async listEntries(
     user: AuthenticatedUser,
   ): Promise<MixingEntryRecord[] | MixingEntryPortalRecord[]> {
-    if (canAccessWebPortal(user.role)) {
+    if (canAccessNetwork(user.role)) {
       const { data, error } = await this.supabase
         .from('mixing_entries')
         .select(ENTRY_PORTAL_SELECT)
+        .order('started_at', { ascending: false });
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+
+      return (data ?? []).map((row) => this.mapPortalEntryRow(row));
+    }
+
+    if (user.role === 'supervisor') {
+      const allowedEntryIds = await this.getAllowedEntryIds(user);
+      if (allowedEntryIds.length === 0) {
+        return [];
+      }
+
+      const { data, error } = await this.supabase
+        .from('mixing_entries')
+        .select(ENTRY_PORTAL_SELECT)
+        .in('id', allowedEntryIds)
         .order('started_at', { ascending: false });
 
       if (error) {
@@ -192,7 +211,30 @@ export class MixingEntriesService {
     user: AuthenticatedUser,
     id: string,
   ): Promise<MixingEntryRecord | MixingEntryPortalRecord> {
-    if (canAccessWebPortal(user.role)) {
+    if (canAccessNetwork(user.role)) {
+      const { data, error } = await this.supabase
+        .from('mixing_entries')
+        .select(ENTRY_PORTAL_SELECT)
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+
+      if (!data) {
+        throw new NotFoundException('Mixing entry not found.');
+      }
+
+      return this.mapPortalEntryRow(data);
+    }
+
+    if (user.role === 'supervisor') {
+      const allowedEntryIds = await this.getAllowedEntryIds(user);
+      if (!allowedEntryIds.includes(id)) {
+        throw new NotFoundException('Mixing entry not found.');
+      }
+
       const { data, error } = await this.supabase
         .from('mixing_entries')
         .select(ENTRY_PORTAL_SELECT)
@@ -240,12 +282,23 @@ export class MixingEntriesService {
       return [];
     }
 
-    const { data, error } = await this.supabase
+    const alreadyMixedBatchIds = await this.getAlreadyMixedBatchIds();
+
+    let query = this.supabase
       .from('pyrolysis_batches')
       .select(AVAILABLE_BATCH_SELECT)
       .eq('pyrolysis_completed', true)
-      .in('kontikki_id', Array.from(allowedKontikkiIds))
-      .order('created_at', { ascending: false });
+      .in('kontikki_id', Array.from(allowedKontikkiIds));
+
+    if (alreadyMixedBatchIds.length > 0) {
+      query = query.not(
+        'id',
+        'in',
+        `(${alreadyMixedBatchIds.join(',')})`,
+      );
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       throw new BadRequestException(error.message);
@@ -257,6 +310,22 @@ export class MixingEntriesService {
         return session?.status === 'completed';
       })
       .map((row) => this.mapAvailableBatchRow(row));
+  }
+
+  /**
+   * A pyrolysis batch can only be linked to a single mixing entry. Once it has
+   * been used it must disappear from the "available batches" list for everyone.
+   */
+  private async getAlreadyMixedBatchIds(): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .from('mixing_pyrolysis_links')
+      .select('pyrolysis_batch_id');
+
+    if (error) {
+      throw new BadRequestException(error.message);
+    }
+
+    return [...new Set((data ?? []).map((row) => String(row.pyrolysis_batch_id)))];
   }
 
   async createEntry(
@@ -436,11 +505,53 @@ export class MixingEntriesService {
     return new Set(overview.kontikkis.map((row) => row.id));
   }
 
+  private async getAllowedEntryIds(user: AuthenticatedUser): Promise<string[]> {
+    const allowedKontikkiIds = await this.getAllowedKontikkiIds(user);
+    if (allowedKontikkiIds.size === 0) {
+      return [];
+    }
+
+    const { data: batches, error: batchError } = await this.supabase
+      .from('pyrolysis_batches')
+      .select('id')
+      .in('kontikki_id', Array.from(allowedKontikkiIds));
+
+    if (batchError) {
+      throw new BadRequestException(batchError.message);
+    }
+
+    const batchIds = (batches ?? []).map((row) => row.id as string);
+    if (batchIds.length === 0) {
+      return [];
+    }
+
+    const { data: links, error: linkError } = await this.supabase
+      .from('mixing_pyrolysis_links')
+      .select('mixing_entry_id')
+      .in('pyrolysis_batch_id', batchIds);
+
+    if (linkError) {
+      throw new BadRequestException(linkError.message);
+    }
+
+    return [
+      ...new Set((links ?? []).map((row) => row.mixing_entry_id as string)),
+    ];
+  }
+
   private async assertPyrolysisBatchesAllowed(
     batchIds: string[],
     allowedKontikkiIds: Set<string>,
   ) {
     const uniqueIds = [...new Set(batchIds)];
+
+    const alreadyMixedBatchIds = await this.getAlreadyMixedBatchIds();
+    const conflicting = uniqueIds.filter((id) => alreadyMixedBatchIds.includes(id));
+    if (conflicting.length > 0) {
+      throw new BadRequestException(
+        'One or more pyrolysis batches have already been mixed and cannot be reused.',
+      );
+    }
 
     const { data, error } = await this.supabase
       .from('pyrolysis_batches')

@@ -16,6 +16,7 @@ import { ClimapreneursModule } from './climapreneurs/climapreneurs.module';
 import { MixingEntriesModule } from './mixing-entries/mixing-entries.module';
 import { ApplicationEntriesModule } from './application-entries/application-entries.module';
 import { KilnBatchesModule } from './kiln-batches/kiln-batches.module';
+import { TrainingsModule } from './trainings/trainings.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { KilnBatchesModule } from './kiln-batches/kiln-batches.module';
     MixingEntriesModule,
     ApplicationEntriesModule,
     KilnBatchesModule,
+    TrainingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
