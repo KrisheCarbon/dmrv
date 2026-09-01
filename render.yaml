@@ -5,6 +5,8 @@ services:
     dockerfilePath: Backend/Dockerfile
     dockerContext: .
     plan: free
+    branch: deploy-monorepo
+    autoDeployTrigger: commit
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
