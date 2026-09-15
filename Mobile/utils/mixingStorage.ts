@@ -1,4 +1,4 @@
-import { getModuleBucket } from "./consentStorage";
+import { getModuleBucket } from "./moduleStorage";
 
 export const MIXING_BUCKET = getModuleBucket("mixing");
 

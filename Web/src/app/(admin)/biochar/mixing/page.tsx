@@ -23,6 +23,7 @@ import {
   formatMaterial,
   formatRatio,
   formatReviewStatus,
+  mixingEntrySearchIndex,
   resolveReviewStatus,
   reviewStatusTone,
   type MixingEntryDetail,
@@ -65,6 +66,7 @@ export default function MixingPage() {
           pyrolysis_links: entry.pyrolysis_links,
           status: formatReviewStatus(resolveReviewStatus(entry)),
           status_raw: resolveReviewStatus(entry),
+          search_index: mixingEntrySearchIndex(entry),
         })),
       );
     } catch (err) {
@@ -82,19 +84,10 @@ export default function MixingPage() {
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
-        const batchLabels = row.pyrolysis_links
-          .map((link) => formatLinkedBatchLabel(link))
-          .join(" ");
         const matchesStatus = !statusFilter || row.status_raw === statusFilter;
         const matchesQuery = matchesAllSearchTerms(
           searchFilters,
-          row.time,
-          row.farm_name,
-          row.material,
-          row.ratio,
-          row.operator_name,
-          row.status,
-          batchLabels,
+          row.search_index,
         );
         return matchesStatus && matchesQuery;
       }),
@@ -169,7 +162,7 @@ export default function MixingPage() {
         onAddSearchFilter={addSearchFilter}
         onRemoveSearchFilter={removeSearchFilter}
         onClearSearchFilters={clearSearchFilters}
-        searchPlaceholder="Search farm, operator, material, batch…"
+        searchPlaceholder="Search farm, location, comment, operator, batch, reviewer notes…"
         filteredCount={filteredRows.length}
         totalCount={rows.length}
         filters={[

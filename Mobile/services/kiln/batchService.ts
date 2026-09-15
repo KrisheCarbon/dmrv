@@ -1,7 +1,7 @@
-import { Q } from '@nozbe/watermelondb';
-import { database } from '../../database';
-import EncryptedBatch from '../../database/models/EncryptedBatch';
-import { parseKilnBatchBytes } from '../../utils/kilnBatch';
+import { getDb } from "../../database/db";
+import { buildInsert, generateId } from "../../database/sqlHelpers";
+import { encryptedBatchToRow, rowToEncryptedBatch, type EncryptedBatch } from "../../database/types";
+import { parseKilnBatchBytes } from "../../utils/kilnBatch";
 
 export async function queueKilnBatch(
   kilnId: string,
@@ -11,79 +11,90 @@ export async function queueKilnBatch(
 ): Promise<EncryptedBatch | null> {
   parseKilnBatchBytes(new TextEncoder().encode(batchJson));
 
-  const existing = await database
-    .get<EncryptedBatch>('encrypted_batches')
-    .query(Q.where('source_filename', sourceFilename))
-    .fetch();
+  const db = await getDb();
+  const existingRow = await db.getFirstAsync<any>(
+    "SELECT * FROM encrypted_batches WHERE source_filename = ?",
+    [sourceFilename],
+  );
 
-  if (existing.length > 0) {
-    const record = existing[0];
+  if (existingRow) {
+    const existing = rowToEncryptedBatch(existingRow);
 
-    if (record.isSynced) {
+    if (existing.isSynced) {
       console.info(
-        `[Kiln] "${sourceFilename}" already synced (id=${record.id}). Skipping.`,
+        `[Kiln] "${sourceFilename}" already synced (id=${existing.id}). Skipping.`,
       );
       return null;
     }
 
-    await database.write(async () => {
-      await record.update((r) => {
-        r.kilnId = kilnId;
-        r.kontikkiId = kontikkiId ?? '';
-        r.payloadBase64 = batchJson;
-        r.isSynced = false;
-      });
-    });
-    return record;
+    await db.runAsync(
+      "UPDATE encrypted_batches SET kiln_id = ?, kontikki_id = ?, payload_base64 = ?, is_synced = 0 WHERE id = ?",
+      [kilnId, kontikkiId ?? "", batchJson, existing.id],
+    );
+
+    return {
+      ...existing,
+      kilnId,
+      kontikkiId: kontikkiId ?? "",
+      payloadBase64: batchJson,
+      isSynced: false,
+    };
   }
 
-  return database.write(async () => {
-    return database.get<EncryptedBatch>('encrypted_batches').create((record) => {
-      record.kilnId = kilnId;
-      record.kontikkiId = kontikkiId ?? '';
-      record.sourceFilename = sourceFilename;
-      record.payloadBase64 = batchJson;
-      record.isSynced = false;
-    });
+  const id = generateId();
+  const row = encryptedBatchToRow({
+    kilnId,
+    kontikkiId: kontikkiId ?? "",
+    sourceFilename,
+    payloadBase64: batchJson,
+    isSynced: false,
   });
+
+  const { sql, args } = buildInsert("encrypted_batches", { id, ...row });
+  await db.runAsync(sql, args);
+
+  const created = await db.getFirstAsync<any>("SELECT * FROM encrypted_batches WHERE id = ?", [id]);
+  return rowToEncryptedBatch(created);
 }
 
 export async function deleteEncryptedBatch(id: string): Promise<void> {
-  await database.write(async () => {
-    const record = await database.get<EncryptedBatch>('encrypted_batches').find(id);
-    await record.destroyPermanently();
-  });
+  const db = await getDb();
+  await db.runAsync("DELETE FROM encrypted_batches WHERE id = ?", [id]);
 }
 
 export async function deleteBatchesByFilenames(filenames: string[]): Promise<number> {
   if (filenames.length === 0) return 0;
 
-  const records = await database
-    .get<EncryptedBatch>('encrypted_batches')
-    .query(Q.where('source_filename', Q.oneOf(filenames)))
-    .fetch();
+  const db = await getDb();
+  const placeholders = filenames.map(() => "?").join(", ");
+  const rows = await db.getAllAsync<any>(
+    `SELECT id FROM encrypted_batches WHERE source_filename IN (${placeholders})`,
+    filenames,
+  );
 
-  if (records.length === 0) return 0;
+  if (rows.length === 0) return 0;
 
-  await database.write(async () => {
-    for (const record of records) {
-      await record.destroyPermanently();
+  await db.withTransactionAsync(async () => {
+    for (const row of rows) {
+      await db.runAsync("DELETE FROM encrypted_batches WHERE id = ?", [row.id]);
     }
   });
 
-  return records.length;
+  return rows.length;
 }
 
 export async function fetchAllEncryptedBatches(): Promise<EncryptedBatch[]> {
-  return database
-    .get<EncryptedBatch>('encrypted_batches')
-    .query(Q.sortBy('created_at', Q.desc))
-    .fetch();
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM encrypted_batches ORDER BY created_at DESC",
+  );
+  return rows.map(rowToEncryptedBatch);
 }
 
 export async function fetchUnsyncedEncryptedBatches(): Promise<EncryptedBatch[]> {
-  return database
-    .get<EncryptedBatch>('encrypted_batches')
-    .query(Q.where('is_synced', false), Q.sortBy('created_at', Q.asc))
-    .fetch();
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM encrypted_batches WHERE is_synced = 0 ORDER BY created_at ASC",
+  );
+  return rows.map(rowToEncryptedBatch);
 }

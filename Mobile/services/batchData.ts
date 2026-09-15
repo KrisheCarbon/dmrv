@@ -16,11 +16,24 @@ import {
   type PyrolysisBatchRecord,
   type PyrolysisKontikkiData,
 } from "@krishecarbon/shared";
-import { database } from "../database";
-import PyrolysisBatch from "../database/models/PyrolysisBatch";
+import { getDb } from "../database/db";
+import { buildUpdate } from "../database/sqlHelpers";
+import { pyrolysisBatchToRow, rowToPyrolysisBatch, type PyrolysisBatch } from "../database/types";
 
-function batchesCollection() {
-  return database.get<PyrolysisBatch>("pyrolysis_batches");
+function batchesTable() {
+  return "pyrolysis_batches";
+}
+
+async function findBatchOrThrow(batchId: string): Promise<PyrolysisBatch> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<any>(
+    `SELECT * FROM ${batchesTable()} WHERE id = ?`,
+    [batchId],
+  );
+  if (!row) {
+    throw new Error(`Pyrolysis batch with id ${batchId} not found`);
+  }
+  return rowToPyrolysisBatch(row);
 }
 
 function parseMetadata(json: string | null | undefined): FieldPhotoMetadata | null {
@@ -41,8 +54,6 @@ function batchToLocalRow(batch: PyrolysisBatch): PyrolysisBatchLocalRow {
   const row: PyrolysisBatchLocalRow = {
     batch_number: batch.batchNumber,
     feedstock_quantity: batch.feedstockQuantity,
-    farm_id: batch.farmId,
-    farm_name: batch.farmName,
     avg_feedstock_size_cm: batch.avgFeedstockSizeCm,
     feedstock_id: batch.feedstockId,
     feedstock_name: batch.feedstockName,
@@ -146,34 +157,35 @@ function batchToLocalRow(batch: PyrolysisBatch): PyrolysisBatchLocalRow {
   return row;
 }
 
-function applyLocalRowToBatch(record: PyrolysisBatch, row: PyrolysisBatchLocalRow): void {
-  record.batchNumber = row.batch_number ?? null;
-  record.feedstockQuantity = row.feedstock_quantity ?? null;
-  record.farmId = row.farm_id ?? null;
-  record.farmName = row.farm_name ?? null;
-  record.avgFeedstockSizeCm = row.avg_feedstock_size_cm ?? null;
-  record.feedstockId = row.feedstock_id ?? null;
-  record.feedstockName = row.feedstock_name ?? null;
-  record.locationLat = row.location_lat ?? null;
-  record.locationLng = row.location_lng ?? null;
-  record.locationAddress = row.location_address ?? null;
-  record.feedstockPhotoLocalUri = row.feedstock_photo_local_uri ?? null;
-  record.feedstockPhotoUrl = row.feedstock_photo_url ?? null;
-  record.feedstockSizePhotoLocalUri = row.feedstock_size_photo_local_uri ?? null;
-  record.feedstockSizePhotoUrl = row.feedstock_size_photo_url ?? null;
-  record.feedstockPhotoMetadataJson = stringifyMetadata(row.feedstock_photo_metadata);
-  record.feedstockSizePhotoMetadataJson = stringifyMetadata(row.feedstock_size_photo_metadata);
-  record.yieldPercent = row.yield_percent ?? null;
-  record.comment = row.comment ?? null;
-  record.sampleId = row.sample_id ?? null;
-  record.samplePhotoLocalUri = row.sample_photo_local_uri ?? null;
-  record.samplePhotoUrl = row.sample_photo_url ?? null;
-  record.samplePhotoMetadataJson = stringifyMetadata(row.sample_photo_metadata);
-  record.sampleSavedAt = row.sample_saved_at ?? null;
-  record.infoSavedAt = row.info_saved_at ?? null;
-  record.moistureSavedAt = row.moisture_saved_at ?? null;
-  record.pyrolysisSavedAt = row.pyrolysis_saved_at ?? null;
-  record.yieldSavedAt = row.yield_saved_at ?? null;
+/** Returns the subset of PyrolysisBatch fields that `row` maps onto. */
+function localRowToBatchPatch(row: PyrolysisBatchLocalRow): Partial<PyrolysisBatch> {
+  const patch: Partial<PyrolysisBatch> = {
+    batchNumber: row.batch_number ?? null,
+    feedstockQuantity: row.feedstock_quantity ?? null,
+    avgFeedstockSizeCm: row.avg_feedstock_size_cm ?? null,
+    feedstockId: row.feedstock_id ?? null,
+    feedstockName: row.feedstock_name ?? null,
+    locationLat: row.location_lat ?? null,
+    locationLng: row.location_lng ?? null,
+    locationAddress: row.location_address ?? null,
+    feedstockPhotoLocalUri: row.feedstock_photo_local_uri ?? null,
+    feedstockPhotoUrl: row.feedstock_photo_url ?? null,
+    feedstockSizePhotoLocalUri: row.feedstock_size_photo_local_uri ?? null,
+    feedstockSizePhotoUrl: row.feedstock_size_photo_url ?? null,
+    feedstockPhotoMetadataJson: stringifyMetadata(row.feedstock_photo_metadata),
+    feedstockSizePhotoMetadataJson: stringifyMetadata(row.feedstock_size_photo_metadata),
+    yieldPercent: row.yield_percent ?? null,
+    comment: row.comment ?? null,
+    sampleId: row.sample_id ?? null,
+    samplePhotoLocalUri: row.sample_photo_local_uri ?? null,
+    samplePhotoUrl: row.sample_photo_url ?? null,
+    samplePhotoMetadataJson: stringifyMetadata(row.sample_photo_metadata),
+    sampleSavedAt: row.sample_saved_at ?? null,
+    infoSavedAt: row.info_saved_at ?? null,
+    moistureSavedAt: row.moisture_saved_at ?? null,
+    pyrolysisSavedAt: row.pyrolysis_saved_at ?? null,
+    yieldSavedAt: row.yield_saved_at ?? null,
+  };
 
   for (let i = 1; i <= 5; i += 1) {
     const slot = i as 1 | 2 | 3 | 4 | 5;
@@ -183,53 +195,55 @@ function applyLocalRowToBatch(record: PyrolysisBatch, row: PyrolysisBatchLocalRo
     const metadata = stringifyMetadata(row[moisturePhotoMetadataKey(slot)]);
 
     if (i === 1) {
-      record.moistureReading1 = reading;
-      record.moisturePhotoLocalUri1 = localUri;
-      record.moisturePhotoUrl1 = url;
-      record.moisturePhotoMetadataJson1 = metadata;
+      patch.moistureReading1 = reading;
+      patch.moisturePhotoLocalUri1 = localUri;
+      patch.moisturePhotoUrl1 = url;
+      patch.moisturePhotoMetadataJson1 = metadata;
     } else if (i === 2) {
-      record.moistureReading2 = reading;
-      record.moisturePhotoLocalUri2 = localUri;
-      record.moisturePhotoUrl2 = url;
-      record.moisturePhotoMetadataJson2 = metadata;
+      patch.moistureReading2 = reading;
+      patch.moisturePhotoLocalUri2 = localUri;
+      patch.moisturePhotoUrl2 = url;
+      patch.moisturePhotoMetadataJson2 = metadata;
     } else if (i === 3) {
-      record.moistureReading3 = reading;
-      record.moisturePhotoLocalUri3 = localUri;
-      record.moisturePhotoUrl3 = url;
-      record.moisturePhotoMetadataJson3 = metadata;
+      patch.moistureReading3 = reading;
+      patch.moisturePhotoLocalUri3 = localUri;
+      patch.moisturePhotoUrl3 = url;
+      patch.moisturePhotoMetadataJson3 = metadata;
     } else if (i === 4) {
-      record.moistureReading4 = reading;
-      record.moisturePhotoLocalUri4 = localUri;
-      record.moisturePhotoUrl4 = url;
-      record.moisturePhotoMetadataJson4 = metadata;
+      patch.moistureReading4 = reading;
+      patch.moisturePhotoLocalUri4 = localUri;
+      patch.moisturePhotoUrl4 = url;
+      patch.moisturePhotoMetadataJson4 = metadata;
     } else {
-      record.moistureReading5 = reading;
-      record.moisturePhotoLocalUri5 = localUri;
-      record.moisturePhotoUrl5 = url;
-      record.moisturePhotoMetadataJson5 = metadata;
+      patch.moistureReading5 = reading;
+      patch.moisturePhotoLocalUri5 = localUri;
+      patch.moisturePhotoUrl5 = url;
+      patch.moisturePhotoMetadataJson5 = metadata;
     }
   }
 
-  record.stageInitialPhotoLocalUri = row.stage_initial_photo_local_uri ?? null;
-  record.stageMiddlePhotoLocalUri = row.stage_middle_photo_local_uri ?? null;
-  record.stageFinalPhotoLocalUri = row.stage_final_photo_local_uri ?? null;
-  record.stageQuenchingPhotoLocalUri = row.stage_quenching_photo_local_uri ?? null;
-  record.stageInitialPhotoUrl = row.stage_initial_photo_url ?? null;
-  record.stageMiddlePhotoUrl = row.stage_middle_photo_url ?? null;
-  record.stageFinalPhotoUrl = row.stage_final_photo_url ?? null;
-  record.stageQuenchingPhotoUrl = row.stage_quenching_photo_url ?? null;
-  record.stageInitialCapturedAt = row.stage_initial_captured_at ?? null;
-  record.stageMiddleCapturedAt = row.stage_middle_captured_at ?? null;
-  record.stageFinalCapturedAt = row.stage_final_captured_at ?? null;
-  record.stageQuenchingCapturedAt = row.stage_quenching_captured_at ?? null;
-  record.stageInitialSavedAt = row.stage_initial_saved_at ?? null;
-  record.stageMiddleSavedAt = row.stage_middle_saved_at ?? null;
-  record.stageFinalSavedAt = row.stage_final_saved_at ?? null;
-  record.stageQuenchingSavedAt = row.stage_quenching_saved_at ?? null;
-  record.stageInitialPhotoMetadataJson = stringifyMetadata(row.stage_initial_photo_metadata);
-  record.stageMiddlePhotoMetadataJson = stringifyMetadata(row.stage_middle_photo_metadata);
-  record.stageFinalPhotoMetadataJson = stringifyMetadata(row.stage_final_photo_metadata);
-  record.stageQuenchingPhotoMetadataJson = stringifyMetadata(row.stage_quenching_photo_metadata);
+  patch.stageInitialPhotoLocalUri = row.stage_initial_photo_local_uri ?? null;
+  patch.stageMiddlePhotoLocalUri = row.stage_middle_photo_local_uri ?? null;
+  patch.stageFinalPhotoLocalUri = row.stage_final_photo_local_uri ?? null;
+  patch.stageQuenchingPhotoLocalUri = row.stage_quenching_photo_local_uri ?? null;
+  patch.stageInitialPhotoUrl = row.stage_initial_photo_url ?? null;
+  patch.stageMiddlePhotoUrl = row.stage_middle_photo_url ?? null;
+  patch.stageFinalPhotoUrl = row.stage_final_photo_url ?? null;
+  patch.stageQuenchingPhotoUrl = row.stage_quenching_photo_url ?? null;
+  patch.stageInitialCapturedAt = row.stage_initial_captured_at ?? null;
+  patch.stageMiddleCapturedAt = row.stage_middle_captured_at ?? null;
+  patch.stageFinalCapturedAt = row.stage_final_captured_at ?? null;
+  patch.stageQuenchingCapturedAt = row.stage_quenching_captured_at ?? null;
+  patch.stageInitialSavedAt = row.stage_initial_saved_at ?? null;
+  patch.stageMiddleSavedAt = row.stage_middle_saved_at ?? null;
+  patch.stageFinalSavedAt = row.stage_final_saved_at ?? null;
+  patch.stageQuenchingSavedAt = row.stage_quenching_saved_at ?? null;
+  patch.stageInitialPhotoMetadataJson = stringifyMetadata(row.stage_initial_photo_metadata);
+  patch.stageMiddlePhotoMetadataJson = stringifyMetadata(row.stage_middle_photo_metadata);
+  patch.stageFinalPhotoMetadataJson = stringifyMetadata(row.stage_final_photo_metadata);
+  patch.stageQuenchingPhotoMetadataJson = stringifyMetadata(row.stage_quenching_photo_metadata);
+
+  return patch;
 }
 
 function mergeKontikkiPayload(
@@ -266,7 +280,7 @@ function mergeKontikkiPayload(
 }
 
 export async function assembleBatchPayload(batchId: string): Promise<PyrolysisKontikkiData> {
-  const batch = await batchesCollection().find(batchId);
+  const batch = await findBatchOrThrow(batchId);
   return flatRowToKontikkiData(batchToLocalRow(batch));
 }
 
@@ -274,17 +288,18 @@ export async function applyBatchPayload(
   batchId: string,
   payload: Partial<PyrolysisKontikkiData>,
 ): Promise<void> {
-  await database.write(async () => {
-    const batch = await batchesCollection().find(batchId);
-    const current = flatRowToKontikkiData(batchToLocalRow(batch));
-    const merged = mergeKontikkiPayload(current, payload);
-    const flat = kontikkiDataToFlatRow(merged);
+  const db = await getDb();
+  const batch = await findBatchOrThrow(batchId);
+  const current = flatRowToKontikkiData(batchToLocalRow(batch));
+  const merged = mergeKontikkiPayload(current, payload);
+  const flat = kontikkiDataToFlatRow(merged);
 
-    await batch.update((record) => {
-      applyLocalRowToBatch(record, flat);
-      record.updatedAt = Date.now();
-    });
-  });
+  const patch = localRowToBatchPatch(flat);
+  const fullPatch: Partial<PyrolysisBatch> = { ...patch, updatedAt: Date.now() };
+  const row = pyrolysisBatchToRow({ ...batch, ...fullPatch } as Omit<PyrolysisBatch, "id">);
+
+  const { sql, args } = buildUpdate("pyrolysis_batches", row, "id = ?", [batchId]);
+  await db.runAsync(sql, args);
 }
 
 export function batchToApiRecord(
@@ -298,13 +313,12 @@ export function batchToApiRecord(
     session_id: batch.sessionId,
     kontikki_id: batch.kontikkiId,
     kontikki_code: batch.kontikkiCode,
+    submission_status: batch.submissionStatus as PyrolysisBatchRecord["submission_status"],
     info_completed: batch.infoCompleted,
     moisture_completed: batch.moistureCompleted,
     pyrolysis_completed: batch.pyrolysisCompleted,
     batch_number: flat.batch_number ?? null,
     feedstock_quantity: flat.feedstock_quantity ?? null,
-    farm_id: flat.farm_id ?? null,
-    farm_name: flat.farm_name ?? null,
     avg_feedstock_size_cm: flat.avg_feedstock_size_cm ?? null,
     feedstock_id: flat.feedstock_id ?? null,
     feedstock_name: flat.feedstock_name ?? null,

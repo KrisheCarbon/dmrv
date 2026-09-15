@@ -85,6 +85,14 @@ case "${1:-help}" in
     echo "Install link appears on https://expo.dev/accounts/shanmukh-krishe/projects/dmrv-app/builds"
     ;;
 
+  mobile-update)
+    require_cmd eas
+    load_env_file "$ROOT/Mobile/.env"
+    cd "$ROOT/Mobile"
+    eas update --channel preview --non-interactive --message "${2:-Latest JS update}"
+    echo "Users with the preview APK get this on next app launch — no reinstall."
+    ;;
+
   mobile-share-dev)
     require_cmd npx
     cd "$ROOT/Mobile"
@@ -100,6 +108,6 @@ case "${1:-help}" in
     ;;
 
   *)
-    echo "Usage: ./scripts/deploy.sh [backend-railway|backend-render|web-vercel|mobile-eas|mobile-share-dev|all]"
+    echo "Usage: ./scripts/deploy.sh [backend-railway|backend-render|web-vercel|mobile-eas|mobile-update|mobile-share-dev|all]"
     ;;
 esac

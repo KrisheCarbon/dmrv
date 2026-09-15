@@ -8,29 +8,27 @@ import {
   ScrollView,
   Alert,
   Image,
-  Modal
+  Modal,
+  ActivityIndicator
 } from "react-native";
 import { supabase } from "../services/supabase";
-import { getUserProfile, type UserProfile } from "../services/userProfile";
+import {
+  clearUserProfileCache,
+  getUserProfile,
+  type UserProfile,
+} from "../services/userProfile";
 import { ScreenShell } from "../components/ScreenHeader";
-import { getSyncStatusSummary } from "../services/syncService";
+import { getEntitySyncSummary, getSyncStatusSummary } from "../services/syncService";
+import { listPyrolysisSessions } from "../services/pyrolysisService";
 import { resetOfflineAppData } from "../utils/appDataReset";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
-
-const STATIC_PREVIEW_CARD = {
-  id: "preview_in_progress",
-  title: "11 batches pending",
-  message: "Pick up where you left off in Pyrolysis.",
-  actionLabel: "Continue work"
-};
 
 const BASE_MODULES = [
   {
     id: "dashboard",
     title: "Dashboard",
     desc: "Overview of your activity & metrics",
-    active: false,
-    demoStatus: { tone: "warning", label: "Sync pending" }
+    active: false
   },
   {
     id: "pyrolysis",
@@ -38,7 +36,8 @@ const BASE_MODULES = [
     desc: "Log batch runs & production data",
     active: true,
     screen: "PyrolysisDashboard",
-    roles: ["admin", "manager", "supervisor", "climapreneur"]
+    roles: ["admin", "manager", "supervisor", "climapreneur"],
+    showSyncStatus: true
   },
   {
     id: "mixing",
@@ -46,7 +45,8 @@ const BASE_MODULES = [
     desc: "Record mixing & application details",
     active: true,
     screen: "MixingDashboard",
-    roles: ["admin", "manager", "supervisor", "climapreneur"]
+    roles: ["admin", "manager", "supervisor", "climapreneur"],
+    showSyncStatus: true
   },
   {
     id: "application",
@@ -54,7 +54,8 @@ const BASE_MODULES = [
     desc: "Record biochar application on farms",
     active: true,
     screen: "ApplicationDashboard",
-    roles: ["admin", "manager", "supervisor", "climapreneur"]
+    roles: ["admin", "manager", "supervisor", "climapreneur"],
+    showSyncStatus: true
   },
   {
     id: "kiln",
@@ -66,10 +67,10 @@ const BASE_MODULES = [
   },
   {
     id: "farms",
-    title: "Farms",
-    desc: "Onboard farmers & capture farm data",
+    title: "Farmers Network",
+    desc: "Farmers, fields, soil samples, reports and consent",
     active: true,
-    screen: "FarmerDashboard",
+    screen: "FarmersNetwork",
     showSyncStatus: true
   },
   {
@@ -127,7 +128,8 @@ function StatusPill({ tone, label }) {
   );
 }
 
-function getFarmsSyncStatus(sync) {
+function getEntityStatusLabel(sync) {
+  if (!sync) return null;
   if (sync.errors > 0) {
     return { tone: "error", label: `${sync.errors} sync issue(s)` };
   }
@@ -143,12 +145,12 @@ function getFarmsSyncStatus(sync) {
   return { tone: "success", label: "All synced" };
 }
 
-function getModuleStatus(module, sync) {
+function getModuleStatus(module, syncByModule) {
   if (module.demoStatus) {
     return module.demoStatus;
   }
   if (module.showSyncStatus) {
-    return getFarmsSyncStatus(sync);
+    return getEntityStatusLabel(syncByModule[module.id]);
   }
   return null;
 }
@@ -162,8 +164,8 @@ function buildActionCards(sync, dismissedCardIds) {
       tone: "error",
       title: `${sync.errors} sync issue(s)`,
       message: "Some farm entries could not upload. Review them in Farms.",
-      actionLabel: "View farms",
-      screen: "FarmerDashboard"
+      actionLabel: "View farmers",
+      screen: "FarmersNetwork"
     });
   } else if (
     !sync.online &&
@@ -175,8 +177,8 @@ function buildActionCards(sync, dismissedCardIds) {
       tone: "warning",
       title: `${sync.pending} item(s) saved offline`,
       message: "Your data is safe on this device and will sync when you're online.",
-      actionLabel: "View farms",
-      screen: "FarmerDashboard"
+      actionLabel: "View farmers",
+      screen: "FarmersNetwork"
     });
   } else if (sync.pending > 0 && !dismissedCardIds.includes("sync_pending")) {
     cards.push({
@@ -184,8 +186,8 @@ function buildActionCards(sync, dismissedCardIds) {
       tone: "warning",
       title: `Syncing ${sync.pending} item(s)…`,
       message: "Your latest entries are being uploaded.",
-      actionLabel: "View farms",
-      screen: "FarmerDashboard"
+      actionLabel: "View farmers",
+      screen: "FarmersNetwork"
     });
   }
 
@@ -202,14 +204,17 @@ function getVisibleModules(role?: string | null) {
 export default function HomeScreen({ navigation }) {
   const [userName, setUserName] = useState("");
   const [userRole, setUserRole] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
   const [sync, setSync] = useState({
     pending: 0,
     errors: 0,
     online: true
   });
+  const [syncByModule, setSyncByModule] = useState({});
   const [dismissedCardIds, setDismissedCardIds] = useState([]);
   const [showHeroCard, setShowHeroCard] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [inProgressPyrolysis, setInProgressPyrolysis] = useState([]);
 
   useEffect(() => {
     loadSummary();
@@ -218,13 +223,45 @@ export default function HomeScreen({ navigation }) {
   }, [navigation]);
 
   async function loadSummary() {
-    const profile = await getUserProfile();
-    const summary = await getSyncStatusSummary(profile?.id);
-    setSync(summary);
-    setUserRole(profile);
+    let profile: UserProfile | null = null;
 
-    if (profile) {
-      setUserName(profile.full_name);
+    try {
+      profile = await getUserProfile();
+      setUserRole(profile);
+      if (profile) {
+        setUserName(profile.full_name);
+      }
+    } finally {
+      setLoading(false);
+    }
+
+    try {
+      const [summary, pyrolysisSync, mixingSync, applicationSync] = await Promise.all([
+        getSyncStatusSummary(profile?.id, profile?.role),
+        getEntitySyncSummary("pyrolysis_sessions", profile?.id),
+        getEntitySyncSummary("mixing_entries", profile?.id),
+        getEntitySyncSummary("application_entries", profile?.id)
+      ]);
+      setSync(summary);
+      setSyncByModule({
+        farms: summary,
+        pyrolysis: pyrolysisSync,
+        mixing: mixingSync,
+        application: applicationSync
+      });
+
+      if (profile?.id) {
+        try {
+          const sessions = await listPyrolysisSessions(profile.id);
+          setInProgressPyrolysis(sessions.filter((session) => session.status === "active"));
+        } catch {
+          setInProgressPyrolysis([]);
+        }
+      } else {
+        setInProgressPyrolysis([]);
+      }
+    } catch {
+      // Sync status can fill in on the next focus refresh.
     }
   }
 
@@ -237,6 +274,26 @@ export default function HomeScreen({ navigation }) {
     () => buildActionCards(sync, dismissedCardIds),
     [sync, dismissedCardIds]
   );
+
+  const inProgressCount = inProgressPyrolysis.length;
+  const heroCard = useMemo(() => {
+    if (inProgressCount === 0) return null;
+    return {
+      title: `${inProgressCount} batch${inProgressCount === 1 ? "" : "es"} in progress`,
+      message: "Pick up where you left off in Pyrolysis.",
+      actionLabel: "Continue work"
+    };
+  }, [inProgressCount]);
+
+  function continuePyrolysisWork() {
+    if (inProgressPyrolysis.length === 1) {
+      navigation.navigate("PyrolysisSession", {
+        sessionId: inProgressPyrolysis[0].id
+      });
+    } else {
+      navigation.navigate("PyrolysisDashboard");
+    }
+  }
 
   function openModule(module) {
     if (!module.active) {
@@ -294,10 +351,22 @@ export default function HomeScreen({ navigation }) {
         text: "Log out",
         style: "destructive",
         onPress: async () => {
+          await clearUserProfileCache();
           await supabase.auth.signOut();
         }
       }
     ]);
+  }
+
+  if (loading) {
+    return (
+      <ScreenShell>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.brunswick} />
+          <Text style={styles.loadingText}>Loading your workspace…</Text>
+        </View>
+      </ScreenShell>
+    );
   }
 
   return (
@@ -330,7 +399,7 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {showHeroCard ? (
+        {showHeroCard && heroCard ? (
           <View style={styles.heroCard}>
             <TouchableOpacity
               style={styles.heroDismissBtn}
@@ -342,22 +411,15 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
 
             <Text style={styles.heroEyebrow}>In progress</Text>
-            <Text style={styles.heroTitle}>{STATIC_PREVIEW_CARD.title}</Text>
-            <Text style={styles.heroMessage}>{STATIC_PREVIEW_CARD.message}</Text>
+            <Text style={styles.heroTitle}>{heroCard.title}</Text>
+            <Text style={styles.heroMessage}>{heroCard.message}</Text>
 
             <TouchableOpacity
               style={styles.heroBtn}
-              onPress={() =>
-                Alert.alert(
-                  "Coming soon",
-                  "Pyrolysis will be available in a future update."
-                )
-              }
+              onPress={continuePyrolysisWork}
               activeOpacity={0.85}
             >
-              <Text style={styles.heroBtnText}>
-                {STATIC_PREVIEW_CARD.actionLabel}
-              </Text>
+              <Text style={styles.heroBtnText}>{heroCard.actionLabel}</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -389,7 +451,7 @@ export default function HomeScreen({ navigation }) {
 
         <View style={styles.moduleList}>
           {modules.map((module) => {
-            const syncStatus = getModuleStatus(module, sync);
+            const syncStatus = getModuleStatus(module, syncByModule);
 
             return (
               <Pressable
@@ -493,6 +555,19 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.white
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: colors.smoke,
+    textAlign: "center"
   },
   content: {
     paddingHorizontal: spacing.lg,

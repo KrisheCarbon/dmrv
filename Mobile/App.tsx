@@ -1,23 +1,28 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useFonts } from "expo-font";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { Session } from "@supabase/supabase-js";
 import { colors } from "./constants/theme";
 import { supabase } from "./services/supabase";
-import "./database";
+import { getDb } from "./database/db";
 import { initISTClock } from "./services/trustedtime";
-import { arePermissionsGranted } from "./services/permissions";
 import { startSyncListener,
   stopSyncListener,
   processSyncQueue
 } from "./services/syncService";
 import { startLocationCache, stopLocationCache } from "./services/locationCache";
 import LoginScreen from "./screens/LoginScreen";
-import PermissionsScreen from "./screens/PermissionsScreen";
 import HomeScreen from "./screens/HomeScreen";
+import FarmersNetworkScreen from "./screens/FarmersNetworkScreen";
+import NewFarmerOnboardingScreen from "./screens/NewFarmerOnboardingScreen";
+import NewFarmerProgressScreen from "./screens/NewFarmerProgressScreen";
+import FieldFormScreen from "./screens/FieldFormScreen";
+import ConsentFormScreen from "./screens/ConsentFormScreen";
+import SoilTestFormScreen from "./screens/SoilTestFormScreen";
+import SoilSamplesInboxScreen from "./screens/SoilSamplesInboxScreen";
 import FarmerDashboardScreen from "./screens/FarmerDashboardScreen";
 import AddFarmerScreen from "./screens/AddFarmerScreen";
 import EditFarmerScreen from "./screens/EditFarmerScreen";
@@ -36,8 +41,12 @@ import KilnScannerScreen from "./screens/KilnScannerScreen";
 import KilnDashboardScreen from "./screens/KilnDashboardScreen";
 import KilnSavedBatchesScreen from "./screens/KilnSavedBatchesScreen";
 import PhotoWatermarkProcessor from "./components/PhotoWatermarkProcessor";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 import type { ComponentType } from "react";
+
+// Opens the SQLite connection and runs schema migrations immediately on app start.
+void getDb();
 
 const Stack = createNativeStackNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -51,6 +60,25 @@ function MainStack() {
     // @ts-expect-error navigator children typing
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Home" component={screen(HomeScreen)} />
+      <Stack.Screen
+        name="FarmersNetwork"
+        component={screen(FarmersNetworkScreen)}
+      />
+      <Stack.Screen
+        name="NewFarmerOnboarding"
+        component={screen(NewFarmerOnboardingScreen)}
+      />
+      <Stack.Screen
+        name="NewFarmerProgress"
+        component={screen(NewFarmerProgressScreen)}
+      />
+      <Stack.Screen name="FieldForm" component={screen(FieldFormScreen)} />
+      <Stack.Screen name="ConsentForm" component={screen(ConsentFormScreen)} />
+      <Stack.Screen name="SoilTestForm" component={screen(SoilTestFormScreen)} />
+      <Stack.Screen
+        name="SoilSamplesInbox"
+        component={screen(SoilSamplesInboxScreen)}
+      />
       <Stack.Screen
         name="FarmerDashboard"
         component={screen(FarmerDashboardScreen)}
@@ -105,7 +133,6 @@ function MainStack() {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [permissionsOk, setPermissionsOk] = useState(false);
 
   const [fontsLoaded] = useFonts({
     SatoshiRegular: require("./assets/Satoshi_Complete/Fonts/OTF/Satoshi-Regular.otf"),
@@ -113,21 +140,13 @@ export default function App() {
     SatoshiBold: require("./assets/Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf")
   });
 
-  const handlePermissionsComplete = useCallback(() => {
-    setPermissionsOk(true);
-    void startLocationCache();
-  }, []);
-
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
 
       if (data.session) {
         initISTClock();
-        setPermissionsOk(await arePermissionsGranted());
-        if (await arePermissionsGranted()) {
-          void startLocationCache();
-        }
+        void startLocationCache();
         startSyncListener();
         processSyncQueue();
       }
@@ -142,16 +161,12 @@ export default function App() {
 
       if (newSession) {
         initISTClock();
-        setPermissionsOk(await arePermissionsGranted());
-        if (await arePermissionsGranted()) {
-          void startLocationCache();
-        }
+        void startLocationCache();
         startSyncListener();
         processSyncQueue();
       } else {
         stopSyncListener();
         stopLocationCache();
-        setPermissionsOk(false);
       }
     });
 
@@ -161,6 +176,27 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    // Supabase's token auto-refresh timer only ticks while explicitly told
+    // the app is active. Without this, a backgrounded/locked phone can let
+    // the access token expire silently, and the next save looks like a
+    // forced logout mid-entry.
+    function handleAppStateChange(nextState: AppStateStatus) {
+      if (nextState === "active") {
+        void supabase.auth.startAutoRefresh();
+      } else {
+        void supabase.auth.stopAutoRefresh();
+      }
+    }
+
+    if (AppState.currentState === "active") {
+      void supabase.auth.startAutoRefresh();
+    }
+
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
+    return () => subscription.remove();
+  }, []);
+
   if (!fontsLoaded || loading) {
     return (
       <View
@@ -168,7 +204,8 @@ export default function App() {
           flex: 1,
           justifyContent: "center",
           alignItems: "center",
-          backgroundColor: colors.white
+          backgroundColor: colors.white,
+          paddingHorizontal: 32
         }}
       >
         <ActivityIndicator size="large" color={colors.brunswick} />
@@ -178,19 +215,19 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <PhotoWatermarkProcessor />
-      <NavigationContainer>
-        {!session ? (
-          // @ts-expect-error navigator children typing
-          <AuthStack.Navigator screenOptions={{ headerShown: false }}>
-            <AuthStack.Screen name="Login" component={screen(LoginScreen)} />
-          </AuthStack.Navigator>
-        ) : !permissionsOk ? (
-          <PermissionsScreen onComplete={handlePermissionsComplete} />
-        ) : (
-          <MainStack />
-        )}
-      </NavigationContainer>
+      <ErrorBoundary>
+        <PhotoWatermarkProcessor />
+        <NavigationContainer>
+          {!session ? (
+            // @ts-expect-error navigator children typing
+            <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+              <AuthStack.Screen name="Login" component={screen(LoginScreen)} />
+            </AuthStack.Navigator>
+          ) : (
+            <MainStack />
+          )}
+        </NavigationContainer>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

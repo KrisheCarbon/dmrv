@@ -1,0 +1,17 @@
+# EAS CLI looks here when run from Mobile/. Replaces .gitignore for the upload.
+
+node_modules/
+dist/
+.expo/
+*.log
+.DS_Store
+.env
+.env.local
+
+android/app/build/
+android/build/
+android/.gradle/
+android/app/.cxx/
+android/local.properties
+ios/Pods/
+ios/build/

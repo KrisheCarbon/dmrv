@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@supabase/ssr";
-import { canAccessNetwork } from "@/lib/roles";
+import { canAccessFarmersNetworkPortal } from "@/lib/roles";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 import type { ReactNode } from "react";
 
@@ -30,7 +30,7 @@ export default async function NetworkLayout({
     .eq("id", user.id)
     .single();
 
-  if (!profile || !canAccessNetwork(profile.role)) {
+  if (!profile || !canAccessFarmersNetworkPortal(profile.role)) {
     redirect("/");
   }
 

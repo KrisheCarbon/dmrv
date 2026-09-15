@@ -21,7 +21,7 @@ import {
   syncSingleEncryptedBatch,
 } from "../services/kiln/kilnSyncService";
 import { processSyncQueue } from "../services/syncService";
-import type EncryptedBatch from "../database/models/EncryptedBatch";
+import type { EncryptedBatch } from "../database/types";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
 type Props = {

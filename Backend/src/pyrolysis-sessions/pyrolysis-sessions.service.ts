@@ -21,8 +21,6 @@ import { MobileNetworkService } from '../mobile-network/mobile-network.service';
 const BATCH_UPDATABLE_FIELDS = [
   'batch_number',
   'feedstock_quantity',
-  'farm_id',
-  'farm_name',
   'avg_feedstock_size_cm',
   'feedstock_id',
   'feedstock_name',
@@ -77,6 +75,7 @@ const BATCH_UPDATABLE_FIELDS = [
   'sample_photo_url',
   'sample_photo_metadata',
   'sample_saved_at',
+  'submission_status',
 ] as const;
 
 export type UpdatePyrolysisBatchPayload = Partial<
@@ -124,17 +123,9 @@ export class PyrolysisSessionsService {
       throw new ForbiddenException('One or more kontikkis are not assigned to you.');
     }
 
-    const { data: activeUse, error: activeError } = await this.supabase
-      .from('pyrolysis_batches')
-      .select('kontikki_id, session_id, pyrolysis_sessions!inner(status)')
-      .in('kontikki_id', kontikkiIds)
-      .eq('pyrolysis_sessions.status', 'active');
-
-    if (activeError) throw new BadRequestException(activeError.message);
-    if ((activeUse ?? []).length > 0) {
-      throw new ConflictException(
-        'One or more kontikkis are already in an active batch.',
-      );
+    const resumed = await this.resumeOrClearActiveKontikkiUse(user, kontikkiIds);
+    if (resumed) {
+      return resumed;
     }
 
     const { data: kontikkis, error: kontikkiError } = await this.supabase
@@ -255,6 +246,44 @@ export class PyrolysisSessionsService {
     return this.getSession(user, sessionId);
   }
 
+  async deleteBatch(
+    user: AuthenticatedUser,
+    sessionId: string,
+    batchId: string,
+  ): Promise<{ session: PyrolysisSessionRecord | null }> {
+    const session = await this.getSession(user, sessionId);
+
+    const batch = session.batches.find((row) => row.id === batchId);
+    if (!batch) {
+      throw new NotFoundException('Batch not found in this session.');
+    }
+    if (batch.submission_status === 'submitted') {
+      throw new BadRequestException(
+        'Only unsubmitted kontikki entries can be deleted.',
+      );
+    }
+
+    const { error } = await this.supabase
+      .from('pyrolysis_batches')
+      .delete()
+      .eq('id', batchId)
+      .eq('session_id', sessionId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    const remaining = session.batches.filter((row) => row.id !== batchId);
+    if (remaining.length === 0) {
+      const { error: cancelError } = await this.supabase
+        .from('pyrolysis_sessions')
+        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+        .eq('id', sessionId);
+      if (cancelError) throw new BadRequestException(cancelError.message);
+      return { session: null };
+    }
+
+    return { session: await this.getSession(user, sessionId) };
+  }
+
   async completeSession(
     user: AuthenticatedUser,
     sessionId: string,
@@ -275,10 +304,53 @@ export class PyrolysisSessionsService {
     return this.getSession(user, sessionId);
   }
 
+  async listBatchReviewStatuses(user: AuthenticatedUser): Promise<
+    Array<{
+      batch_id: string;
+      review_status: string;
+      reviewer_notes: string | null;
+    }>
+  > {
+    this.assertMobileAccess(user);
+
+    const { data: sessions, error: sessionError } = await this.supabase
+      .from('pyrolysis_sessions')
+      .select('id')
+      .eq('operator_id', user.id);
+
+    if (sessionError) throw new BadRequestException(sessionError.message);
+    const sessionIds = (sessions ?? []).map((row) => row.id as string);
+    if (sessionIds.length === 0) return [];
+
+    const { data, error } = await this.supabase
+      .from('pyrolysis_batches')
+      .select('id, pyrolysis_batch_status ( status, reviewer_notes )')
+      .in('session_id', sessionIds);
+
+    if (error) throw new BadRequestException(error.message);
+
+    return (data ?? []).map((row) => {
+      const statusRow = this.unwrapRecord(row.pyrolysis_batch_status);
+      return {
+        batch_id: row.id as string,
+        review_status: (statusRow?.status as string | undefined) ?? 'pending',
+        reviewer_notes: (statusRow?.reviewer_notes as string | null | undefined) ?? null,
+      };
+    });
+  }
+
   private async loadBatchesForSession(sessionId: string): Promise<PyrolysisBatchRecord[]> {
     const { data: batches, error } = await this.supabase
       .from('pyrolysis_batches')
-      .select('*')
+      .select(
+        `
+        *,
+        pyrolysis_batch_status (
+          status,
+          reviewer_notes
+        )
+      `,
+      )
       .eq('session_id', sessionId)
       .order('kontikki_code', { ascending: true });
 
@@ -289,16 +361,18 @@ export class PyrolysisSessionsService {
 
   private mapBatch(row: Record<string, unknown>): PyrolysisBatchRecord {
     const numeric = (value: unknown) => (value != null ? Number(value) : null);
+    const batchStatus = this.unwrapRecord(row.pyrolysis_batch_status);
 
     return {
       id: row.id as string,
       session_id: row.session_id as string,
       kontikki_id: row.kontikki_id as string,
       kontikki_code: row.kontikki_code as string,
+      submission_status: ((row.submission_status as string) ?? 'draft') as PyrolysisBatchRecord['submission_status'],
+      review_status: (batchStatus?.status as string | undefined) ?? 'pending',
+      reviewer_notes: (batchStatus?.reviewer_notes as string | null | undefined) ?? null,
       batch_number: (row.batch_number as string) ?? null,
       feedstock_quantity: numeric(row.feedstock_quantity),
-      farm_id: (row.farm_id as string) ?? null,
-      farm_name: (row.farm_name as string) ?? null,
       avg_feedstock_size_cm: numeric(row.avg_feedstock_size_cm),
       feedstock_id: (row.feedstock_id as string) ?? null,
       feedstock_name: (row.feedstock_name as string) ?? null,
@@ -358,6 +432,159 @@ export class PyrolysisSessionsService {
       created_at: row.created_at as string | undefined,
       updated_at: row.updated_at as string | undefined,
     };
+  }
+
+  private unwrapRecord(value: unknown): Record<string, unknown> | null {
+    if (!value) return null;
+    if (Array.isArray(value)) {
+      return (value[0] as Record<string, unknown> | undefined) ?? null;
+    }
+    return value as Record<string, unknown>;
+  }
+
+  private unwrapSession(value: unknown): {
+    id?: string;
+    status?: string;
+    operator_id?: string;
+    reviewer_notes?: string | null;
+  } | null {
+    return this.unwrapRecord(value) as {
+      id?: string;
+      status?: string;
+      operator_id?: string;
+      reviewer_notes?: string | null;
+    } | null;
+  }
+
+  private isAbandonedBatch(
+    row: Pick<
+      PyrolysisBatchRecord,
+      | 'batch_number'
+      | 'info_completed'
+      | 'moisture_completed'
+      | 'pyrolysis_completed'
+      | 'yield_percent'
+      | 'sample_id'
+    >,
+  ): boolean {
+    return (
+      !row.batch_number &&
+      !row.info_completed &&
+      !row.moisture_completed &&
+      !row.pyrolysis_completed &&
+      row.yield_percent == null &&
+      !row.sample_id
+    );
+  }
+
+  private async cancelSession(sessionId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('pyrolysis_sessions')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', sessionId)
+      .eq('status', 'active');
+
+    if (error) throw new BadRequestException(error.message);
+  }
+
+  private async resumeOrClearActiveKontikkiUse(
+    user: AuthenticatedUser,
+    kontikkiIds: string[],
+  ): Promise<PyrolysisSessionRecord | null> {
+    // Only draft (not-yet-submitted) batches keep a kontikki reserved —
+    // once an entry is submitted it no longer blocks starting a new batch
+    // for that kontikki, even while the rest of its session is still active.
+    const { data: activeUse, error: activeError } = await this.supabase
+      .from('pyrolysis_batches')
+      .select(
+        'kontikki_id, kontikki_code, session_id, pyrolysis_sessions!inner(id, status, operator_id)',
+      )
+      .in('kontikki_id', kontikkiIds)
+      .eq('submission_status', 'draft')
+      .eq('pyrolysis_sessions.status', 'active');
+
+    if (activeError) throw new BadRequestException(activeError.message);
+    if (!activeUse?.length) return null;
+
+    const bySession = new Map<
+      string,
+      { operatorId: string; kontikkiIds: string[]; codes: string[] }
+    >();
+
+    for (const row of activeUse) {
+      const session = this.unwrapSession(row.pyrolysis_sessions);
+      const sessionId = (session?.id as string | undefined) ?? (row.session_id as string);
+      if (!sessionId) continue;
+
+      const current = bySession.get(sessionId) ?? {
+        operatorId: (session?.operator_id as string | undefined) ?? '',
+        kontikkiIds: [],
+        codes: [],
+      };
+      current.kontikkiIds.push(row.kontikki_id as string);
+      if (row.kontikki_code) current.codes.push(row.kontikki_code as string);
+      bySession.set(sessionId, current);
+    }
+
+    const foreign = [...bySession.entries()].filter(
+      ([, value]) => value.operatorId !== user.id,
+    );
+    if (foreign.length > 0) {
+      const codes = [...new Set(foreign.flatMap(([, value]) => value.codes))];
+      throw new ConflictException(
+        codes.length
+          ? `One or more kontikkis are already in an active batch (${codes.join(', ')}).`
+          : 'One or more kontikkis are already in an active batch.',
+      );
+    }
+
+    const requested = new Set(kontikkiIds);
+    for (const [sessionId] of bySession) {
+      const session = await this.getSession(user, sessionId);
+      const sessionKontikkiIds = new Set(session.batches.map((batch) => batch.kontikki_id));
+      const coversRequested = kontikkiIds.every((id) => sessionKontikkiIds.has(id));
+      if (coversRequested) {
+        return session;
+      }
+
+      const abandoned = session.batches.every((batch) =>
+        this.isAbandonedBatch(batch),
+      );
+      const overlapsRequested = session.batches.some((batch) =>
+        requested.has(batch.kontikki_id),
+      );
+      if (abandoned && overlapsRequested) {
+        await this.cancelSession(sessionId);
+      }
+    }
+
+    const { data: stillLocked, error: lockedError } = await this.supabase
+      .from('pyrolysis_batches')
+      .select('kontikki_code, pyrolysis_sessions!inner(status, operator_id)')
+      .in('kontikki_id', kontikkiIds)
+      .eq('submission_status', 'draft')
+      .eq('pyrolysis_sessions.status', 'active');
+
+    if (lockedError) throw new BadRequestException(lockedError.message);
+    if (stillLocked?.length) {
+      const codes = [
+        ...new Set(
+          stillLocked
+            .map((row) => row.kontikki_code as string | null)
+            .filter((code): code is string => Boolean(code)),
+        ),
+      ];
+      throw new ConflictException(
+        codes.length
+          ? `One or more kontikkis are already in an active batch (${codes.join(', ')}). Complete or cancel that batch first.`
+          : 'One or more kontikkis are already in an active batch.',
+      );
+    }
+
+    return null;
   }
 
   private async getAllowedKontikkiIds(user: AuthenticatedUser): Promise<Set<string>> {

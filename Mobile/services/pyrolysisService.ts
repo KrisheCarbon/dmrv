@@ -1,4 +1,3 @@
-import { Q } from "@nozbe/watermelondb";
 import {
   kontikkiWorkflowProgress,
   type PyrolysisBatchRecord,
@@ -8,10 +7,17 @@ import {
   type PyrolysisStep,
   type PyrolysisKontikkiData,
 } from "@krishecarbon/shared";
-import { database } from "../database";
-import PyrolysisSession from "../database/models/PyrolysisSession";
-import PyrolysisBatch from "../database/models/PyrolysisBatch";
-import SyncQueue from "../database/models/SyncQueue";
+import { getDb } from "../database/db";
+import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
+import {
+  pyrolysisBatchToRow,
+  pyrolysisSessionToRow,
+  rowToPyrolysisBatch,
+  rowToPyrolysisSession,
+  syncQueueItemToRow,
+  type PyrolysisBatch,
+  type PyrolysisSession,
+} from "../database/types";
 import {
   fetchMobileNetworkOverview,
   backendFetch,
@@ -28,7 +34,6 @@ import {
   isInfoSectionComplete,
   isMoistureSectionComplete,
   isSampleSectionComplete,
-  isStageSectionComplete,
   isYieldSectionComplete,
   sectionCompletionPayload,
 } from "../utils/pyrolysisSectionValidation";
@@ -48,8 +53,12 @@ export type SessionKontikkiView = {
   pyrolysisCompleted: boolean;
   sampleCompleted: boolean;
   payload: PyrolysisKontikkiData;
+  submissionStatus: string;
   uploadStatus: string;
   syncError: string | null;
+  reviewStatus: string | null;
+  reviewerNotes: string | null;
+  createdAt: number;
   updatedAt: number;
 };
 
@@ -66,8 +75,12 @@ function toView(batch: PyrolysisBatch, payload: PyrolysisKontikkiData): SessionK
     pyrolysisCompleted: batch.pyrolysisCompleted,
     sampleCompleted: batch.sampleCompleted,
     payload,
+    submissionStatus: batch.submissionStatus,
     uploadStatus: batch.uploadStatus,
     syncError: batch.syncError,
+    reviewStatus: batch.reviewStatus,
+    reviewerNotes: batch.reviewerNotes,
+    createdAt: batch.createdAt,
     updatedAt: batch.updatedAt,
   };
 }
@@ -77,16 +90,28 @@ async function triggerBackgroundSync() {
   void processSyncQueue();
 }
 
-function sessionsCollection() {
-  return database.get<PyrolysisSession>("pyrolysis_sessions");
+async function findSessionOrThrow(sessionId: string): Promise<PyrolysisSession> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<any>(
+    "SELECT * FROM pyrolysis_sessions WHERE id = ?",
+    [sessionId],
+  );
+  if (!row) {
+    throw new Error(`Pyrolysis session with id ${sessionId} not found`);
+  }
+  return rowToPyrolysisSession(row);
 }
 
-function batchesCollection() {
-  return database.get<PyrolysisBatch>("pyrolysis_batches");
-}
-
-function syncQueueCollection() {
-  return database.get<SyncQueue>("sync_queue");
+async function findBatchOrThrow(batchId: string): Promise<PyrolysisBatch> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<any>(
+    "SELECT * FROM pyrolysis_batches WHERE id = ?",
+    [batchId],
+  );
+  if (!row) {
+    throw new Error(`Pyrolysis batch with id ${batchId} not found`);
+  }
+  return rowToPyrolysisBatch(row);
 }
 
 export function mapNetworkKontikki(row: NetworkKontikki): PyrolysisKontikkiOption {
@@ -106,90 +131,205 @@ export async function fetchAvailableKontikkis(): Promise<{
 }> {
   const overview: MobileNetworkOverview = await fetchMobileNetworkOverview();
   const occupiedIds = await getLocallyOccupiedKontikkiIds();
-  const kontikkis = overview.kontikkis
-    .filter((row) => row.status === "active")
-    .map(mapNetworkKontikki);
+  // Show every kontikki assigned to this user (active or inactive) so they can
+  // see what they have access to. The UI disables selection of anything that
+  // isn't "active" — only active kontikkis can actually be used for a batch.
+  const kontikkis = overview.kontikkis.map(mapNetworkKontikki);
 
   return { kontikkis, occupiedIds };
 }
 
 export async function getLocallyOccupiedKontikkiIds(): Promise<Set<string>> {
-  const activeSessions = await sessionsCollection()
-    .query(Q.where("status", "active"))
-    .fetch();
+  const db = await getDb();
+  // A kontikki stays reserved while it belongs to an active session — unless
+  // its own entry has already been submitted *and* synced. That way a
+  // kontikki frees up for the next batch as soon as its data is safely on
+  // the server, without waiting for the rest of the session to finish.
+  const rows = await db.getAllAsync<{ kontikki_id: string }>(
+    `SELECT b.kontikki_id as kontikki_id
+     FROM pyrolysis_batches b
+     JOIN pyrolysis_sessions s ON s.id = b.session_id
+     WHERE s.status = ?
+       AND NOT (b.submission_status = ? AND b.sync_status = ?)`,
+    ["active", "submitted", "synced"],
+  );
 
-  const occupied = new Set<string>();
-
-  for (const session of activeSessions) {
-    const rows = await batchesCollection()
-      .query(Q.where("session_id", session.id))
-      .fetch();
-    for (const row of rows) {
-      occupied.add(row.kontikkiId);
-    }
-  }
-
-  return occupied;
+  return new Set(rows.map((row) => row.kontikki_id));
 }
 
-export async function listPyrolysisSessions(operatorId: string) {
-  return sessionsCollection()
-    .query(Q.where("operator_id", operatorId), Q.sortBy("created_at", Q.desc))
-    .fetch();
+export async function listPyrolysisSessions(operatorId: string): Promise<PyrolysisSession[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM pyrolysis_sessions WHERE operator_id = ? ORDER BY created_at DESC",
+    [operatorId],
+  );
+  return rows.map(rowToPyrolysisSession);
 }
 
-export async function getPyrolysisSession(sessionId: string) {
-  return sessionsCollection().find(sessionId);
+export async function getPyrolysisSession(sessionId: string): Promise<PyrolysisSession> {
+  return findSessionOrThrow(sessionId);
 }
 
 export async function getSessionKontikkis(sessionId: string): Promise<SessionKontikkiView[]> {
-  const batches = await batchesCollection()
-    .query(Q.where("session_id", sessionId), Q.sortBy("kontikki_code", Q.asc))
-    .fetch();
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM pyrolysis_batches WHERE session_id = ? ORDER BY kontikki_code ASC",
+    [sessionId],
+  );
 
   const views: SessionKontikkiView[] = [];
-  for (const batch of batches) {
+  for (const row of rows) {
+    const batch = rowToPyrolysisBatch(row);
     const payload = await assembleBatchPayload(batch.id);
     views.push(toView(batch, payload));
   }
   return views;
 }
 
+export async function refreshPyrolysisReviewStatuses() {
+  const remote = await backendFetch<
+    Array<{
+      batch_id: string;
+      review_status: string;
+      reviewer_notes: string | null;
+    }>
+  >("/pyrolysis-sessions/review-statuses");
+
+  const byServerId = new Map(
+    remote.map((row) => [row.batch_id, row] as const),
+  );
+  if (byServerId.size === 0) return;
+
+  const db = await getDb();
+  const locals = await db.getAllAsync<any>("SELECT * FROM pyrolysis_batches");
+
+  for (const row of locals) {
+    const batch = rowToPyrolysisBatch(row);
+    if (!batch.serverId) continue;
+    const next = byServerId.get(batch.serverId);
+    if (!next) continue;
+    const reviewStatus = next.review_status || "pending";
+    const reviewerNotes = next.reviewer_notes ?? null;
+    if (batch.reviewStatus === reviewStatus && batch.reviewerNotes === reviewerNotes) {
+      continue;
+    }
+
+    await db.runAsync(
+      "UPDATE pyrolysis_batches SET review_status = ?, reviewer_notes = ? WHERE id = ?",
+      [reviewStatus, reviewerNotes, batch.id],
+    );
+  }
+}
+
 export async function createPyrolysisSessionLocal(
   operatorId: string,
   selected: PyrolysisKontikkiOption[],
-) {
+): Promise<string> {
+  const db = await getDb();
   const now = Date.now();
-  let sessionId = "";
+  const sessionId = generateId();
 
-  await database.write(async () => {
-    const session = await sessionsCollection().create((record) => {
-      record.operatorId = operatorId;
-      record.status = "active";
-      record.currentStep = "info";
-      record.uploadStatus = LOCAL_SYNC_STATUS;
-      record.syncError = null;
-      record.createdAt = now;
-      record.updatedAt = now;
+  await db.withTransactionAsync(async () => {
+    const sessionRow = pyrolysisSessionToRow({
+      serverId: null,
+      operatorId,
+      status: "active",
+      currentStep: "info",
+      uploadStatus: LOCAL_SYNC_STATUS,
+      syncError: null,
+      createdAt: now,
+      updatedAt: now,
     });
-
-    sessionId = session.id;
+    const sessionInsert = buildInsert("pyrolysis_sessions", { id: sessionId, ...sessionRow });
+    await db.runAsync(sessionInsert.sql, sessionInsert.args);
 
     for (const kontikki of selected) {
-      await batchesCollection().create((record) => {
-        record.sessionId = session.id;
-        record.kontikkiId = kontikki.id;
-        record.kontikkiCode = kontikki.kontikki_code;
-        record.producerName = kontikki.producer_name ?? null;
-        record.infoCompleted = false;
-        record.moistureCompleted = false;
-        record.pyrolysisCompleted = false;
-        record.sampleCompleted = false;
-        record.uploadStatus = LOCAL_SYNC_STATUS;
-        record.syncError = null;
-        record.createdAt = now;
-        record.updatedAt = now;
+      const batchRow = pyrolysisBatchToRow({
+        sessionId,
+        serverId: null,
+        kontikkiId: kontikki.id,
+        kontikkiCode: kontikki.kontikki_code,
+        producerName: kontikki.producer_name ?? null,
+        batchNumber: null,
+        feedstockQuantity: null,
+        avgFeedstockSizeCm: null,
+        feedstockId: null,
+        feedstockName: null,
+        locationLat: null,
+        locationLng: null,
+        locationAddress: null,
+        feedstockPhotoLocalUri: null,
+        feedstockPhotoUrl: null,
+        feedstockSizePhotoLocalUri: null,
+        feedstockSizePhotoUrl: null,
+        feedstockPhotoMetadataJson: null,
+        feedstockSizePhotoMetadataJson: null,
+        moistureReading1: null,
+        moistureReading2: null,
+        moistureReading3: null,
+        moistureReading4: null,
+        moistureReading5: null,
+        moisturePhotoLocalUri1: null,
+        moisturePhotoLocalUri2: null,
+        moisturePhotoLocalUri3: null,
+        moisturePhotoLocalUri4: null,
+        moisturePhotoLocalUri5: null,
+        moisturePhotoUrl1: null,
+        moisturePhotoUrl2: null,
+        moisturePhotoUrl3: null,
+        moisturePhotoUrl4: null,
+        moisturePhotoUrl5: null,
+        moisturePhotoMetadataJson1: null,
+        moisturePhotoMetadataJson2: null,
+        moisturePhotoMetadataJson3: null,
+        moisturePhotoMetadataJson4: null,
+        moisturePhotoMetadataJson5: null,
+        stageInitialPhotoLocalUri: null,
+        stageMiddlePhotoLocalUri: null,
+        stageFinalPhotoLocalUri: null,
+        stageQuenchingPhotoLocalUri: null,
+        stageInitialPhotoUrl: null,
+        stageMiddlePhotoUrl: null,
+        stageFinalPhotoUrl: null,
+        stageQuenchingPhotoUrl: null,
+        stageInitialCapturedAt: null,
+        stageMiddleCapturedAt: null,
+        stageFinalCapturedAt: null,
+        stageQuenchingCapturedAt: null,
+        stageInitialSavedAt: null,
+        stageMiddleSavedAt: null,
+        stageFinalSavedAt: null,
+        stageQuenchingSavedAt: null,
+        stageInitialPhotoMetadataJson: null,
+        stageMiddlePhotoMetadataJson: null,
+        stageFinalPhotoMetadataJson: null,
+        stageQuenchingPhotoMetadataJson: null,
+        infoCompleted: false,
+        moistureCompleted: false,
+        pyrolysisCompleted: false,
+        infoSavedAt: null,
+        moistureSavedAt: null,
+        pyrolysisSavedAt: null,
+        yieldSavedAt: null,
+        yieldPercent: null,
+        comment: null,
+        sampleId: null,
+        samplePhotoLocalUri: null,
+        samplePhotoUrl: null,
+        samplePhotoMetadataJson: null,
+        sampleSavedAt: null,
+        sampleCompleted: false,
+        reviewStatus: null,
+        reviewerNotes: null,
+        submissionStatus: "draft",
+        uploadStatus: LOCAL_SYNC_STATUS,
+        syncError: null,
+        createdAt: now,
+        updatedAt: now,
       });
+
+      const batchInsert = buildInsert("pyrolysis_batches", { id: generateId(), ...batchRow });
+      await db.runAsync(batchInsert.sql, batchInsert.args);
     }
   });
 
@@ -273,30 +413,22 @@ export async function autoSaveKontikkiSectionLocal(
   section: PyrolysisKontikkiSection,
   payload: Partial<PyrolysisKontikkiData>,
 ) {
+  const db = await getDb();
   const current = await assembleBatchPayload(kontikkiRowId);
   const merged = buildMergedDraft(current, section, payload);
   const now = Date.now();
 
   await applyBatchPayload(kontikkiRowId, merged);
 
-  await database.write(async () => {
-    const row = await batchesCollection().find(kontikkiRowId);
-    const flags = sectionCompletionFlags(section, merged);
+  const flags = sectionCompletionFlags(section, merged);
+  const patch: Record<string, unknown> = { updated_at: now };
+  if (flags.infoCompleted != null) patch.info_completed = flags.infoCompleted ? 1 : 0;
+  if (flags.moistureCompleted != null) patch.moisture_completed = flags.moistureCompleted ? 1 : 0;
+  if (flags.pyrolysisCompleted != null) patch.pyrolysis_completed = flags.pyrolysisCompleted ? 1 : 0;
+  if (flags.sampleCompleted != null) patch.sample_completed = flags.sampleCompleted ? 1 : 0;
 
-    await row.update((record) => {
-      record.updatedAt = now;
-      if (flags.infoCompleted != null) record.infoCompleted = flags.infoCompleted;
-      if (flags.moistureCompleted != null) {
-        record.moistureCompleted = flags.moistureCompleted;
-      }
-      if (flags.pyrolysisCompleted != null) {
-        record.pyrolysisCompleted = flags.pyrolysisCompleted;
-      }
-      if (flags.sampleCompleted != null) {
-        record.sampleCompleted = flags.sampleCompleted;
-      }
-    });
-  });
+  const { sql, args } = buildUpdate("pyrolysis_batches", patch, "id = ?", [kontikkiRowId]);
+  await db.runAsync(sql, args);
 
   await maybeAdvanceSessionStep(sessionId);
 }
@@ -307,26 +439,26 @@ export async function saveKontikkiSectionLocal(
   section: PyrolysisKontikkiSection,
   payload: Partial<PyrolysisKontikkiData>,
 ) {
+  const db = await getDb();
   const now = Date.now();
 
   await applyBatchPayload(kontikkiRowId, payload);
 
-  await database.write(async () => {
-    const row = await batchesCollection().find(kontikkiRowId);
-    await row.update((record) => {
-      record.updatedAt = now;
-      if (section === "info") record.infoCompleted = true;
-      if (section === "moisture") record.moistureCompleted = true;
-      if (section === "yield") record.pyrolysisCompleted = true;
-      if (section === "sample") record.sampleCompleted = true;
-    });
-  });
+  const patch: Record<string, unknown> = { updated_at: now };
+  if (section === "info") patch.info_completed = 1;
+  if (section === "moisture") patch.moisture_completed = 1;
+  if (section === "yield") patch.pyrolysis_completed = 1;
+  if (section === "sample") patch.sample_completed = 1;
+
+  const { sql, args } = buildUpdate("pyrolysis_batches", patch, "id = ?", [kontikkiRowId]);
+  await db.runAsync(sql, args);
 
   await maybeAdvanceSessionStep(sessionId);
 }
 
 async function maybeAdvanceSessionStep(sessionId: string) {
-  const session = await sessionsCollection().find(sessionId);
+  const db = await getDb();
+  const session = await findSessionOrThrow(sessionId);
   const rows = await getSessionKontikkis(sessionId);
 
   let nextStep: PyrolysisStep = "info";
@@ -340,54 +472,110 @@ async function maybeAdvanceSessionStep(sessionId: string) {
 
   if (session.currentStep === nextStep) return;
 
-  await database.write(async () => {
-    await session.update((record) => {
-      record.currentStep = nextStep;
-      record.updatedAt = Date.now();
-    });
-  });
+  await db.runAsync(
+    "UPDATE pyrolysis_sessions SET current_step = ?, updated_at = ? WHERE id = ?",
+    [nextStep, Date.now(), sessionId],
+  );
 }
 
-export async function completePyrolysisBatchLocal(sessionId: string) {
-  const rows = await getSessionKontikkis(sessionId);
-  const allDone = rows.every(
-    (row) =>
-      row.infoCompleted &&
-      row.moistureCompleted &&
-      row.pyrolysisCompleted &&
-      row.sampleCompleted,
-  );
-
-  if (!allDone) {
-    throw new Error("Complete every section for all kontikkis before submitting.");
+/**
+ * Marks the given kontikki entries as submitted (queuing them for sync) and
+ * leaves everything else untouched. Kontikkis left out of `batchRowIds`
+ * (e.g. missing a photo) stay as drafts — still reserved for this session,
+ * still editable, and can be submitted later or deleted instead.
+ */
+export async function submitSelectedKontikkisLocal(
+  sessionId: string,
+  batchRowIds: string[],
+) {
+  if (batchRowIds.length === 0) {
+    throw new Error("Select at least one kontikki to submit.");
   }
 
+  const db = await getDb();
   const now = Date.now();
-  await database.write(async () => {
-    const session = await sessionsCollection().find(sessionId);
-    await session.update((record) => {
-      record.status = "completed";
-      record.currentStep = "complete";
-      record.uploadStatus = "pending";
-      record.syncError = null;
-      record.updatedAt = now;
-    });
 
-    const batches = await batchesCollection()
-      .query(Q.where("session_id", sessionId))
-      .fetch();
+  await db.withTransactionAsync(async () => {
+    for (const batchRowId of batchRowIds) {
+      await db.runAsync(
+        "UPDATE pyrolysis_batches SET submission_status = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ? AND session_id = ?",
+        ["submitted", "pending", now, batchRowId, sessionId],
+      );
+    }
 
-    for (const row of batches) {
-      await row.update((record) => {
-        record.uploadStatus = "pending";
-        record.syncError = null;
-        record.updatedAt = now;
-      });
+    const remainingDrafts = await db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM pyrolysis_batches WHERE session_id = ? AND submission_status = ?",
+      [sessionId, "draft"],
+    );
+
+    if ((remainingDrafts?.count ?? 0) === 0) {
+      await db.runAsync(
+        "UPDATE pyrolysis_sessions SET status = ?, current_step = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+        ["completed", "complete", "pending", now, sessionId],
+      );
+    } else {
+      await db.runAsync(
+        "UPDATE pyrolysis_sessions SET sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+        ["pending", now, sessionId],
+      );
     }
   });
 
   await enqueuePyrolysisBatchSync(sessionId);
   void triggerBackgroundSync();
+}
+
+/**
+ * Permanently removes a kontikki entry from a batch before it's submitted,
+ * freeing that kontikki up immediately (e.g. skipped/abandoned entries).
+ * Already-submitted entries can't be deleted this way.
+ */
+export async function deleteSessionKontikkiLocal(
+  sessionId: string,
+  batchRowId: string,
+): Promise<{ sessionDeleted: boolean }> {
+  const db = await getDb();
+  const batch = await findBatchOrThrow(batchRowId);
+
+  if (batch.sessionId !== sessionId) {
+    throw new Error("This kontikki does not belong to this batch.");
+  }
+  if (batch.submissionStatus === "submitted") {
+    throw new Error("This kontikki has already been submitted and can't be deleted.");
+  }
+
+  if (batch.serverId) {
+    try {
+      const session = await findSessionOrThrow(sessionId);
+      if (session.serverId) {
+        await backendFetch(
+          `/pyrolysis-sessions/${session.serverId}/batches/${batch.serverId}`,
+          { method: "DELETE" },
+        );
+      }
+    } catch {
+      // Best-effort — the kontikki is freed locally either way; a stale
+      // draft row on the server will simply be ignored on the next sync.
+    }
+  }
+
+  await db.runAsync("DELETE FROM pyrolysis_batches WHERE id = ?", [batchRowId]);
+
+  const remaining = await db.getFirstAsync<{ count: number }>(
+    "SELECT COUNT(*) as count FROM pyrolysis_batches WHERE session_id = ?",
+    [sessionId],
+  );
+
+  if ((remaining?.count ?? 0) === 0) {
+    await db.runAsync(
+      "DELETE FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+      [sessionId, "pyrolysis_session"],
+    );
+    await db.runAsync("DELETE FROM pyrolysis_sessions WHERE id = ?", [sessionId]);
+    return { sessionDeleted: true };
+  }
+
+  return { sessionDeleted: false };
 }
 
 export function kontikkiSectionProgress(row: SessionKontikkiView): number {
@@ -403,45 +591,42 @@ export function kontikkiSectionProgress(row: SessionKontikkiView): number {
 }
 
 async function enqueuePyrolysisBatchSync(sessionLocalId: string) {
-  const existing = await syncQueueCollection()
-    .query(
-      Q.where("entity_local_id", sessionLocalId),
-      Q.where("entity_type", "pyrolysis_session"),
-    )
-    .fetch();
+  const db = await getDb();
+
+  const existing = await db.getAllAsync<any>(
+    "SELECT * FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+    [sessionLocalId, "pyrolysis_session"],
+  );
 
   const pending = existing.find((item) => item.status === "pending");
   if (pending) return;
 
   const failed = existing.find((item) => item.status === "failed");
   if (failed) {
-    await database.write(async () => {
-      await failed.update((record) => {
-        record.status = "pending";
-        record.retries = 0;
-        record.errorMessage = null;
-      });
-    });
+    await db.runAsync(
+      "UPDATE sync_queue SET status = ?, retries = ?, error_message = NULL WHERE id = ?",
+      ["pending", 0, failed.id],
+    );
     return;
   }
 
-  await database.write(async () => {
-    await syncQueueCollection().create((record) => {
-      record.entityType = "pyrolysis_session";
-      record.entityLocalId = sessionLocalId;
-      record.operation = "complete";
-      record.status = "pending";
-      record.retries = 0;
-      record.createdAt = Date.now();
-    });
+  const row = syncQueueItemToRow({
+    entityType: "pyrolysis_session",
+    entityLocalId: sessionLocalId,
+    operation: "complete",
+    status: "pending",
+    retries: 0,
+    errorMessage: null,
+    createdAt: Date.now(),
   });
+  const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+  await db.runAsync(sql, args);
 }
 
 function sanitizeApiBatchPayload(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
   const next = { ...payload };
-  if (next.farm_id === "") next.farm_id = null;
   if (next.feedstock_id === "") next.feedstock_id = null;
   return next;
 }
@@ -488,13 +673,10 @@ async function resolveServerPyrolysisSession(
     }
 
     const list = await backendFetch<PyrolysisSessionRecord[]>("/pyrolysis-sessions");
-    const expected = new Set(kontikkiIds);
     const resumed = list.find((row) => {
       if (row.status !== "active") return false;
-      const ids = row.batches.map((batch) => batch.kontikki_id);
-      return (
-        ids.length === kontikkiIds.length && ids.every((id) => expected.has(id))
-      );
+      const ids = new Set(row.batches.map((batch) => batch.kontikki_id));
+      return kontikkiIds.every((id) => ids.has(id));
     });
 
     if (!resumed) throw err;
@@ -514,28 +696,33 @@ async function persistServerSessionMapping(
   serverSession: PyrolysisSessionRecord,
   serverBatchesByKontikki: Map<string, PyrolysisBatchRecord>,
 ) {
-  await database.write(async () => {
-    await session.update((record) => {
-      record.serverId = serverSession.id;
-      record.updatedAt = Date.now();
-    });
+  const db = await getDb();
+
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      "UPDATE pyrolysis_sessions SET server_id = ?, updated_at = ? WHERE id = ?",
+      [serverSession.id, Date.now(), session.id],
+    );
 
     for (const localBatch of batches) {
       const serverBatch = serverBatchesByKontikki.get(localBatch.kontikkiId);
       if (!serverBatch) continue;
 
-      await localBatch.update((record) => {
-        record.serverId = serverBatch.id;
-        record.updatedAt = Date.now();
-      });
+      await db.runAsync(
+        "UPDATE pyrolysis_batches SET server_id = ?, updated_at = ? WHERE id = ?",
+        [serverBatch.id, Date.now(), localBatch.id],
+      );
     }
   });
 }
 
 export async function syncPyrolysisBatch(session: PyrolysisSession) {
-  const batches = await batchesCollection()
-    .query(Q.where("session_id", session.id))
-    .fetch();
+  const db = await getDb();
+  const batchRows = await db.getAllAsync<any>(
+    "SELECT * FROM pyrolysis_batches WHERE session_id = ?",
+    [session.id],
+  );
+  const batches = batchRows.map(rowToPyrolysisBatch);
 
   const { serverSession, serverBatchesByKontikki } =
     await resolveServerPyrolysisSession(session, batches);
@@ -543,7 +730,11 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
   const serverId = serverSession.id;
   await persistServerSessionMapping(session, batches, serverSession, serverBatchesByKontikki);
 
-  for (const localBatch of batches) {
+  // Draft (not-yet-submitted) kontikkis stay local-only — only submitted
+  // ones get their data uploaded and marked synced.
+  const submittedBatches = batches.filter((batch) => batch.submissionStatus === "submitted");
+
+  for (const localBatch of submittedBatches) {
     const serverBatch = serverBatchesByKontikki.get(localBatch.kontikkiId);
     const serverBatchId = serverBatch?.id;
     if (!serverBatchId) {
@@ -555,6 +746,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
 
     const apiRecord = batchToApiRecord(localBatch, payload);
     apiRecord.id = serverBatchId;
+    apiRecord.submission_status = "submitted";
 
     await backendFetch(`/pyrolysis-sessions/${serverId}/batches/${serverBatchId}`, {
       method: "PATCH",
@@ -573,17 +765,15 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
 
     await applyBatchPayload(localBatch.id, payload);
 
-    await database.write(async () => {
-      await localBatch.update((record) => {
-        record.serverId = serverBatchId;
-        record.uploadStatus = "synced";
-        record.syncError = null;
-        record.updatedAt = Date.now();
-      });
-    });
+    await db.runAsync(
+      "UPDATE pyrolysis_batches SET server_id = ?, sync_status = ?, sync_error = NULL, review_status = COALESCE(review_status, ?), updated_at = ? WHERE id = ?",
+      [serverBatchId, "synced", "pending", Date.now(), localBatch.id],
+    );
   }
 
-  if (serverSession.status !== "completed") {
+  const hasRemainingDrafts = batches.some((batch) => batch.submissionStatus !== "submitted");
+
+  if (!hasRemainingDrafts && serverSession.status !== "completed") {
     await backendFetch(`/pyrolysis-sessions/${serverId}/step`, {
       method: "PATCH",
       body: JSON.stringify({ current_step: "complete" }),
@@ -594,12 +784,8 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     });
   }
 
-  await database.write(async () => {
-    await session.update((record) => {
-      record.serverId = serverId;
-      record.uploadStatus = "synced";
-      record.syncError = null;
-      record.updatedAt = Date.now();
-    });
-  });
+  await db.runAsync(
+    "UPDATE pyrolysis_sessions SET server_id = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+    [serverId, "synced", Date.now(), session.id],
+  );
 }

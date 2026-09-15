@@ -1,16 +1,21 @@
-import { Q } from "@nozbe/watermelondb";
 import type {
   AvailableMixingPyrolysisBatch,
-  CreateMixingEntryPayload,
   FieldPhotoMetadata,
   MixingEntryRecord,
   MixingMaterialType,
 } from "@krishecarbon/shared";
-import { database } from "../database";
-import MixingEntry from "../database/models/MixingEntry";
-import MixingPyrolysisLink from "../database/models/MixingPyrolysisLink";
-import PyrolysisBatch from "../database/models/PyrolysisBatch";
-import SyncQueue from "../database/models/SyncQueue";
+import type { CreateMixingEntryPayload } from "@krishecarbon/shared";
+import { getDb } from "../database/db";
+import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
+import {
+  mixingEntryToRow,
+  mixingPyrolysisLinkToRow,
+  rowToMixingEntry,
+  rowToMixingPyrolysisLink,
+  rowToPyrolysisBatch,
+  syncQueueItemToRow,
+  type MixingEntry,
+} from "../database/types";
 import { backendFetch, fetchMobileNetworkOverview } from "./backendApi";
 import { uploadMixingEntryPhotos } from "../utils/mixingPhotoUpload";
 import { getCurrentIST } from "./trustedtime";
@@ -51,6 +56,8 @@ export type MixingEntryView = {
   mixingPhotoMetadata: FieldPhotoMetadata | null;
   uploadStatus: string;
   syncError: string | null;
+  reviewStatus: string | null;
+  reviewerNotes: string | null;
   pyrolysisLinks: MixingPyrolysisLinkView[];
   createdAt: number;
   updatedAt: number;
@@ -60,22 +67,6 @@ export type SelectablePyrolysisBatch = AvailableMixingPyrolysisBatch & {
   source: "server" | "local";
   localBatchId?: string | null;
 };
-
-function entriesCollection() {
-  return database.get<MixingEntry>("mixing_entries");
-}
-
-function linksCollection() {
-  return database.get<MixingPyrolysisLink>("mixing_pyrolysis_links");
-}
-
-function batchesCollection() {
-  return database.get<PyrolysisBatch>("pyrolysis_batches");
-}
-
-function syncQueueCollection() {
-  return database.get<SyncQueue>("sync_queue");
-}
 
 function parseMetadata(json: string | null | undefined): FieldPhotoMetadata | null {
   if (!json) return null;
@@ -91,20 +82,35 @@ async function triggerBackgroundSync() {
   void processSyncQueue();
 }
 
-export async function listMixingEntries(operatorId: string) {
-  return entriesCollection()
-    .query(Q.where("operator_id", operatorId), Q.sortBy("created_at", Q.desc))
-    .fetch();
+async function findEntryOrThrow(entryId: string): Promise<MixingEntry> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<any>("SELECT * FROM mixing_entries WHERE id = ?", [entryId]);
+  if (!row) {
+    throw new Error(`Mixing entry with id ${entryId} not found`);
+  }
+  return rowToMixingEntry(row);
 }
 
-export async function getMixingEntry(entryId: string) {
-  return entriesCollection().find(entryId);
+export async function listMixingEntries(operatorId: string): Promise<MixingEntry[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM mixing_entries WHERE operator_id = ? ORDER BY created_at DESC",
+    [operatorId],
+  );
+  return rows.map(rowToMixingEntry);
+}
+
+export async function getMixingEntry(entryId: string): Promise<MixingEntry> {
+  return findEntryOrThrow(entryId);
 }
 
 export async function getMixingEntryLinks(entryId: string) {
-  return linksCollection()
-    .query(Q.where("mixing_entry_id", entryId))
-    .fetch();
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM mixing_pyrolysis_links WHERE mixing_entry_id = ?",
+    [entryId],
+  );
+  return rows.map(rowToMixingPyrolysisLink);
 }
 
 export async function toMixingEntryView(entry: MixingEntry): Promise<MixingEntryView> {
@@ -135,6 +141,8 @@ export async function toMixingEntryView(entry: MixingEntry): Promise<MixingEntry
     mixingPhotoMetadata: parseMetadata(entry.mixingPhotoMetadataJson),
     uploadStatus: entry.uploadStatus,
     syncError: entry.syncError,
+    reviewStatus: entry.reviewStatus,
+    reviewerNotes: entry.reviewerNotes,
     pyrolysisLinks: links.map((link) => ({
       id: link.id,
       pyrolysisBatchServerId: link.pyrolysisBatchServerId,
@@ -148,40 +156,70 @@ export async function toMixingEntryView(entry: MixingEntry): Promise<MixingEntry
   };
 }
 
+export async function refreshMixingReviewStatuses() {
+  const remote = await backendFetch<MixingEntryRecord[]>("/mixing-entries");
+  const byServerId = new Map(remote.map((row) => [row.id, row] as const));
+  if (byServerId.size === 0) return;
+
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>("SELECT * FROM mixing_entries");
+
+  for (const row of rows) {
+    const entry = rowToMixingEntry(row);
+    if (!entry.serverId) continue;
+    const next = byServerId.get(entry.serverId);
+    if (!next) continue;
+    const reviewStatus = next.entry_status?.status ?? "pending_review";
+    const reviewerNotes = next.entry_status?.reviewer_notes ?? null;
+    if (entry.reviewStatus === reviewStatus && entry.reviewerNotes === reviewerNotes) {
+      continue;
+    }
+
+    await db.runAsync(
+      "UPDATE mixing_entries SET review_status = ?, reviewer_notes = ? WHERE id = ?",
+      [reviewStatus, reviewerNotes, entry.id],
+    );
+  }
+}
+
 export async function createMixingEntryLocal(operatorId: string): Promise<string> {
+  const db = await getDb();
   const now = Date.now();
   const startedAt = getCurrentIST();
-  let entryId = "";
+  const entryId = generateId();
 
-  await database.write(async () => {
-    const entry = await entriesCollection().create((record) => {
-      record.operatorId = operatorId;
-      record.startedAt = startedAt;
-      record.status = "draft";
-      record.farmId = null;
-      record.farmName = null;
-      record.locationLat = null;
-      record.locationLng = null;
-      record.locationAddress = null;
-      record.materialType = null;
-      record.materialToBiocharRatio = null;
-      record.comment = null;
-      record.biocharPhotoLocalUri = null;
-      record.biocharPhotoUrl = null;
-      record.biocharPhotoMetadataJson = null;
-      record.substratePhotoLocalUri = null;
-      record.substratePhotoUrl = null;
-      record.substratePhotoMetadataJson = null;
-      record.mixingPhotoLocalUri = null;
-      record.mixingPhotoUrl = null;
-      record.mixingPhotoMetadataJson = null;
-      record.uploadStatus = LOCAL_SYNC_STATUS;
-      record.syncError = null;
-      record.createdAt = now;
-      record.updatedAt = now;
-    });
-    entryId = entry.id;
+  const row = mixingEntryToRow({
+    serverId: null,
+    operatorId,
+    startedAt,
+    status: "draft",
+    farmId: null,
+    farmName: null,
+    locationLat: null,
+    locationLng: null,
+    locationAddress: null,
+    materialType: null,
+    materialToBiocharRatio: null,
+    comment: null,
+    biocharPhotoLocalUri: null,
+    biocharPhotoUrl: null,
+    biocharPhotoMetadataJson: null,
+    substratePhotoLocalUri: null,
+    substratePhotoUrl: null,
+    substratePhotoMetadataJson: null,
+    mixingPhotoLocalUri: null,
+    mixingPhotoUrl: null,
+    mixingPhotoMetadataJson: null,
+    reviewStatus: null,
+    reviewerNotes: null,
+    uploadStatus: LOCAL_SYNC_STATUS,
+    syncError: null,
+    createdAt: now,
+    updatedAt: now,
   });
+
+  const { sql, args } = buildInsert("mixing_entries", { id: entryId, ...row });
+  await db.runAsync(sql, args);
 
   return entryId;
 }
@@ -204,76 +242,75 @@ export type MixingEntryUpdate = {
 };
 
 export async function updateMixingEntryLocal(entryId: string, patch: MixingEntryUpdate) {
-  await database.write(async () => {
-    const entry = await entriesCollection().find(entryId);
-    await entry.update((record) => {
-      if (patch.farmId !== undefined) record.farmId = patch.farmId;
-      if (patch.farmName !== undefined) record.farmName = patch.farmName;
-      if (patch.locationLat !== undefined) record.locationLat = patch.locationLat;
-      if (patch.locationLng !== undefined) record.locationLng = patch.locationLng;
-      if (patch.locationAddress !== undefined) record.locationAddress = patch.locationAddress;
-      if (patch.materialType !== undefined) record.materialType = patch.materialType;
-      if (patch.materialToBiocharRatio !== undefined) {
-        record.materialToBiocharRatio = patch.materialToBiocharRatio;
-      }
-      if (patch.comment !== undefined) record.comment = patch.comment;
-      if (patch.biocharPhotoLocalUri !== undefined) {
-        record.biocharPhotoLocalUri = patch.biocharPhotoLocalUri;
-      }
-      if (patch.biocharPhotoMetadata !== undefined) {
-        record.biocharPhotoMetadataJson = patch.biocharPhotoMetadata
-          ? JSON.stringify(patch.biocharPhotoMetadata)
-          : null;
-      }
-      if (patch.substratePhotoLocalUri !== undefined) {
-        record.substratePhotoLocalUri = patch.substratePhotoLocalUri;
-      }
-      if (patch.substratePhotoMetadata !== undefined) {
-        record.substratePhotoMetadataJson = patch.substratePhotoMetadata
-          ? JSON.stringify(patch.substratePhotoMetadata)
-          : null;
-      }
-      if (patch.mixingPhotoLocalUri !== undefined) {
-        record.mixingPhotoLocalUri = patch.mixingPhotoLocalUri;
-      }
-      if (patch.mixingPhotoMetadata !== undefined) {
-        record.mixingPhotoMetadataJson = patch.mixingPhotoMetadata
-          ? JSON.stringify(patch.mixingPhotoMetadata)
-          : null;
-      }
-      record.updatedAt = Date.now();
-    });
-  });
+  const db = await getDb();
+  const columns: Record<string, unknown> = {};
+
+  if (patch.farmId !== undefined) columns.farm_id = patch.farmId;
+  if (patch.farmName !== undefined) columns.farm_name = patch.farmName;
+  if (patch.locationLat !== undefined) columns.location_lat = patch.locationLat;
+  if (patch.locationLng !== undefined) columns.location_lng = patch.locationLng;
+  if (patch.locationAddress !== undefined) columns.location_address = patch.locationAddress;
+  if (patch.materialType !== undefined) columns.material_type = patch.materialType;
+  if (patch.materialToBiocharRatio !== undefined) {
+    columns.material_to_biochar_ratio = patch.materialToBiocharRatio;
+  }
+  if (patch.comment !== undefined) columns.comment = patch.comment;
+  if (patch.biocharPhotoLocalUri !== undefined) {
+    columns.biochar_photo_local_uri = patch.biocharPhotoLocalUri;
+  }
+  if (patch.biocharPhotoMetadata !== undefined) {
+    columns.biochar_photo_metadata_json = patch.biocharPhotoMetadata
+      ? JSON.stringify(patch.biocharPhotoMetadata)
+      : null;
+  }
+  if (patch.substratePhotoLocalUri !== undefined) {
+    columns.substrate_photo_local_uri = patch.substratePhotoLocalUri;
+  }
+  if (patch.substratePhotoMetadata !== undefined) {
+    columns.substrate_photo_metadata_json = patch.substratePhotoMetadata
+      ? JSON.stringify(patch.substratePhotoMetadata)
+      : null;
+  }
+  if (patch.mixingPhotoLocalUri !== undefined) {
+    columns.mixing_photo_local_uri = patch.mixingPhotoLocalUri;
+  }
+  if (patch.mixingPhotoMetadata !== undefined) {
+    columns.mixing_photo_metadata_json = patch.mixingPhotoMetadata
+      ? JSON.stringify(patch.mixingPhotoMetadata)
+      : null;
+  }
+  columns.updated_at = Date.now();
+
+  const { sql, args } = buildUpdate("mixing_entries", columns, "id = ?", [entryId]);
+  await db.runAsync(sql, args);
 }
 
 export async function setMixingPyrolysisLinks(
   entryId: string,
   selected: SelectablePyrolysisBatch[],
 ) {
-  await database.write(async () => {
-    const existing = await linksCollection()
-      .query(Q.where("mixing_entry_id", entryId))
-      .fetch();
+  const db = await getDb();
 
-    for (const row of existing) {
-      await row.destroyPermanently();
-    }
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("DELETE FROM mixing_pyrolysis_links WHERE mixing_entry_id = ?", [entryId]);
 
     for (const batch of selected) {
-      await linksCollection().create((record) => {
-        record.mixingEntryId = entryId;
-        record.pyrolysisBatchServerId = batch.id;
-        record.pyrolysisBatchLocalId = batch.localBatchId ?? null;
-        record.kontikkiCode = batch.kontikki_code ?? null;
-        record.batchNumber = batch.batch_number ?? null;
-        record.producerName = batch.producer_name ?? null;
+      const row = mixingPyrolysisLinkToRow({
+        mixingEntryId: entryId,
+        pyrolysisBatchServerId: batch.id,
+        pyrolysisBatchLocalId: batch.localBatchId ?? null,
+        kontikkiCode: batch.kontikki_code ?? null,
+        batchNumber: batch.batch_number ?? null,
+        producerName: batch.producer_name ?? null,
       });
+      const { sql, args } = buildInsert("mixing_pyrolysis_links", { id: generateId(), ...row });
+      await db.runAsync(sql, args);
     }
 
-    const entry = await entriesCollection().find(entryId);
-    await entry.update((record) => {
-      record.updatedAt = Date.now();
-    });
+    await db.runAsync("UPDATE mixing_entries SET updated_at = ? WHERE id = ?", [
+      Date.now(),
+      entryId,
+    ]);
   });
 }
 
@@ -299,7 +336,8 @@ export function validateMixingEntry(view: MixingEntryView): string[] {
 }
 
 export async function submitMixingEntry(entryId: string) {
-  const entry = await entriesCollection().find(entryId);
+  const db = await getDb();
+  const entry = await findEntryOrThrow(entryId);
   const view = await toMixingEntryView(entry);
   const errors = validateMixingEntry(view);
 
@@ -307,43 +345,35 @@ export async function submitMixingEntry(entryId: string) {
     throw new Error(errors.join("\n"));
   }
 
-  await database.write(async () => {
-    await entry.update((record) => {
-      record.status = "submitted";
-      record.uploadStatus = "pending";
-      record.syncError = null;
-      record.updatedAt = Date.now();
-    });
-  });
+  await db.runAsync(
+    "UPDATE mixing_entries SET status = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+    ["submitted", "pending", Date.now(), entryId],
+  );
 
-  const existing = await syncQueueCollection()
-    .query(
-      Q.where("entity_type", "mixing_entry"),
-      Q.where("entity_local_id", entryId),
-    )
-    .fetch();
+  const existing = await db.getAllAsync<any>(
+    "SELECT * FROM sync_queue WHERE entity_type = ? AND entity_local_id = ?",
+    ["mixing_entry", entryId],
+  );
 
   const failed = existing.find((item) => item.status === "failed");
 
   if (failed) {
-    await database.write(async () => {
-      await failed.update((record) => {
-        record.status = "pending";
-        record.retries = 0;
-        record.errorMessage = null;
-      });
-    });
+    await db.runAsync(
+      "UPDATE sync_queue SET status = ?, retries = ?, error_message = NULL WHERE id = ?",
+      ["pending", 0, failed.id],
+    );
   } else if (existing.length === 0) {
-    await database.write(async () => {
-      await syncQueueCollection().create((record) => {
-        record.entityType = "mixing_entry";
-        record.entityLocalId = entryId;
-        record.operation = "create";
-        record.status = "pending";
-        record.retries = 0;
-        record.createdAt = Date.now();
-      });
+    const row = syncQueueItemToRow({
+      entityType: "mixing_entry",
+      entityLocalId: entryId,
+      operation: "create",
+      status: "pending",
+      retries: 0,
+      errorMessage: null,
+      createdAt: Date.now(),
     });
+    const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+    await db.runAsync(sql, args);
   }
 
   void triggerBackgroundSync();
@@ -363,9 +393,11 @@ export async function fetchAvailablePyrolysisBatches(): Promise<SelectablePyroly
     serverRows = [];
   }
 
-  const localRows = await batchesCollection()
-    .query(Q.where("pyrolysis_completed", true))
-    .fetch();
+  const db = await getDb();
+  const localBatchRows = await db.getAllAsync<any>(
+    "SELECT * FROM pyrolysis_batches WHERE pyrolysis_completed = 1",
+  );
+  const localRows = localBatchRows.map(rowToPyrolysisBatch);
 
   const byServerId = new Map<string, SelectablePyrolysisBatch>();
 
@@ -400,6 +432,7 @@ export async function fetchAvailablePyrolysisBatches(): Promise<SelectablePyroly
 }
 
 export async function syncMixingEntry(entry: MixingEntry) {
+  const db = await getDb();
   const view = await toMixingEntryView(entry);
 
   if (view.serverId) {
@@ -447,17 +480,26 @@ export async function syncMixingEntry(entry: MixingEntry) {
     body: JSON.stringify(payload),
   });
 
-  await database.write(async () => {
-    const fresh = await entriesCollection().find(entry.id);
-    await fresh.update((record) => {
-      record.serverId = created.id;
-      record.status = "synced";
-      record.uploadStatus = "synced";
-      record.syncError = null;
-      record.biocharPhotoUrl = uploadedPhotos.biochar_photo_url ?? record.biocharPhotoUrl;
-      record.substratePhotoUrl = uploadedPhotos.substrate_photo_url ?? record.substratePhotoUrl;
-      record.mixingPhotoUrl = uploadedPhotos.mixing_photo_url ?? record.mixingPhotoUrl;
-      record.updatedAt = Date.now();
-    });
-  });
+  const fresh = await findEntryOrThrow(entry.id);
+
+  await db.runAsync(
+    `UPDATE mixing_entries SET
+      server_id = ?, status = ?, sync_status = ?, sync_error = NULL,
+      review_status = ?, reviewer_notes = ?,
+      biochar_photo_url = ?, substrate_photo_url = ?, mixing_photo_url = ?,
+      updated_at = ?
+     WHERE id = ?`,
+    [
+      created.id,
+      "synced",
+      "synced",
+      created.entry_status?.status ?? "pending_review",
+      created.entry_status?.reviewer_notes ?? null,
+      uploadedPhotos.biochar_photo_url ?? fresh.biocharPhotoUrl,
+      uploadedPhotos.substrate_photo_url ?? fresh.substratePhotoUrl,
+      uploadedPhotos.mixing_photo_url ?? fresh.mixingPhotoUrl,
+      Date.now(),
+      entry.id,
+    ],
+  );
 }

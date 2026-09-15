@@ -18,6 +18,7 @@ import ApplicationEntryReviewPanel from "./ApplicationEntryReviewPanel";
 import BiocharRightDrawer, { BIOCHAR_DRAWER_OFFSET_CLASS } from "../BiocharRightDrawer";
 import { listApplicationEntries } from "./actions";
 import {
+  applicationEntrySearchIndex,
   formatDateTime,
   formatLinkedBatchLabel,
   formatMediaType,
@@ -61,6 +62,7 @@ export default function ApplicationPage() {
           pyrolysis_links: entry.pyrolysis_links,
           status: formatReviewStatus(resolveReviewStatus(entry)),
           status_raw: resolveReviewStatus(entry),
+          search_index: applicationEntrySearchIndex(entry),
         })),
       );
     } catch (err) {
@@ -78,18 +80,10 @@ export default function ApplicationPage() {
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
-        const batchLabels = row.pyrolysis_links
-          .map((link) => formatLinkedBatchLabel(link))
-          .join(" ");
         const matchesStatus = !statusFilter || row.status_raw === statusFilter;
         const matchesQuery = matchesAllSearchTerms(
           searchFilters,
-          row.time,
-          row.farm_name,
-          row.media,
-          row.operator_name,
-          row.status,
-          batchLabels,
+          row.search_index,
         );
         return matchesStatus && matchesQuery;
       }),
@@ -164,7 +158,7 @@ export default function ApplicationPage() {
         onAddSearchFilter={addSearchFilter}
         onRemoveSearchFilter={removeSearchFilter}
         onClearSearchFilters={clearSearchFilters}
-        searchPlaceholder="Search farm, operator, media, batch…"
+        searchPlaceholder="Search farm, comment, media, operator, batch, reviewer notes…"
         filteredCount={filteredRows.length}
         totalCount={rows.length}
         filters={[

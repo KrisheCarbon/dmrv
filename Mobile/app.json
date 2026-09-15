@@ -65,15 +65,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "DMRV needs photo access to upload farmer consent documents.",
-          "cameraPermission": "DMRV needs camera access to photograph consent forms."
+          "photosPermission": "DMRV needs photo access to upload field photos.",
+          "cameraPermission": "DMRV needs camera access to capture field photos."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "DMRV needs access to save consent photos to your gallery.",
-          "savePhotosPermission": "DMRV saves consent photos to your device gallery.",
+          "photosPermission": "DMRV needs access to save photos to your gallery.",
+          "savePhotosPermission": "DMRV saves field photos to your device gallery.",
           "isAccessMediaLocationEnabled": false
         }
       ]
@@ -81,7 +81,10 @@
     "owner": "shanmukh-krishe",
     "runtimeVersion": "1.0.0",
     "updates": {
-      "url": "https://u.expo.dev/e9a771cb-5212-4ec4-b4dc-7ee75d62a623"
+      "url": "https://u.expo.dev/e9a771cb-5212-4ec4-b4dc-7ee75d62a623",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     }
   }
 }

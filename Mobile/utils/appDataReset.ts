@@ -1,10 +1,27 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
-import { database } from "../database";
+import { getDb } from "../database/db";
 import { clearBackendUrlCache } from "../services/backendApi";
 import { stopSyncListener, startSyncListener } from "../services/syncService";
 
 const PYRO_PHOTO_DIR = `${FileSystem.documentDirectory}pyrolysis-photos/`;
+
+const ALL_TABLES = [
+  "farmers",
+  "farm_fields",
+  "farm_crops",
+  "farmer_consents",
+  "soil_tests",
+  "soil_reports",
+  "sync_queue",
+  "pyrolysis_sessions",
+  "pyrolysis_batches",
+  "mixing_entries",
+  "mixing_pyrolysis_links",
+  "application_entries",
+  "application_pyrolysis_links",
+  "encrypted_batches",
+];
 
 export async function clearPyrolysisPhotos(): Promise<void> {
   const info = await FileSystem.getInfoAsync(PYRO_PHOTO_DIR);
@@ -13,9 +30,12 @@ export async function clearPyrolysisPhotos(): Promise<void> {
   }
 }
 
-export async function resetWatermelonDatabase(): Promise<void> {
-  await database.write(async () => {
-    await database.unsafeResetDatabase();
+export async function resetLocalDatabase(): Promise<void> {
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (const table of ALL_TABLES) {
+      await db.runAsync(`DELETE FROM ${table}`);
+    }
   });
 }
 
@@ -26,7 +46,7 @@ export async function resetOfflineAppData(): Promise<void> {
 
   try {
     await clearPyrolysisPhotos();
-    await resetWatermelonDatabase();
+    await resetLocalDatabase();
 
     const keys = await AsyncStorage.getAllKeys();
     const offlineKeys = keys.filter(

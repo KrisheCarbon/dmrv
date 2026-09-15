@@ -140,7 +140,6 @@ export default function PyrolysisBatchDetailView({
                     ? `${workflow.feedstock_quantity} kg`
                     : "—"}
                 </DetailRow>
-                <DetailRow label="Farm">{workflow.farm_name ?? "—"}</DetailRow>
                 <DetailRow label="Avg. size">
                   {workflow.avg_feedstock_size_cm != null
                     ? `${workflow.avg_feedstock_size_cm} cm`

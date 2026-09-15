@@ -1,6 +1,5 @@
-import { Q } from '@nozbe/watermelondb';
-import { database } from '../../database';
-import EncryptedBatch from '../../database/models/EncryptedBatch';
+import { getDb } from '../../database/db';
+import { rowToEncryptedBatch, type EncryptedBatch } from '../../database/types';
 import { parseKilnBatchBytes } from '../../utils/kilnBatch';
 import { backendFetch } from '../backendApi';
 
@@ -97,10 +96,11 @@ export async function syncEncryptedKilnBatches(): Promise<{
   corruptFilenames?: string[];
   error?: string;
 }> {
-  const unsynced = await database
-    .get<EncryptedBatch>('encrypted_batches')
-    .query(Q.where('is_synced', false), Q.sortBy('created_at', Q.asc))
-    .fetch();
+  const db = await getDb();
+  const unsyncedRows = await db.getAllAsync<any>(
+    'SELECT * FROM encrypted_batches WHERE is_synced = 0 ORDER BY created_at ASC',
+  );
+  const unsynced = unsyncedRows.map(rowToEncryptedBatch);
 
   if (unsynced.length === 0) return { pushed: 0 };
 
@@ -121,11 +121,7 @@ export async function syncEncryptedKilnBatches(): Promise<{
         break;
       }
     } else {
-      await database.write(async () => {
-        await record.update((r) => {
-          r.isSynced = true;
-        });
-      });
+      await db.runAsync("UPDATE encrypted_batches SET is_synced = 1 WHERE id = ?", [record.id]);
       pushed += 1;
     }
   }
@@ -158,9 +154,6 @@ export async function syncSingleEncryptedBatch(batch: EncryptedBatch) {
     throw new Error(result.error);
   }
 
-  await database.write(async () => {
-    await batch.update((r) => {
-      r.isSynced = true;
-    });
-  });
+  const db = await getDb();
+  await db.runAsync("UPDATE encrypted_batches SET is_synced = 1 WHERE id = ?", [batch.id]);
 }

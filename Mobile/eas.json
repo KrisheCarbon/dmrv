@@ -14,12 +14,13 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://glowworm-apostle-unfixed.ngrok-free.dev"
+        "EXPO_PUBLIC_BACKEND_URL": "https://krishecarbon-backend.onrender.com"
       }
     },
     "production": {

@@ -4,7 +4,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { deleteFarm, getFarm } from "../actions";
+import { listFarmFields } from "../../fields/actions";
+import { listSoilTests } from "../../soil-tests/actions";
 import type { FarmerCrop, FarmDetail } from "@/types";
+import type { FarmFieldRecord, SoilTestRecord } from "@krishecarbon/shared";
+import { soilTestStatusLabel } from "@krishecarbon/shared";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -24,6 +28,8 @@ export default function FarmDetailPage() {
   const router = useRouter();
 
   const [data, setData] = useState<FarmDetail | null>(null);
+  const [fields, setFields] = useState<FarmFieldRecord[]>([]);
+  const [soilTests, setSoilTests] = useState<SoilTestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -36,6 +42,12 @@ export default function FarmDetailPage() {
     try {
       const farm = await getFarm(id);
       setData(farm);
+      const [fieldRows, soilRows] = await Promise.all([
+        listFarmFields(id).catch(() => []),
+        listSoilTests(id).catch(() => []),
+      ]);
+      setFields(fieldRows);
+      setSoilTests(soilRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load farm");
       setData(null);
@@ -163,6 +175,63 @@ export default function FarmDetailPage() {
 
       <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
         <div className="border-b border-neutral-100 px-6 py-4">
+          <h2 className="text-lg font-semibold text-neutral-900">Fields</h2>
+          <p className="mt-0.5 text-sm text-neutral-500">
+            Physical plots onboarded for this farmer. Area is in acres.
+          </p>
+        </div>
+        <div className="px-6 py-4">
+          {fields.length === 0 ? (
+            <p className="text-sm text-neutral-500">No fields recorded.</p>
+          ) : (
+            <div className="divide-y divide-neutral-100">
+              {fields.map((field) => (
+                <dl key={field.id} className="py-2 first:pt-0 last:pb-0">
+                  <DetailRow label="Field ID">{field.field_code}</DetailRow>
+                  <DetailRow label="Ownership">{field.ownership_type}</DetailRow>
+                  <DetailRow label="Area">
+                    {field.calculated_area != null ? `${field.calculated_area} acres` : "—"}
+                  </DetailRow>
+                  <DetailRow label="Water">{field.water_source || "—"}</DetailRow>
+                  <DetailRow label="Crop">{field.crop_name || "—"}</DetailRow>
+                  <DetailRow label="Season">{field.season || "—"}</DetailRow>
+                  <DetailRow label="Sowing">{field.sowing_date || "—"}</DetailRow>
+                  <DetailRow label="Harvest">{field.harvest_date || "—"}</DetailRow>
+                </dl>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
+        <div className="border-b border-neutral-100 px-6 py-4">
+          <h2 className="text-lg font-semibold text-neutral-900">Soil tests</h2>
+        </div>
+        <div className="px-6 py-4">
+          {soilTests.length === 0 ? (
+            <p className="text-sm text-neutral-500">No soil samples recorded.</p>
+          ) : (
+            <div className="divide-y divide-neutral-100">
+              {soilTests.map((test) => (
+                <dl key={test.id} className="py-2 first:pt-0 last:pb-0">
+                  <DetailRow label="Sample date">{test.sample_date}</DetailRow>
+                  <DetailRow label="Status">{soilTestStatusLabel(test.status)}</DetailRow>
+                  <DetailRow label="Fields">
+                    {test.fields?.map((field) => field.field_code).filter(Boolean).join(", ") || "—"}
+                  </DetailRow>
+                  <DetailRow label="Reports">
+                    {test.reports?.length ? `${test.reports.length} uploaded` : "None yet"}
+                  </DetailRow>
+                </dl>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
+        <div className="border-b border-neutral-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-900">Crops</h2>
           <p className="mt-0.5 text-sm text-neutral-500">
             Active crops cultivated on this farm.
@@ -178,6 +247,11 @@ export default function FarmDetailPage() {
                 <dl key={`${crop.crop}-${index}`} className="py-2 first:pt-0 last:pb-0">
                   <DetailRow label="Crop">{crop.crop}</DetailRow>
                   <DetailRow label="Acreage">{crop.acreage} acres</DetailRow>
+                  {crop.biomass_rate ? (
+                    <DetailRow label="Biomass rate">
+                      {crop.biomass_rate} tonnes/acre
+                    </DetailRow>
+                  ) : null}
                   <DetailRow label="Sowing date">{crop.sowing_date}</DetailRow>
                   <DetailRow label="Estimated harvest">
                     {crop.estimated_harvest_date}
@@ -188,27 +262,6 @@ export default function FarmDetailPage() {
           )}
         </div>
       </section>
-
-      {data.consent_document_url ? (
-        <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
-          <div className="border-b border-neutral-100 px-6 py-4">
-            <h2 className="text-lg font-semibold text-neutral-900">Documents</h2>
-          </div>
-
-          <dl className="px-6 py-2">
-            <DetailRow label="Consent document">
-              <a
-                href={data.consent_document_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-brand-dark hover:underline"
-              >
-                View consent document
-              </a>
-            </DetailRow>
-          </dl>
-        </section>
-      ) : null}
     </div>
   );
 }

@@ -11,6 +11,8 @@ export {
   canManageUsers,
   canAccessNetwork,
   NETWORK_ACCESS_ROLES,
+  canAccessFarmersNetworkPortal,
+  FARMERS_NETWORK_PORTAL_ROLES,
   canAccessCarbon,
   CARBON_ACCESS_ROLES,
   canManageProducers,
@@ -30,18 +32,18 @@ export {
 } from "./roles";
 export type { UserRole } from "./roles";
 
-export const CROP_OPTIONS = [
-  "Cotton",
-  "Chilli",
-  "Corn Cobs",
-  "Maize",
-  "Coffee",
-  "Paddy",
-  "Other",
-] as const;
+export const CROP_OPTIONS = ["Cotton", "Chilli", "Corn Cobs", "Other"] as const;
 
 export type CropName = (typeof CROP_OPTIONS)[number];
 
+/** Guesstimated biomass yield in tonnes/acre for each known crop. */
+export const CROP_BIOMASS_RATES: Record<string, number> = {
+  Cotton: 1.5,
+  Chilli: 2,
+  "Corn Cobs": 0.5,
+};
+
+/** Fallback rate used only when a crop has no rate recorded (legacy data). */
 export const BIOMASS_FACTOR = 2;
 
 export interface FarmerCrop {
@@ -49,6 +51,8 @@ export interface FarmerCrop {
   crop_area: number | string;
   sowing_date: string;
   harvest_date: string;
+  /** Tonnes/acre used to estimate biomass for this crop (fixed rate, or a custom value for "Other"). */
+  biomass_rate?: number | string;
 }
 
 export interface FarmerForm {
@@ -64,8 +68,6 @@ export interface FarmerForm {
   interested_in_biochar?: boolean;
   prior_biochar_exp?: boolean;
   prior_biochar_acreage?: number | string;
-  consent_document_url?: string;
-  consent_local_uri?: string;
   estimated_biomass?: number;
   sync_status?: string;
 }
@@ -82,16 +84,24 @@ export interface Farmer extends DbRow {
   /** Row in the Supabase `farms` table (farmer/farm registration). */
   id: string;
   farmer_name?: string;
+  farmer_code?: string | null;
+  father_spouse_name?: string | null;
+  agri_id?: string | null;
   mobile_number?: string;
   latitude?: number;
   longitude?: number;
   address?: string;
+  village?: string | null;
+  mandal?: string | null;
+  district?: string | null;
+  state?: string | null;
   total_land_size?: number;
+  owned_land_size?: number | null;
+  leased_land_size?: number | null;
   crops?: FarmCropRecord[];
   interested_in_biochar?: boolean;
   prior_biochar_exp?: boolean;
   prior_biochar_acreage?: number | null;
-  consent_document_url?: string | null;
   estimated_biomass?: number;
   created_by?: string;
   assigned_to?: string;
@@ -105,6 +115,8 @@ export interface FarmCropRecord {
   acreage: number;
   sowing_date: string;
   estimated_harvest_date: string;
+  /** Tonnes/acre used to estimate biomass for this crop. */
+  biomass_rate?: number;
 }
 
 export interface FarmUpsertPayload {
@@ -119,22 +131,48 @@ export interface FarmUpsertPayload {
   prior_biochar_exp: boolean;
   prior_biochar_acreage: number | null;
   estimated_biomass: number;
-  consent_document_url?: string | null;
+  farmer_code?: string | null;
+  father_spouse_name?: string | null;
+  agri_id?: string | null;
+  village?: string | null;
+  mandal?: string | null;
+  district?: string | null;
+  state?: string | null;
+  owned_land_size?: number | null;
+  leased_land_size?: number | null;
+}
+
+/** Resolves the tonnes/acre rate for a crop, preferring any rate stored on the crop itself. */
+export function resolveCropBiomassRate(crop: FarmerCrop): number {
+  const storedRate = Number(crop.biomass_rate);
+  if (!isNaN(storedRate) && storedRate > 0) return storedRate;
+
+  const knownRate = CROP_BIOMASS_RATES[crop.crop_name];
+  if (typeof knownRate === "number") return knownRate;
+
+  return BIOMASS_FACTOR;
 }
 
 export function calculateEstimatedBiomass(crops: FarmerCrop[]): number {
   if (!Array.isArray(crops) || crops.length === 0) return 0;
 
   return crops.reduce(
-    (sum, crop) => sum + Number(crop.crop_area || 0) * BIOMASS_FACTOR,
+    (sum, crop) =>
+      sum + Number(crop.crop_area || 0) * resolveCropBiomassRate(crop),
     0,
   );
 }
 
+/**
+ * A mobile number is valid when left blank, or when it is a 10-digit
+ * Indian mobile number (starting 6-9), optionally prefixed with the
+ * "+91" country code. E.g. "9381548046" or "+919381548046" are valid,
+ * but a 9-digit number or "+91" with fewer/more than 10 digits are not.
+ */
 export function validateMobileNumber(mobile: string | undefined | null): boolean {
-  const cleaned = String(mobile || "").replace(/\D/g, "");
-  if (!cleaned) return true;
-  return /^[6-9]\d{9}$/.test(cleaned);
+  const trimmed = String(mobile || "").trim().replace(/[\s-]/g, "");
+  if (!trimmed) return true;
+  return /^(\+91)?[6-9]\d{9}$/.test(trimmed);
 }
 
 export function validateFarmerForm(form: FarmerForm): string[] {
@@ -144,9 +182,10 @@ export function validateFarmerForm(form: FarmerForm): string[] {
     errors.push("Farmer name is required.");
   }
 
-  const mobileDigits = String(form.mobile_number || "").replace(/\D/g, "");
-  if (mobileDigits && !validateMobileNumber(form.mobile_number)) {
-    errors.push("Enter a valid 10-digit mobile number, or leave blank.");
+  if (form.mobile_number?.trim() && !validateMobileNumber(form.mobile_number)) {
+    errors.push(
+      "Enter a valid 10-digit mobile number (optionally with +91), or leave blank.",
+    );
   }
 
   if (!form.latitude || !form.longitude) {
@@ -165,6 +204,16 @@ export function validateFarmerForm(form: FarmerForm): string[] {
   if (!Array.isArray(form.crops) || form.crops.length === 0) {
     errors.push("Add at least one crop.");
   } else {
+    const totalCropArea = form.crops.reduce(
+      (sum, crop) => sum + (Number(crop.crop_area) || 0),
+      0,
+    );
+    if (!isNaN(landSize) && landSize > 0 && totalCropArea > landSize) {
+      errors.push(
+        `Total crop area (${totalCropArea} acres) cannot exceed the total land size (${landSize} acres).`,
+      );
+    }
+
     form.crops.forEach((crop, i) => {
       const label = `Crop ${i + 1}`;
       if (!crop.crop_name?.trim()) {
@@ -179,6 +228,11 @@ export function validateFarmerForm(form: FarmerForm): string[] {
       }
       if (!crop.harvest_date) {
         errors.push(`${label}: estimated harvest date is required.`);
+      }
+      const isKnownCrop = crop.crop_name in CROP_BIOMASS_RATES;
+      const rate = Number(crop.biomass_rate);
+      if (!isKnownCrop && (!crop.biomass_rate || isNaN(rate) || rate <= 0)) {
+        errors.push(`${label}: guesstimated biomass (tonnes/acre) is required.`);
       }
       if (
         crop.sowing_date &&
@@ -206,8 +260,15 @@ export function validateFarmerForm(form: FarmerForm): string[] {
   return errors;
 }
 
+/**
+ * Normalizes a mobile number for storage: strips a leading "+91" country
+ * code (if present) and any non-digit characters, leaving a plain 10-digit
+ * number (or empty string when none was provided).
+ */
 export function normalizeMobileNumber(mobile: string | undefined | null): string {
-  return String(mobile || "").replace(/\D/g, "");
+  const trimmed = String(mobile || "").trim().replace(/[\s-]/g, "");
+  const withoutCountryCode = trimmed.replace(/^\+91/, "");
+  return withoutCountryCode.replace(/\D/g, "");
 }
 
 export {
@@ -339,6 +400,39 @@ export {
   applicationEntryReviewStatusLabel,
   isApplicationEntryMediaKey,
 } from "./applicationEntryStatus";
+export {
+  ACRES_PER_HECTARE,
+  acresToHectares,
+  hectaresToAcres,
+  isOverOneHectare,
+  formatHectaresFromAcres,
+  FIELD_OWNERSHIP_TYPES,
+  FIELD_STATUS_VALUES,
+  FIELD_SEASONS,
+  FIELD_WATER_SOURCES,
+  SOIL_TEST_STATUS_VALUES,
+  soilTestStatusLabel,
+  parseBoundaryGeojson,
+  boundaryPointsToGeojson,
+  FARMER_NETWORK_PHOTOS_BUCKET,
+  SOIL_REPORTS_BUCKET,
+} from "./farmersNetwork";
+export type {
+  FieldOwnershipType,
+  FieldStatusValue,
+  FieldSeason,
+  SoilTestStatus,
+  GeoPoint,
+  FarmFieldRecord,
+  FarmFieldUpsertPayload,
+  FarmerConsentRecord,
+  FarmerConsentUpsertPayload,
+  SoilReportRecord,
+  SoilTestRecord,
+  SoilTestUpsertPayload,
+  SoilTestReportPayload,
+  SoilTestFormOptions,
+} from "./farmersNetwork";
 export type {
   ApplicationEntryReviewStatus,
   ApplicationEntryReviewDecision,

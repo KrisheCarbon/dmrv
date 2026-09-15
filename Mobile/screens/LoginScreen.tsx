@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   StyleSheet,
   Alert,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../services/supabase";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
 import PrimaryButton from "../components/PrimaryButton";
@@ -19,12 +21,27 @@ const loginBg = colors.white;
 const loginSurface = colors.chalk;
 
 export default function LoginScreen() {
+  const insets = useSafeAreaInsets();
+  const passwordRef = useRef(null);
+  const otpRef = useRef(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [mode, setMode] = useState("password");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   function switchMode(nextMode) {
     setMode(nextMode);
@@ -105,25 +122,38 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={0}
     >
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          keyboardVisible ? styles.scrollKeyboardOpen : styles.scrollResting,
+          {
+            paddingTop: keyboardVisible
+              ? spacing.md
+              : insets.top + spacing.xl,
+            paddingBottom: keyboardVisible
+              ? spacing.md
+              : Math.max(insets.bottom, spacing.lg)
+          }
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.hero}>
+        <View style={[styles.hero, keyboardVisible && styles.heroCompact]}>
           <Image
             source={logos.verticalWhite}
-            style={styles.logo}
+            style={[styles.logo, keyboardVisible && styles.logoCompact]}
             resizeMode="contain"
           />
         </View>
 
-        <View style={styles.card}>
+        <View style={[styles.card, keyboardVisible && styles.cardCompact]}>
           <Text style={styles.cardTitle}>Sign in to your account</Text>
 
-          <View style={styles.modeRow}>
+          <View style={[styles.modeRow, keyboardVisible && styles.modeRowCompact]}>
             <TouchableOpacity
               style={[styles.modeBtn, mode === "password" && styles.modeActive]}
               onPress={() => switchMode("password")}
@@ -158,13 +188,29 @@ export default function LoginScreen() {
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            returnKeyType={mode === "password" || otpSent ? "next" : "done"}
+            blurOnSubmit={false}
             editable={mode === "password" || !otpSent}
+            onSubmitEditing={() => {
+              if (mode === "password") {
+                passwordRef.current?.focus();
+                return;
+              }
+              if (otpSent) {
+                otpRef.current?.focus();
+                return;
+              }
+              handleSubmit();
+            }}
           />
 
           {mode === "password" ? (
             <>
               <Text style={styles.label}>Password</Text>
               <TextInput
+                ref={passwordRef}
                 style={styles.input}
                 placeholder="Your password"
                 placeholderTextColor={colors.smokeLight}
@@ -172,6 +218,9 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 secureTextEntry
                 autoCapitalize="none"
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={handleSubmit}
               />
             </>
           ) : null}
@@ -180,12 +229,15 @@ export default function LoginScreen() {
             <>
               <Text style={styles.label}>One-time code</Text>
               <TextInput
+                ref={otpRef}
                 style={styles.input}
                 placeholder="Enter 6-digit code"
                 placeholderTextColor={colors.smokeLight}
                 value={otp}
                 onChangeText={setOtp}
                 keyboardType="number-pad"
+                returnKeyType="go"
+                onSubmitEditing={handleSubmit}
               />
             </>
           ) : null}
@@ -208,19 +260,29 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flexGrow: 1,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xxl,
-    paddingBottom: spacing.xl,
+    paddingHorizontal: spacing.lg
+  },
+  scrollResting: {
     justifyContent: "center"
+  },
+  scrollKeyboardOpen: {
+    justifyContent: "flex-end"
   },
   hero: {
     alignItems: "center",
     marginBottom: spacing.xl,
     backgroundColor: loginBg
   },
+  heroCompact: {
+    marginBottom: spacing.sm
+  },
   logo: {
     width: 200,
     height: 200
+  },
+  logoCompact: {
+    width: 96,
+    height: 96
   },
   card: {
     backgroundColor: loginSurface,
@@ -228,6 +290,12 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border
+  },
+  cardCompact: {
+    padding: spacing.md
+  },
+  modeRowCompact: {
+    marginBottom: spacing.md
   },
   cardTitle: {
     fontSize: 17,

@@ -10,7 +10,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "dev": "nest start --watch",
-    "start:dev": "nest start --watch",
+    "start:dev": "rm -f tsconfig.build.tsbuildinfo tsconfig.tsbuildinfo && nest start --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",

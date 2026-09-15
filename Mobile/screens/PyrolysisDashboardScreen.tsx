@@ -7,76 +7,101 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Image,
 } from "react-native";
-import { pyrolysisStepLabel } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
+import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
-import { getSessionKontikkis, listPyrolysisSessions } from "../services/pyrolysisService";
+import {
+  getSessionKontikkis,
+  listPyrolysisSessions,
+  refreshPyrolysisReviewStatuses,
+} from "../services/pyrolysisService";
 import {
   isPyrolysisSessionSyncing,
   processSyncQueue,
   retryFailedPyrolysisSyncs,
   subscribeSyncEvents,
 } from "../services/syncService";
-import type PyrolysisSession from "../database/models/PyrolysisSession";
+import type { PyrolysisSession } from "../database/types";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import { summarizeReviewStatuses } from "../utils/reviewStatus";
+
+type SyncTone = "neutral" | "warning" | "success" | "danger";
+
+const syncTonePalette: Record<SyncTone, { background: string; text: string }> = {
+  neutral: { background: colors.chalk, text: colors.smoke },
+  warning: { background: colors.warningBg, text: colors.warning },
+  success: { background: colors.successBg, text: colors.success },
+  danger: { background: colors.errorBg, text: colors.error },
+};
 
 function SessionCard({
   session,
   syncing,
-  sampleIds,
-  samplePhotoUri,
+  batchIds,
+  reviewStatus,
+  reviewerNotes,
   onPress,
 }: {
   session: PyrolysisSession;
   syncing: boolean;
-  sampleIds: string[];
-  samplePhotoUri: string | null;
+  batchIds: string[];
+  reviewStatus: string | null;
+  reviewerNotes: string | null;
   onPress: () => void;
 }) {
+  const isSyncing = syncing || session.uploadStatus === "syncing";
+  const syncTone: SyncTone =
+    session.status === "active"
+      ? "neutral"
+      : isSyncing
+        ? "warning"
+        : session.uploadStatus === "error"
+          ? "danger"
+          : session.uploadStatus === "synced"
+            ? "success"
+            : "warning";
   const syncLabel =
     session.status === "active"
       ? "On device"
-      : syncing || session.uploadStatus === "syncing"
+      : isSyncing
         ? "Syncing…"
         : session.uploadStatus === "error"
           ? "Sync failed — pull to retry"
           : session.uploadStatus === "synced"
-            ? "Synced to dashboard"
-            : "Waiting to sync";
+            ? "Synced"
+            : "Sync pending";
+  const syncPalette = syncTonePalette[syncTone];
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
       <View style={styles.cardTop}>
         <Text style={styles.cardTitle}>
-          Batch · {new Date(session.createdAt).toLocaleDateString()}
+          {batchIds.length > 0 ? `Batch ID: ${batchIds.join(", ")}` : "Batch"}
         </Text>
-        <Text style={styles.cardBadge}>{session.status}</Text>
+        {session.uploadStatus === "synced" || reviewStatus ? (
+          <ReviewStatusBadge status={reviewStatus || "pending"} />
+        ) : null}
       </View>
       <Text style={styles.cardMeta}>
-        Step: {pyrolysisStepLabel(session.currentStep as never)}
+        {new Date(session.createdAt).toLocaleDateString()}{" "}
+        {new Date(session.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
       </Text>
-      {sampleIds.length > 0 ? (
-        <Text style={styles.cardMeta}>Sample ID: {sampleIds.join(", ")}</Text>
-      ) : null}
-      {samplePhotoUri ? (
-        <Image source={{ uri: samplePhotoUri }} style={styles.sampleThumb} />
+      {reviewerNotes ? (
+        <Text style={styles.reviewNotes} numberOfLines={2}>
+          {reviewerNotes}
+        </Text>
       ) : null}
       <View style={styles.syncRow}>
-        {syncing || session.uploadStatus === "syncing" ? (
-          <ActivityIndicator size="small" color={colors.brunswick} />
-        ) : null}
-        <Text
-          style={[
-            styles.cardSync,
-            (syncing || session.uploadStatus === "syncing") && styles.cardSyncActive,
-            session.uploadStatus === "error" && styles.cardSyncError,
-            session.uploadStatus === "synced" && styles.cardSyncDone,
-          ]}
-        >
-          {syncLabel}
-        </Text>
+        {isSyncing ? <ActivityIndicator size="small" color={colors.warning} /> : null}
+        <View style={[styles.syncBadge, { backgroundColor: syncPalette.background }]}>
+          <Text style={[styles.syncBadgeText, { color: syncPalette.text }]}>
+            {syncLabel}
+          </Text>
+        </View>
       </View>
       {session.uploadStatus === "error" && session.syncError ? (
         <Text style={styles.syncError} numberOfLines={3}>
@@ -90,40 +115,68 @@ function SessionCard({
 export default function PyrolysisDashboardScreen({ navigation }) {
   const [sessions, setSessions] = useState<PyrolysisSession[]>([]);
   const [sessionSamples, setSessionSamples] = useState<
-    Record<string, { ids: string[]; photoUri: string | null }>
+    Record<
+      string,
+      {
+        batchIds: string[];
+        reviewStatus: string | null;
+        reviewerNotes: string | null;
+      }
+    >
   >({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingSessionIds, setSyncingSessionIds] = useState<Set<string>>(new Set());
 
-  const loadData = useCallback(async () => {
+  // Reads everything from local SQLite only — no network calls — so the
+  // dashboard renders immediately from whatever is already on the device.
+  const loadLocal = useCallback(async () => {
     try {
       const user = await getStoredAuthUser();
       if (!user) return;
       const rows = await listPyrolysisSessions(user.id);
       setSessions(rows);
 
-      const samples: Record<string, { ids: string[]; photoUri: string | null }> = {};
-      for (const session of rows) {
-        const kontikkis = await getSessionKontikkis(session.id);
-        const ids = kontikkis
-          .map((row) => row.payload?.sample_id?.trim())
-          .filter((value): value is string => Boolean(value));
-        const photoUri =
-          kontikkis
-            .map(
-              (row) =>
-                row.payload?.sample_photo_local_uri ?? row.payload?.sample_photo_url ?? null,
-            )
-            .find(Boolean) ?? null;
-        samples[session.id] = { ids, photoUri };
-      }
-      setSessionSamples(samples);
+      const entries = await Promise.all(
+        rows.map(async (session) => {
+          const kontikkis = await getSessionKontikkis(session.id);
+          const batchIds = kontikkis
+            .map((row) => row.payload?.batch_number?.trim())
+            .filter((value): value is string => Boolean(value));
+          const notes =
+            kontikkis.map((row) => row.reviewerNotes).find((value) => Boolean(value)) ??
+            null;
+          return [
+            session.id,
+            {
+              batchIds,
+              reviewStatus:
+                session.uploadStatus === "synced"
+                  ? summarizeReviewStatuses(kontikkis.map((row) => row.reviewStatus))
+                  : null,
+              reviewerNotes: notes,
+            },
+          ] as const;
+        }),
+      );
+      setSessionSamples(Object.fromEntries(entries));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
+
+  // Review status/notes are cosmetic (admin feedback) — refresh them from
+  // the backend in the background, after the local list is already
+  // rendered, instead of gating the dashboard behind a network call.
+  const refreshReviewStatusInBackground = useCallback(async () => {
+    try {
+      await refreshPyrolysisReviewStatuses();
+      await loadLocal();
+    } catch {
+      // Offline or backend unreachable — keep last known review status.
+    }
+  }, [loadLocal]);
 
   const syncPendingBatches = useCallback(async () => {
     await retryFailedPyrolysisSyncs();
@@ -133,7 +186,9 @@ export default function PyrolysisDashboardScreen({ navigation }) {
   React.useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
       setLoading(true);
-      loadData().then(() => syncPendingBatches());
+      loadLocal()
+        .then(() => syncPendingBatches())
+        .then(() => refreshReviewStatusInBackground());
     });
 
     const unsubscribeSync = subscribeSyncEvents((event) => {
@@ -147,11 +202,11 @@ export default function PyrolysisDashboardScreen({ navigation }) {
           next.delete(String(event.sessionId));
           return next;
         });
-        loadData();
+        loadLocal();
       }
 
       if (event.type === "syncEnd" || event.type === "syncStart") {
-        loadData();
+        loadLocal();
       }
     });
 
@@ -159,7 +214,7 @@ export default function PyrolysisDashboardScreen({ navigation }) {
       unsubscribe();
       unsubscribeSync();
     };
-  }, [navigation, loadData, syncPendingBatches]);
+  }, [navigation, loadLocal, syncPendingBatches, refreshReviewStatusInBackground]);
 
   return (
     <ScreenShell>
@@ -188,9 +243,9 @@ export default function PyrolysisDashboardScreen({ navigation }) {
               refreshing={refreshing}
               onRefresh={async () => {
                 setRefreshing(true);
-                await loadData();
+                await loadLocal();
                 await syncPendingBatches();
-                await loadData();
+                await refreshReviewStatusInBackground();
               }}
             />
           }
@@ -206,8 +261,9 @@ export default function PyrolysisDashboardScreen({ navigation }) {
             <SessionCard
               session={item}
               syncing={syncingSessionIds.has(item.id) || isPyrolysisSessionSyncing(item.id)}
-              sampleIds={sessionSamples[item.id]?.ids ?? []}
-              samplePhotoUri={sessionSamples[item.id]?.photoUri ?? null}
+              batchIds={sessionSamples[item.id]?.batchIds ?? []}
+              reviewStatus={sessionSamples[item.id]?.reviewStatus ?? null}
+              reviewerNotes={sessionSamples[item.id]?.reviewerNotes ?? null}
               onPress={() =>
                 navigation.navigate("PyrolysisSession", { sessionId: item.id })
               }
@@ -274,54 +330,44 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   cardTitle: {
+    flex: 1,
+    marginRight: spacing.sm,
     fontFamily: fonts.medium,
     fontSize: 16,
     color: colors.brunswick,
-  },
-  cardBadge: {
-    fontFamily: fonts.medium,
-    fontSize: 11,
-    color: colors.smoke,
-    textTransform: "uppercase",
   },
   cardMeta: {
     fontFamily: fonts.regular,
     fontSize: 13,
     color: colors.smoke,
   },
-  sampleThumb: {
-    width: 72,
-    height: 72,
-    borderRadius: 8,
-    backgroundColor: colors.chalk,
-  },
   syncRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
   },
-  cardSync: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+  syncBadge: {
+    alignSelf: "flex-start",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
   },
-  cardSyncActive: {
-    color: colors.brunswick,
+  syncBadgeText: {
     fontFamily: fonts.medium,
-  },
-  cardSyncDone: {
-    color: colors.success,
-    fontFamily: fonts.medium,
-  },
-  cardSyncError: {
-    color: colors.warning,
-    fontFamily: fonts.medium,
+    fontSize: 11,
+    letterSpacing: 0.2,
   },
   syncError: {
     fontFamily: fonts.regular,
     fontSize: 11,
     color: colors.smoke,
     lineHeight: 15,
+  },
+  reviewNotes: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.smoke,
+    lineHeight: 16,
   },
   empty: {
     alignItems: "center",

@@ -71,8 +71,6 @@ export type PyrolysisStagePhotos = Partial<
 export interface PyrolysisKontikkiData {
   batch_number?: string;
   feedstock_quantity?: number | null;
-  farm_id?: string | null;
-  farm_name?: string | null;
   avg_feedstock_size_cm?: number | null;
   feedstock_id?: string | null;
   feedstock_name?: string | null;
@@ -112,11 +110,21 @@ export interface StartPyrolysisSessionPayload {
   kontikki_ids: string[];
 }
 
+export const PYROLYSIS_SUBMISSION_STATUSES = ["draft", "submitted"] as const;
+
+export type PyrolysisSubmissionStatus = (typeof PYROLYSIS_SUBMISSION_STATUSES)[number];
+
 export interface PyrolysisBatchRecord extends PyrolysisBatchFlatRow {
   id: string;
   session_id: string;
   kontikki_id: string;
   kontikki_code: string;
+  review_status?: string | null;
+  reviewer_notes?: string | null;
+  /** Whether the operator has finalized this kontikki's data for this batch.
+   * Only "submitted" kontikkis are synced/reviewed; "draft" ones remain
+   * local-only and keep the kontikki reserved for this session. */
+  submission_status?: PyrolysisSubmissionStatus;
   created_at?: string;
   updated_at?: string;
 }
@@ -229,7 +237,7 @@ export function pyrolysisWorkflowSectionSubtitle(
   section: PyrolysisKontikkiWorkflowSection,
 ): string {
   if (section === "info") {
-    return "Batch number, feedstock, farm, location & photos";
+    return "Batch number, feedstock, location & photos";
   }
   if (section === "moisture") {
     return "5 moisture photos with readings";

@@ -9,6 +9,7 @@ import { useSearchFilterChips } from "@/hooks/useSearchFilterChips";
 import { hasActiveListFilters, matchesAllSearchTerms } from "@/lib/listFilters";
 import { listFeedstocks } from "./actions";
 import {
+  feedstockSearchIndex,
   formatLabStatus,
   LAB_STATUS_OPTIONS,
   producerLabel,
@@ -25,6 +26,7 @@ type FeedstockListRow = {
   lab_status_raw: FeedstockLabStatus;
   bulk_density: string;
   carbon_content: string;
+  search_index: string;
 };
 
 export default function FeedstockPage() {
@@ -60,6 +62,7 @@ export default function FeedstockPage() {
             lab_status_raw: feedstock.lab_status,
             bulk_density: `${feedstock.biochar_bulk_density_kg_m3} kg/m³`,
             carbon_content: `${feedstock.carbon_content_percent}%`,
+            search_index: feedstockSearchIndex(feedstock),
           };
         }),
       );
@@ -82,11 +85,7 @@ export default function FeedstockPage() {
           !labStatusFilter || row.lab_status_raw === labStatusFilter;
         const matchesQuery = matchesAllSearchTerms(
           searchFilters,
-          row.biomass_type,
-          row.producer,
-          row.lab_status,
-          row.bulk_density,
-          row.carbon_content,
+          row.search_index,
         );
         return matchesLabStatus && matchesQuery;
       }),
@@ -128,7 +127,7 @@ export default function FeedstockPage() {
         onAddSearchFilter={addSearchFilter}
         onRemoveSearchFilter={removeSearchFilter}
         onClearSearchFilters={clearSearchFilters}
-        searchPlaceholder="Search biomass type, producer, lab status…"
+        searchPlaceholder="Search biomass, producer, lab notes, preparation instructions…"
         filteredCount={filteredRows.length}
         totalCount={rows.length}
         filters={[

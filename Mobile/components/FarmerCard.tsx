@@ -15,7 +15,7 @@ function getSyncMeta(status) {
   }
 }
 
-export default function FarmerCard({ farmer, syncProgress = 0, onPress }) {
+export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklist }) {
   const { label, color, bg } = getSyncMeta(farmer.sync_status);
   const isSyncing = farmer.sync_status === "syncing";
   const progress = Math.min(100, Math.max(0, syncProgress));
@@ -43,6 +43,26 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress }) {
         >
           {farmer.mobile_number || "Mobile not added yet"}
         </Text>
+        {farmer.farmer_code ? (
+          <Text style={styles.code}>{farmer.farmer_code}</Text>
+        ) : null}
+
+        {checklist ? (
+          <View style={styles.checks}>
+            <Text style={[styles.check, checklist.hasProfile && styles.checkOn]}>
+              {checklist.hasProfile ? "✓" : "○"} Farmer
+            </Text>
+            <Text style={[styles.check, checklist.hasFields && styles.checkOn]}>
+              {checklist.hasFields ? "✓" : "○"} Fields
+            </Text>
+            <Text style={[styles.check, checklist.hasSoilSample && styles.checkOn]}>
+              {checklist.hasSoilSample ? "✓" : "○"} Sample
+            </Text>
+            <Text style={[styles.check, checklist.hasSoilReport && styles.checkOn]}>
+              {checklist.hasSoilReport ? "✓" : "○"} Report
+            </Text>
+          </View>
+        ) : null}
 
         {farmer.sync_status === "error" && farmer.sync_error ? (
           <Text style={styles.errorText} numberOfLines={2}>
@@ -110,6 +130,26 @@ const styles = StyleSheet.create({
   },
   mobileMissing: {
     fontStyle: "italic"
+  },
+  code: {
+    fontSize: 11,
+    color: colors.smokeLight,
+    fontFamily: fonts.regular,
+    marginTop: 2,
+  },
+  checks: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  check: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: colors.smoke,
+  },
+  checkOn: {
+    color: colors.brunswick,
   },
   errorText: {
     fontSize: 12,

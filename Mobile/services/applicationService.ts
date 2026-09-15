@@ -1,4 +1,3 @@
-import { Q } from "@nozbe/watermelondb";
 import type {
   ApplicationEntryRecord,
   ApplicationMediaType,
@@ -6,11 +5,17 @@ import type {
   CreateApplicationEntryPayload,
   FieldPhotoMetadata,
 } from "@krishecarbon/shared";
-import { database } from "../database";
-import ApplicationEntry from "../database/models/ApplicationEntry";
-import ApplicationPyrolysisLink from "../database/models/ApplicationPyrolysisLink";
-import PyrolysisBatch from "../database/models/PyrolysisBatch";
-import SyncQueue from "../database/models/SyncQueue";
+import { getDb } from "../database/db";
+import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
+import {
+  applicationEntryToRow,
+  applicationPyrolysisLinkToRow,
+  rowToApplicationEntry,
+  rowToApplicationPyrolysisLink,
+  rowToPyrolysisBatch,
+  syncQueueItemToRow,
+  type ApplicationEntry,
+} from "../database/types";
 import { backendFetch, fetchMobileNetworkOverview } from "./backendApi";
 import { uploadApplicationEntryMedia } from "../utils/applicationMediaUpload";
 import { getCurrentIST } from "./trustedtime";
@@ -34,6 +39,9 @@ export type ApplicationEntryView = {
   status: string;
   farmId: string | null;
   farmName: string | null;
+  locationLat: number | null;
+  locationLng: number | null;
+  locationAddress: string | null;
   comment: string | null;
   mediaType: ApplicationMediaType | null;
   mediaLocalUri: string | null;
@@ -41,6 +49,8 @@ export type ApplicationEntryView = {
   mediaMetadata: FieldPhotoMetadata | null;
   uploadStatus: string;
   syncError: string | null;
+  reviewStatus: string | null;
+  reviewerNotes: string | null;
   pyrolysisLinks: ApplicationPyrolysisLinkView[];
   createdAt: number;
   updatedAt: number;
@@ -50,22 +60,6 @@ export type SelectablePyrolysisBatch = AvailableApplicationPyrolysisBatch & {
   source: "server" | "local";
   localBatchId?: string | null;
 };
-
-function entriesCollection() {
-  return database.get<ApplicationEntry>("application_entries");
-}
-
-function linksCollection() {
-  return database.get<ApplicationPyrolysisLink>("application_pyrolysis_links");
-}
-
-function batchesCollection() {
-  return database.get<PyrolysisBatch>("pyrolysis_batches");
-}
-
-function syncQueueCollection() {
-  return database.get<SyncQueue>("sync_queue");
-}
 
 function parseMetadata(json: string | null | undefined): FieldPhotoMetadata | null {
   if (!json) return null;
@@ -81,20 +75,38 @@ async function triggerBackgroundSync() {
   void processSyncQueue();
 }
 
-export async function listApplicationEntries(operatorId: string) {
-  return entriesCollection()
-    .query(Q.where("operator_id", operatorId), Q.sortBy("created_at", Q.desc))
-    .fetch();
+async function findEntryOrThrow(entryId: string): Promise<ApplicationEntry> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<any>(
+    "SELECT * FROM application_entries WHERE id = ?",
+    [entryId],
+  );
+  if (!row) {
+    throw new Error(`Application entry with id ${entryId} not found`);
+  }
+  return rowToApplicationEntry(row);
 }
 
-export async function getApplicationEntry(entryId: string) {
-  return entriesCollection().find(entryId);
+export async function listApplicationEntries(operatorId: string): Promise<ApplicationEntry[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM application_entries WHERE operator_id = ? ORDER BY created_at DESC",
+    [operatorId],
+  );
+  return rows.map(rowToApplicationEntry);
+}
+
+export async function getApplicationEntry(entryId: string): Promise<ApplicationEntry> {
+  return findEntryOrThrow(entryId);
 }
 
 export async function getApplicationEntryLinks(entryId: string) {
-  return linksCollection()
-    .query(Q.where("application_entry_id", entryId))
-    .fetch();
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM application_pyrolysis_links WHERE application_entry_id = ?",
+    [entryId],
+  );
+  return rows.map(rowToApplicationPyrolysisLink);
 }
 
 export async function toApplicationEntryView(
@@ -110,6 +122,9 @@ export async function toApplicationEntryView(
     status: entry.status,
     farmId: entry.farmId,
     farmName: entry.farmName,
+    locationLat: entry.locationLat,
+    locationLng: entry.locationLng,
+    locationAddress: entry.locationAddress,
     comment: entry.comment,
     mediaType: entry.mediaType as ApplicationMediaType | null,
     mediaLocalUri: entry.mediaLocalUri,
@@ -117,6 +132,8 @@ export async function toApplicationEntryView(
     mediaMetadata: parseMetadata(entry.mediaMetadataJson),
     uploadStatus: entry.uploadStatus,
     syncError: entry.syncError,
+    reviewStatus: entry.reviewStatus,
+    reviewerNotes: entry.reviewerNotes,
     pyrolysisLinks: links.map((link) => ({
       id: link.id,
       pyrolysisBatchServerId: link.pyrolysisBatchServerId,
@@ -130,30 +147,63 @@ export async function toApplicationEntryView(
   };
 }
 
+export async function refreshApplicationReviewStatuses() {
+  const remote = await backendFetch<ApplicationEntryRecord[]>("/application-entries");
+  const byServerId = new Map(remote.map((row) => [row.id, row] as const));
+  if (byServerId.size === 0) return;
+
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>("SELECT * FROM application_entries");
+
+  for (const row of rows) {
+    const entry = rowToApplicationEntry(row);
+    if (!entry.serverId) continue;
+    const next = byServerId.get(entry.serverId);
+    if (!next) continue;
+    const reviewStatus = next.entry_status?.status ?? "pending_review";
+    const reviewerNotes = next.entry_status?.reviewer_notes ?? null;
+    if (entry.reviewStatus === reviewStatus && entry.reviewerNotes === reviewerNotes) {
+      continue;
+    }
+
+    await db.runAsync(
+      "UPDATE application_entries SET review_status = ?, reviewer_notes = ? WHERE id = ?",
+      [reviewStatus, reviewerNotes, entry.id],
+    );
+  }
+}
+
 export async function createApplicationEntryLocal(operatorId: string): Promise<string> {
+  const db = await getDb();
   const now = Date.now();
   const appliedAt = getCurrentIST();
-  let entryId = "";
+  const entryId = generateId();
 
-  await database.write(async () => {
-    const entry = await entriesCollection().create((record) => {
-      record.operatorId = operatorId;
-      record.appliedAt = appliedAt;
-      record.status = "draft";
-      record.farmId = null;
-      record.farmName = null;
-      record.comment = null;
-      record.mediaType = null;
-      record.mediaLocalUri = null;
-      record.mediaUrl = null;
-      record.mediaMetadataJson = null;
-      record.uploadStatus = LOCAL_SYNC_STATUS;
-      record.syncError = null;
-      record.createdAt = now;
-      record.updatedAt = now;
-    });
-    entryId = entry.id;
+  const row = applicationEntryToRow({
+    serverId: null,
+    operatorId,
+    appliedAt,
+    status: "draft",
+    farmId: null,
+    farmName: null,
+    locationLat: null,
+    locationLng: null,
+    locationAddress: null,
+    comment: null,
+    mediaType: null,
+    mediaLocalUri: null,
+    mediaUrl: null,
+    mediaMetadataJson: null,
+    reviewStatus: null,
+    reviewerNotes: null,
+    uploadStatus: LOCAL_SYNC_STATUS,
+    syncError: null,
+    createdAt: now,
+    updatedAt: now,
   });
+
+  const { sql, args } = buildInsert("application_entries", { id: entryId, ...row });
+  await db.runAsync(sql, args);
 
   return entryId;
 }
@@ -161,6 +211,9 @@ export async function createApplicationEntryLocal(operatorId: string): Promise<s
 export type ApplicationEntryUpdate = {
   farmId?: string | null;
   farmName?: string | null;
+  locationLat?: number | null;
+  locationLng?: number | null;
+  locationAddress?: string | null;
   comment?: string | null;
   mediaType?: ApplicationMediaType | null;
   mediaLocalUri?: string | null;
@@ -171,52 +224,59 @@ export async function updateApplicationEntryLocal(
   entryId: string,
   patch: ApplicationEntryUpdate,
 ) {
-  await database.write(async () => {
-    const entry = await entriesCollection().find(entryId);
-    await entry.update((record) => {
-      if (patch.farmId !== undefined) record.farmId = patch.farmId;
-      if (patch.farmName !== undefined) record.farmName = patch.farmName;
-      if (patch.comment !== undefined) record.comment = patch.comment;
-      if (patch.mediaType !== undefined) record.mediaType = patch.mediaType;
-      if (patch.mediaLocalUri !== undefined) record.mediaLocalUri = patch.mediaLocalUri;
-      if (patch.mediaMetadata !== undefined) {
-        record.mediaMetadataJson = patch.mediaMetadata
-          ? JSON.stringify(patch.mediaMetadata)
-          : null;
-      }
-      record.updatedAt = Date.now();
-    });
-  });
+  const db = await getDb();
+  const columns: Record<string, unknown> = {};
+
+  if (patch.farmId !== undefined) columns.farm_id = patch.farmId;
+  if (patch.farmName !== undefined) columns.farm_name = patch.farmName;
+  if (patch.locationLat !== undefined) columns.location_lat = patch.locationLat;
+  if (patch.locationLng !== undefined) columns.location_lng = patch.locationLng;
+  if (patch.locationAddress !== undefined) columns.location_address = patch.locationAddress;
+  if (patch.comment !== undefined) columns.comment = patch.comment;
+  if (patch.mediaType !== undefined) columns.media_type = patch.mediaType;
+  if (patch.mediaLocalUri !== undefined) columns.media_local_uri = patch.mediaLocalUri;
+  if (patch.mediaMetadata !== undefined) {
+    columns.media_metadata_json = patch.mediaMetadata
+      ? JSON.stringify(patch.mediaMetadata)
+      : null;
+  }
+  columns.updated_at = Date.now();
+
+  const { sql, args } = buildUpdate("application_entries", columns, "id = ?", [entryId]);
+  await db.runAsync(sql, args);
 }
 
 export async function setApplicationPyrolysisLinks(
   entryId: string,
   selected: SelectablePyrolysisBatch[],
 ) {
-  await database.write(async () => {
-    const existing = await linksCollection()
-      .query(Q.where("application_entry_id", entryId))
-      .fetch();
+  const db = await getDb();
 
-    for (const row of existing) {
-      await row.destroyPermanently();
-    }
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("DELETE FROM application_pyrolysis_links WHERE application_entry_id = ?", [
+      entryId,
+    ]);
 
     for (const batch of selected) {
-      await linksCollection().create((record) => {
-        record.applicationEntryId = entryId;
-        record.pyrolysisBatchServerId = batch.id;
-        record.pyrolysisBatchLocalId = batch.localBatchId ?? null;
-        record.kontikkiCode = batch.kontikki_code ?? null;
-        record.batchNumber = batch.batch_number ?? null;
-        record.producerName = batch.producer_name ?? null;
+      const row = applicationPyrolysisLinkToRow({
+        applicationEntryId: entryId,
+        pyrolysisBatchServerId: batch.id,
+        pyrolysisBatchLocalId: batch.localBatchId ?? null,
+        kontikkiCode: batch.kontikki_code ?? null,
+        batchNumber: batch.batch_number ?? null,
+        producerName: batch.producer_name ?? null,
       });
+      const { sql, args } = buildInsert("application_pyrolysis_links", {
+        id: generateId(),
+        ...row,
+      });
+      await db.runAsync(sql, args);
     }
 
-    const entry = await entriesCollection().find(entryId);
-    await entry.update((record) => {
-      record.updatedAt = Date.now();
-    });
+    await db.runAsync("UPDATE application_entries SET updated_at = ? WHERE id = ?", [
+      Date.now(),
+      entryId,
+    ]);
   });
 }
 
@@ -235,7 +295,8 @@ export function validateApplicationEntry(view: ApplicationEntryView): string[] {
 }
 
 export async function submitApplicationEntry(entryId: string) {
-  const entry = await entriesCollection().find(entryId);
+  const db = await getDb();
+  const entry = await findEntryOrThrow(entryId);
   const view = await toApplicationEntryView(entry);
   const errors = validateApplicationEntry(view);
 
@@ -243,43 +304,35 @@ export async function submitApplicationEntry(entryId: string) {
     throw new Error(errors.join("\n"));
   }
 
-  await database.write(async () => {
-    await entry.update((record) => {
-      record.status = "submitted";
-      record.uploadStatus = "pending";
-      record.syncError = null;
-      record.updatedAt = Date.now();
-    });
-  });
+  await db.runAsync(
+    "UPDATE application_entries SET status = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+    ["submitted", "pending", Date.now(), entryId],
+  );
 
-  const existing = await syncQueueCollection()
-    .query(
-      Q.where("entity_type", "application_entry"),
-      Q.where("entity_local_id", entryId),
-    )
-    .fetch();
+  const existing = await db.getAllAsync<any>(
+    "SELECT * FROM sync_queue WHERE entity_type = ? AND entity_local_id = ?",
+    ["application_entry", entryId],
+  );
 
   const failed = existing.find((item) => item.status === "failed");
 
   if (failed) {
-    await database.write(async () => {
-      await failed.update((record) => {
-        record.status = "pending";
-        record.retries = 0;
-        record.errorMessage = null;
-      });
-    });
+    await db.runAsync(
+      "UPDATE sync_queue SET status = ?, retries = ?, error_message = NULL WHERE id = ?",
+      ["pending", 0, failed.id],
+    );
   } else if (existing.length === 0) {
-    await database.write(async () => {
-      await syncQueueCollection().create((record) => {
-        record.entityType = "application_entry";
-        record.entityLocalId = entryId;
-        record.operation = "create";
-        record.status = "pending";
-        record.retries = 0;
-        record.createdAt = Date.now();
-      });
+    const row = syncQueueItemToRow({
+      entityType: "application_entry",
+      entityLocalId: entryId,
+      operation: "create",
+      status: "pending",
+      retries: 0,
+      errorMessage: null,
+      createdAt: Date.now(),
     });
+    const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+    await db.runAsync(sql, args);
   }
 
   void triggerBackgroundSync();
@@ -299,9 +352,11 @@ export async function fetchAvailablePyrolysisBatches(): Promise<SelectablePyroly
     serverRows = [];
   }
 
-  const localRows = await batchesCollection()
-    .query(Q.where("pyrolysis_completed", true))
-    .fetch();
+  const db = await getDb();
+  const localBatchRows = await db.getAllAsync<any>(
+    "SELECT * FROM pyrolysis_batches WHERE pyrolysis_completed = 1",
+  );
+  const localRows = localBatchRows.map(rowToPyrolysisBatch);
 
   const byServerId = new Map<string, SelectablePyrolysisBatch>();
 
@@ -336,6 +391,7 @@ export async function fetchAvailablePyrolysisBatches(): Promise<SelectablePyroly
 }
 
 export async function syncApplicationEntry(entry: ApplicationEntry) {
+  const db = await getDb();
   const view = await toApplicationEntryView(entry);
 
   if (view.serverId) {
@@ -360,6 +416,9 @@ export async function syncApplicationEntry(entry: ApplicationEntry) {
     applied_at: view.appliedAt,
     farm_id: view.farmId,
     farm_name: view.farmName,
+    location_lat: view.locationLat,
+    location_lng: view.locationLng,
+    location_address: view.locationAddress,
     comment: view.comment,
     media_type: view.mediaType,
     media_url: uploadedMedia.media_url,
@@ -372,15 +431,22 @@ export async function syncApplicationEntry(entry: ApplicationEntry) {
     body: JSON.stringify(payload),
   });
 
-  await database.write(async () => {
-    const fresh = await entriesCollection().find(entry.id);
-    await fresh.update((record) => {
-      record.serverId = created.id;
-      record.status = "synced";
-      record.uploadStatus = "synced";
-      record.syncError = null;
-      record.mediaUrl = uploadedMedia.media_url ?? record.mediaUrl;
-      record.updatedAt = Date.now();
-    });
-  });
+  const fresh = await findEntryOrThrow(entry.id);
+
+  await db.runAsync(
+    `UPDATE application_entries SET
+      server_id = ?, status = ?, sync_status = ?, sync_error = NULL,
+      review_status = ?, reviewer_notes = ?, media_url = ?, updated_at = ?
+     WHERE id = ?`,
+    [
+      created.id,
+      "synced",
+      "synced",
+      created.entry_status?.status ?? "pending_review",
+      created.entry_status?.reviewer_notes ?? null,
+      uploadedMedia.media_url ?? fresh.mediaUrl,
+      Date.now(),
+      entry.id,
+    ],
+  );
 }

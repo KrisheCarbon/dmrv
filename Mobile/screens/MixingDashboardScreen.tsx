@@ -10,9 +10,11 @@ import {
 } from "react-native";
 import { mixingMaterialLabel } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
+import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
 import {
   listMixingEntries,
+  refreshMixingReviewStatuses,
   toMixingEntryView,
   type MixingEntryView,
 } from "../services/mixingService";
@@ -42,7 +44,7 @@ function EntryCard({
     entry.status === "draft"
       ? "Draft"
       : entry.uploadStatus === "synced"
-        ? "Pending review"
+        ? entry.reviewStatus || "pending_review"
         : entry.status === "submitted"
           ? "Submitted"
           : entry.status;
@@ -55,7 +57,7 @@ function EntryCard({
         : entry.uploadStatus === "error"
           ? "Sync failed — pull to retry"
           : entry.uploadStatus === "synced"
-            ? "Uploaded — pending review"
+            ? "Uploaded to dashboard"
             : "Waiting to sync";
 
   return (
@@ -64,13 +66,22 @@ function EntryCard({
         <Text style={styles.cardTitle}>
           Mixing · {new Date(entry.startedAt).toLocaleString()}
         </Text>
-        <Text style={styles.cardBadge}>{reviewLabel}</Text>
+        {entry.uploadStatus === "synced" ? (
+          <ReviewStatusBadge status={reviewLabel} />
+        ) : (
+          <Text style={styles.cardBadge}>{reviewLabel}</Text>
+        )}
       </View>
       <Text style={styles.cardMeta}>
         {entry.farmName || "Farm not set"}
         {entry.materialType ? ` · ${mixingMaterialLabel(entry.materialType)}` : ""}
       </Text>
       <Text style={styles.cardMeta}>{batchLabel}</Text>
+      {entry.reviewerNotes ? (
+        <Text style={styles.reviewNotes} numberOfLines={2}>
+          {entry.reviewerNotes}
+        </Text>
+      ) : null}
       <View style={styles.syncRow}>
         {syncing || entry.uploadStatus === "syncing" ? (
           <ActivityIndicator size="small" color={colors.brunswick} />
@@ -105,6 +116,11 @@ export default function MixingDashboardScreen({ navigation }) {
     try {
       const user = await getStoredAuthUser();
       if (!user) return;
+      try {
+        await refreshMixingReviewStatuses();
+      } catch {
+        // Keep last known review status when offline.
+      }
       const rows = await listMixingEntries(user.id);
       const views = await Promise.all(rows.map((row) => toMixingEntryView(row)));
       setEntries(views);
@@ -306,6 +322,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 12,
     color: colors.error,
+  },
+  reviewNotes: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.smoke,
+    lineHeight: 16,
   },
   empty: {
     paddingTop: spacing.xl,

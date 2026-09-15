@@ -5,70 +5,90 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  TouchableOpacity,
-  Alert
+  Alert,
+  Pressable,
+  Image,
 } from "react-native";
+import { soilTestStatusLabel } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
-import PrimaryButton from "../components/PrimaryButton";
-import ConsentViewerModal from "../components/ConsentViewerModal";
-import { getFarmerByIdLocal } from "../services/farmerService";
-import { isFarmerSyncing } from "../services/syncService";
+import { farmerToFormData, getFarmerByIdLocal } from "../services/farmerService";
 import {
-  getConsentDisplayName,
-  hasConsent,
-  resolveConsentViewUri
-} from "../utils/consent";
+  consentExpiryLabel,
+  getLatestConsent,
+  listConsentsForFarmer,
+  listFieldsForFarmer,
+  listSoilReportsForFarmer,
+  listSoilTestsForFarmer,
+  setFieldStatus,
+} from "../services/farmersNetworkService";
+import { isFarmerSyncing } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
-function DetailRow({ label, value }) {
+const TABS = [
+  { key: "fields", label: "Fields" },
+  { key: "samples", label: "Soil samples" },
+  { key: "reports", label: "Soil reports" },
+  { key: "consent", label: "Consent" },
+] as const;
+
+function DetailRow({ label, value, highlight = false }) {
   if (value == null || value === "") return null;
 
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
-    </View>
-  );
-}
-
-function SyncBadge({ status }) {
-  const meta =
-    status === "syncing"
-      ? { label: "Syncing", bg: colors.overlay, color: colors.brunswick }
-      : status === "pending"
-      ? { label: "Pending sync", bg: colors.warningBg, color: colors.warning }
-      : status === "error"
-      ? { label: "Sync failed", bg: colors.errorBg, color: colors.error }
-      : { label: "Synced", bg: colors.successBg, color: colors.success };
-
-  return (
-    <View style={[styles.badge, { backgroundColor: meta.bg }]}>
-      <Text style={[styles.badgeText, { color: meta.color }]}>
-        {meta.label}
+      <Text style={[styles.rowValue, highlight && styles.rowValueHighlight]}>
+        {value}
       </Text>
     </View>
   );
 }
 
-function boolLabel(value) {
-  return value ? "Yes" : "No";
+function Check({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <Text style={[styles.check, ok && styles.checkOn]}>
+      {ok ? "✓" : "○"} {label}
+    </Text>
+  );
 }
 
 export default function FarmerDetailScreen({ route, navigation }) {
-  const { farmerId } = route.params;
+  const farmerId = route.params?.farmerId;
   const [farmer, setFarmer] = useState(null);
+  const [fields, setFields] = useState([]);
+  const [consents, setConsents] = useState([]);
+  const [soilTests, setSoilTests] = useState([]);
+  const [soilReports, setSoilReports] = useState([]);
+  const [latestConsentLabel, setLatestConsentLabel] = useState("—");
+  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("fields");
   const [loading, setLoading] = useState(true);
-  const [consentVisible, setConsentVisible] = useState(false);
-  const [consentViewUri, setConsentViewUri] = useState(null);
-  const [consentOpening, setConsentOpening] = useState(false);
 
   const loadFarmer = useCallback(async () => {
+    if (!farmerId) {
+      setLoading(false);
+      Alert.alert("Farmer not found", "This farmer record is missing.", [
+        { text: "OK", onPress: () => navigation.goBack() },
+      ]);
+      return;
+    }
     try {
       const record = await getFarmerByIdLocal(farmerId);
-      setFarmer(record.toFormData());
+      setFarmer(farmerToFormData(record));
+      const [fieldList, consentList, tests, reports, latest] = await Promise.all([
+        listFieldsForFarmer(farmerId),
+        listConsentsForFarmer(farmerId),
+        listSoilTestsForFarmer(farmerId),
+        listSoilReportsForFarmer(farmerId),
+        getLatestConsent(farmerId),
+      ]);
+      setFields(fieldList);
+      setConsents(consentList);
+      setSoilTests(tests);
+      setSoilReports(reports);
+      setLatestConsentLabel(consentExpiryLabel(latest));
     } catch (err) {
       Alert.alert("Error", err.message, [
-        { text: "OK", onPress: () => navigation.goBack() }
+        { text: "OK", onPress: () => navigation.goBack() },
       ]);
     } finally {
       setLoading(false);
@@ -85,29 +105,29 @@ export default function FarmerDetailScreen({ route, navigation }) {
     if (await isFarmerSyncing(farmerId)) {
       Alert.alert(
         "Sync in progress",
-        "This farmer is currently syncing. You can edit after sync completes."
+        "This farmer is currently syncing. You can edit after sync completes.",
       );
       return;
     }
-
     navigation.navigate("EditFarmer", { farmerId });
   }
 
-  async function openConsent() {
-    try {
-      setConsentOpening(true);
-      const uri = await resolveConsentViewUri(farmer);
-      if (!uri) {
-        Alert.alert("No consent file", "No consent document is available.");
-        return;
-      }
-      setConsentViewUri(uri);
-      setConsentVisible(true);
-    } catch (err) {
-      Alert.alert("Unable to load consent", err.message);
-    } finally {
-      setConsentOpening(false);
-    }
+  async function markInactive(id: string) {
+    Alert.alert(
+      "Mark field inactive?",
+      "Use when a lease ends or the plot changes.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Mark inactive",
+          style: "destructive",
+          onPress: async () => {
+            await setFieldStatus(id, "inactive");
+            loadFarmer();
+          },
+        },
+      ],
+    );
   }
 
   if (loading) {
@@ -122,18 +142,35 @@ export default function FarmerDetailScreen({ route, navigation }) {
 
   if (!farmer) return null;
 
-  const consentName = getConsentDisplayName(farmer);
-  const consentSource = farmer.consent_local_uri
-    ? "On device (not yet synced)"
-    : farmer.consent_document_url
-    ? "Synced to cloud"
-    : null;
-
   return (
     <ScreenShell>
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>{farmer.farmer_name}</Text>
-        <Text style={styles.pageSubtitle}>Farmer details</Text>
+        <Text style={styles.pageSubtitle}>
+          {farmer.farmer_code ? `Farmer ID ${farmer.farmer_code}` : "Farmer"}
+          {" · "}
+          {latestConsentLabel}
+        </Text>
+        <View style={styles.checkRow}>
+          <Check ok label="Farmer" />
+          <Check ok={fields.length > 0} label="Fields" />
+          <Check ok={soilTests.length > 0} label="Sample" />
+          <Check ok={soilReports.length > 0} label="Report" />
+        </View>
+      </View>
+
+      <View style={styles.tabs}>
+        {TABS.map((item) => (
+          <Pressable
+            key={item.key}
+            style={[styles.tab, tab === item.key && styles.tabActive]}
+            onPress={() => setTab(item.key)}
+          >
+            <Text style={[styles.tabText, tab === item.key && styles.tabTextActive]}>
+              {item.label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
       <ScrollView
@@ -143,114 +180,207 @@ export default function FarmerDetailScreen({ route, navigation }) {
       >
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Overview</Text>
-            <SyncBadge status={farmer.sync_status} />
+            <Text style={styles.sectionTitle}>Farmer info</Text>
+            <Pressable onPress={handleEdit}>
+              <Text style={styles.link}>Edit</Text>
+            </Pressable>
           </View>
-          {farmer.sync_status === "error" && farmer.sync_error ? (
-            <Text style={styles.syncError}>{farmer.sync_error}</Text>
-          ) : null}
+          <DetailRow label="Mobile" value={farmer.mobile_number || "Not added"} />
+          <DetailRow label="Father / spouse" value={farmer.father_spouse_name} />
+          <DetailRow label="Agri ID / Kisan Pehchan" value={farmer.agri_id} />
           <DetailRow
-            label="Mobile"
-            value={farmer.mobile_number || "Not added yet"}
+            label="Address"
+            value={[
+              farmer.address,
+              farmer.village,
+              farmer.mandal,
+              farmer.district,
+              farmer.state,
+            ]
+              .filter(Boolean)
+              .join(", ")}
           />
           <DetailRow
-            label="Total land"
+            label="Cultivated land"
             value={`${farmer.total_land_size} acres`}
           />
           <DetailRow
-            label="Estimated biomass"
-            value={`${farmer.estimated_biomass ?? 0} tons`}
-          />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Farm location</Text>
-          <DetailRow label="Address" value={farmer.address} />
-          <DetailRow
-            label="Coordinates"
+            label="Owned / leased"
             value={
-              farmer.latitude != null && farmer.longitude != null
-                ? `${Number(farmer.latitude).toFixed(6)}, ${Number(farmer.longitude).toFixed(6)}`
+              farmer.owned_land_size || farmer.leased_land_size
+                ? `${farmer.owned_land_size || 0} / ${farmer.leased_land_size || 0} acres`
                 : null
             }
           />
+          {farmer.crops?.length
+            ? farmer.crops.map((crop, index) => (
+                <DetailRow
+                  key={`${crop.crop_name}-${index}`}
+                  label={`Major crop ${index + 1}`}
+                  value={`${crop.crop_name} · ${crop.crop_area} ac · sow ${crop.sowing_date || "—"} · harvest ${crop.harvest_date || "—"}`}
+                />
+              ))
+            : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Crops</Text>
-          {farmer.crops?.length ? (
-            farmer.crops.map((crop, index) => (
-              <View key={`${crop.crop_name}-${index}`} style={styles.cropCard}>
-                <Text style={styles.cropName}>{crop.crop_name}</Text>
-                <DetailRow label="Area" value={`${crop.crop_area} acres`} />
-                <DetailRow label="Sowing" value={crop.sowing_date} />
-                <DetailRow label="Harvest" value={crop.harvest_date} />
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyText}>No crops recorded.</Text>
-          )}
-        </View>
+        {tab === "fields" ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Fields / farm info</Text>
+              <Pressable
+                onPress={() =>
+                  navigation.navigate("FieldForm", { farmerId, mode: "create" })
+                }
+              >
+                <Text style={styles.link}>Add field</Text>
+              </Pressable>
+            </View>
+            {fields.length ? (
+              fields.map((field) => (
+                <View key={field.id} style={styles.itemCard}>
+                  <Text style={styles.itemTitle}>
+                    {field.fieldCode} · {field.ownershipType}
+                    {field.status === "inactive" ? " (inactive)" : ""}
+                  </Text>
+                  <DetailRow
+                    label="Area"
+                    value={
+                      field.calculatedArea != null
+                        ? `${field.calculatedArea} acres`
+                        : null
+                    }
+                  />
+                  <DetailRow label="Water" value={field.waterSource} />
+                  <DetailRow label="Crop" value={field.cropName} />
+                  <DetailRow label="Season" value={field.season} />
+                  <DetailRow
+                    label="Sowing / harvest"
+                    value={
+                      field.sowingDate || field.harvestDate
+                        ? `${field.sowingDate || "—"} → ${field.harvestDate || "—"}`
+                        : null
+                    }
+                  />
+                  <DetailRow
+                    label="GPS"
+                    value={
+                      field.latitude != null
+                        ? `${Number(field.latitude).toFixed(5)}, ${Number(field.longitude).toFixed(5)}`
+                        : null
+                    }
+                  />
+                  <View style={styles.inlineActions}>
+                    <Pressable
+                      onPress={() =>
+                        navigation.navigate("FieldForm", {
+                          farmerId,
+                          fieldId: field.id,
+                        })
+                      }
+                    >
+                      <Text style={styles.link}>Edit</Text>
+                    </Pressable>
+                    {field.status === "active" ? (
+                      <Pressable onPress={() => markInactive(field.id)}>
+                        <Text style={styles.linkMuted}>Mark inactive</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No fields yet.</Text>
+            )}
+          </View>
+        ) : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Biochar</Text>
-          <DetailRow
-            label="Interested in biochar"
-            value={boolLabel(farmer.interested_in_biochar)}
-          />
-          <DetailRow
-            label="Prior biochar experience"
-            value={boolLabel(farmer.prior_biochar_exp)}
-          />
-          {farmer.prior_biochar_exp && (
-            <DetailRow
-              label="Prior biochar acreage"
-              value={`${farmer.prior_biochar_acreage} acres`}
-            />
-          )}
-        </View>
+        {tab === "samples" ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Soil samples</Text>
+              <Pressable
+                onPress={() => navigation.navigate("SoilTestForm", { farmerId })}
+              >
+                <Text style={styles.link}>Add sample</Text>
+              </Pressable>
+            </View>
+            {soilTests.length ? (
+              soilTests.map((t) => (
+                <View key={t.id} style={styles.itemCard}>
+                  <Text style={styles.itemTitle}>{t.sampleDate}</Text>
+                  <DetailRow
+                    label="Status"
+                    value={soilTestStatusLabel(t.status)}
+                  />
+                  <DetailRow
+                    label="Supervisor"
+                    value={t.submittedToSupervisorName}
+                  />
+                  {t.samplePhotoUri ? (
+                    <Image source={{ uri: t.samplePhotoUri }} style={styles.thumb} />
+                  ) : null}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No soil samples yet.</Text>
+            )}
+          </View>
+        ) : null}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Consent form</Text>
-          {hasConsent(farmer) ? (
-            <TouchableOpacity
-              style={styles.consentCard}
-              onPress={openConsent}
-              activeOpacity={0.85}
-              disabled={consentOpening}
-            >
-              <View style={styles.consentBody}>
-                <Text style={styles.consentName} numberOfLines={2}>
-                  {consentOpening ? "Loading…" : consentName}
-                </Text>
-                {consentSource ? (
-                  <Text style={styles.consentMeta}>{consentSource}</Text>
-                ) : null}
-              </View>
-              <Text style={styles.consentAction}>View ›</Text>
-            </TouchableOpacity>
-          ) : (
-            <Text style={styles.emptyText}>No consent document uploaded.</Text>
-          )}
-        </View>
+        {tab === "reports" ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Soil reports</Text>
+            {soilReports.length ? (
+              soilReports.map((r) => (
+                <View key={r.id} style={styles.itemCard}>
+                  <Text style={styles.itemTitle}>{r.reportDate}</Text>
+                  <DetailRow label="Source" value={r.source} />
+                  <DetailRow label="Summary" value={r.resultsSummary} />
+                  <DetailRow
+                    label="PDF"
+                    value={r.documentUrl || r.documentUri ? "Uploaded" : "Pending"}
+                  />
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>
+                Reports appear here after a supervisor uploads the lab PDF in the admin portal.
+              </Text>
+            )}
+          </View>
+        ) : null}
 
-        <PrimaryButton
-          title="Edit farmer"
-          onPress={handleEdit}
-          disabled={farmer.sync_status === "syncing"}
-          variant="outline"
-        />
+        {tab === "consent" ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Consent / documents</Text>
+              <Pressable
+                onPress={() => navigation.navigate("ConsentForm", { farmerId })}
+              >
+                <Text style={styles.link}>Add document</Text>
+              </Pressable>
+            </View>
+            {consents.length ? (
+              consents.map((c) => (
+                <View key={c.id} style={styles.itemCard}>
+                  <Text style={styles.itemTitle}>{c.agreementType}</Text>
+                  <DetailRow label="Status" value={consentExpiryLabel(c)} />
+                  <DetailRow label="Deadline" value={c.validTo} />
+                  {c.photos?.length ? (
+                    <View style={styles.photoRow}>
+                      {c.photos.map((uri) => (
+                        <Image key={uri} source={{ uri }} style={styles.thumbSmall} />
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No documents on file.</Text>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
-
-      <ConsentViewerModal
-        visible={consentVisible}
-        uri={consentViewUri}
-        fileName={consentName}
-        onClose={() => {
-          setConsentVisible(false);
-          setConsentViewUri(null);
-        }}
-      />
     </ScreenShell>
   );
 }
@@ -259,32 +389,69 @@ const styles = StyleSheet.create({
   centered: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
   },
   pageHeader: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: spacing.md
+    paddingBottom: spacing.sm,
   },
   pageTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontFamily: fonts.bold,
     color: colors.brunswick,
-    letterSpacing: -0.5
+    letterSpacing: -0.5,
   },
   pageSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    marginTop: 6
+    marginTop: 6,
   },
-  scroll: {
-    flex: 1
+  checkRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 10,
   },
+  check: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: colors.smoke,
+  },
+  checkOn: {
+    color: colors.brunswick,
+  },
+  tabs: {
+    flexDirection: "row",
+    paddingHorizontal: spacing.sm,
+    gap: 4,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    alignItems: "center",
+  },
+  tabActive: {
+    borderBottomColor: colors.chartreuse,
+  },
+  tabText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: colors.smoke,
+    textAlign: "center",
+  },
+  tabTextActive: {
+    color: colors.brunswick,
+  },
+  scroll: { flex: 1 },
   content: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
-    gap: spacing.md
+    gap: spacing.md,
+    paddingTop: spacing.md,
   },
   section: {
     backgroundColor: colors.white,
@@ -292,98 +459,92 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    gap: spacing.sm
+    gap: spacing.sm,
   },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: spacing.sm
+    gap: spacing.sm,
   },
   sectionTitle: {
     fontSize: 16,
     fontFamily: fonts.bold,
     color: colors.brunswick,
-    marginBottom: 2
+    marginBottom: 2,
   },
-  row: {
-    gap: 4
-  },
+  row: { gap: 4 },
   rowLabel: {
     fontSize: 12,
     fontFamily: fonts.medium,
     color: colors.smoke,
     textTransform: "uppercase",
-    letterSpacing: 0.3
+    letterSpacing: 0.3,
   },
   rowValue: {
     fontSize: 15,
     fontFamily: fonts.regular,
     color: colors.text,
-    lineHeight: 22
+    lineHeight: 22,
   },
-  cropCard: {
+  rowValueHighlight: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    color: colors.brunswick,
+  },
+  itemCard: {
     backgroundColor: colors.white,
     borderRadius: radius.sm,
     padding: spacing.sm,
     gap: 4,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.chartreuse,
   },
-  cropName: {
+  itemTitle: {
     fontSize: 15,
     fontFamily: fonts.medium,
     color: colors.brunswick,
-    marginBottom: 4
+    marginBottom: 4,
+  },
+  inlineActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: 6,
+  },
+  link: {
+    fontFamily: fonts.medium,
+    color: colors.brunswick,
+    fontSize: 13,
+  },
+  linkMuted: {
+    fontFamily: fonts.medium,
+    color: colors.smoke,
+    fontSize: 13,
   },
   emptyText: {
     fontSize: 14,
     fontFamily: fonts.regular,
-    color: colors.smoke
-  },
-  syncError: {
-    fontSize: 13,
-    fontFamily: fonts.regular,
-    color: colors.error,
-    marginBottom: spacing.sm
-  },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.pill
-  },
-  badgeText: {
-    fontSize: 11,
-    fontFamily: fonts.medium,
-    textTransform: "uppercase"
-  },
-  consentCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.white,
-    borderRadius: radius.sm,
-    padding: spacing.md,
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  consentBody: {
-    flex: 1
-  },
-  consentName: {
-    fontSize: 15,
-    fontFamily: fonts.medium,
-    color: colors.brunswick
-  },
-  consentMeta: {
-    fontSize: 12,
-    fontFamily: fonts.regular,
     color: colors.smoke,
-    marginTop: 4
   },
-  consentAction: {
-    fontSize: 15,
-    fontFamily: fonts.medium,
-    color: colors.brunswick
-  }
+  thumb: {
+    width: "100%",
+    height: 120,
+    borderRadius: 8,
+    marginTop: 6,
+    backgroundColor: colors.chalk,
+  },
+  photoRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  thumbSmall: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: colors.chalk,
+  },
 });

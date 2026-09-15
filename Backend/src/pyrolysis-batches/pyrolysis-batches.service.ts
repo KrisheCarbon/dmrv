@@ -39,7 +39,6 @@ export interface PyrolysisBatchListItem {
   pyrolysis_completed: boolean;
   review_status: PyrolysisBatchStatusValue;
   reviewed_at?: string | null;
-  farm_name?: string | null;
   feedstock_name?: string | null;
   feedstock_id?: string | null;
   feedstock_quantity?: number | null;
@@ -75,7 +74,6 @@ const BATCH_LIST_SELECT = `
   session_id,
   yield_percent,
   pyrolysis_completed,
-  farm_name,
   feedstock_name,
   feedstock_id,
   feedstock_quantity,
@@ -348,7 +346,6 @@ export class PyrolysisBatchesService {
       pyrolysis_completed: Boolean(row.pyrolysis_completed),
       review_status: (batchStatus?.status as PyrolysisBatchStatusValue) ?? 'pending',
       reviewed_at: (batchStatus?.reviewed_at as string) ?? null,
-      farm_name: (row.farm_name as string) ?? null,
       feedstock_name: (row.feedstock_name as string) ?? null,
       feedstock_id: (row.feedstock_id as string) ?? null,
       feedstock_quantity: numeric(row.feedstock_quantity),
@@ -422,10 +419,9 @@ export class PyrolysisBatchesService {
       session_id: row.session_id as string,
       kontikki_id: row.kontikki_id as string,
       kontikki_code: row.kontikki_code as string,
+      submission_status: ((row.submission_status as string) ?? 'draft') as PyrolysisBatchRecord['submission_status'],
       batch_number: (row.batch_number as string) ?? null,
       feedstock_quantity: numeric(row.feedstock_quantity),
-      farm_id: (row.farm_id as string) ?? null,
-      farm_name: (row.farm_name as string) ?? null,
       avg_feedstock_size_cm: numeric(row.avg_feedstock_size_cm),
       feedstock_id: (row.feedstock_id as string) ?? null,
       feedstock_name: (row.feedstock_name as string) ?? null,

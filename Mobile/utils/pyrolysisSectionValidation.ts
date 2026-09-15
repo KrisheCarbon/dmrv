@@ -10,7 +10,6 @@ import {
 
 export function isInfoSectionComplete(data: PyrolysisKontikkiData): boolean {
   if (!data.batch_number?.trim()) return false;
-  if (!data.farm_id && !data.farm_name?.trim()) return false;
   if (!data.feedstock_id && !data.feedstock_name?.trim()) return false;
   return Boolean(data.feedstock_photo_local_uri || data.feedstock_photo_url);
 }

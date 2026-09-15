@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -29,6 +30,11 @@ export class PyrolysisSessionsController {
   @Get()
   list(@AuthUser() user: AuthenticatedUser) {
     return this.pyrolysisSessionsService.listSessions(user);
+  }
+
+  @Get('review-statuses')
+  listReviewStatuses(@AuthUser() user: AuthenticatedUser) {
+    return this.pyrolysisSessionsService.listBatchReviewStatuses(user);
   }
 
   @Post('start')
@@ -65,6 +71,15 @@ export class PyrolysisSessionsController {
     @Body() payload: UpdatePyrolysisBatchPayload,
   ) {
     return this.pyrolysisSessionsService.updateBatch(user, id, batchId, payload);
+  }
+
+  @Delete(':id/batches/:batchId')
+  deleteBatch(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('batchId') batchId: string,
+  ) {
+    return this.pyrolysisSessionsService.deleteBatch(user, id, batchId);
   }
 
   @Post(':id/complete')

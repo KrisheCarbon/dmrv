@@ -8,6 +8,7 @@ import {
   applicationMediaTypeLabel,
 } from "@krishecarbon/shared";
 import type { DbRow } from "@/types/entities";
+import { buildSearchIndex, photoMetadataSearchParts } from "@/lib/searchIndex";
 
 export interface ApplicationEntryListItem extends ApplicationEntryRecord {
   operator_name: string;
@@ -27,6 +28,7 @@ export interface ApplicationEntryTableRow extends DbRow {
   pyrolysis_links: ApplicationPyrolysisLinkRecord[];
   status: string;
   status_raw: ApplicationEntryReviewStatus;
+  search_index: string;
 }
 
 export function formatDateTime(value?: string | null) {
@@ -66,6 +68,32 @@ export function formatLinkedBatchLabel(link: {
 
 export function formatMediaType(entry: Pick<ApplicationEntryRecord, "media_type">) {
   return applicationMediaTypeLabel(entry.media_type);
+}
+
+export function applicationEntrySearchIndex(entry: ApplicationEntryListItem): string {
+  const reviewStatus = resolveReviewStatus(entry);
+  return buildSearchIndex(
+    entry.id,
+    entry.farm_name,
+    entry.farm_id,
+    entry.comment,
+    entry.media_type,
+    formatMediaType(entry),
+    entry.operator_name,
+    reviewStatus,
+    formatReviewStatus(reviewStatus),
+    entry.entry_status?.reviewer_notes,
+    entry.entry_status?.reviewer?.full_name,
+    entry.applied_at,
+    formatDateTime(entry.applied_at),
+    entry.pyrolysis_links,
+    entry.pyrolysis_links.map((link) => formatLinkedBatchLabel(link)),
+    entry.pyrolysis_links.map((link) => link.producer_name),
+    photoMetadataSearchParts(entry.media_metadata),
+    entry.entry_status?.media_flags?.map(
+      (flag) => `${flag.media_key} ${flag.flagged ? "flagged" : "ok"}`,
+    ),
+  );
 }
 
 export function resolveReviewStatus(

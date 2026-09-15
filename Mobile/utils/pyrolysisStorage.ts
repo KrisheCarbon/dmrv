@@ -1,4 +1,4 @@
-import { getModuleBucket } from "./consentStorage";
+import { getModuleBucket } from "./moduleStorage";
 
 export const PYROLYSIS_BUCKET = getModuleBucket("pyrolysis");
 

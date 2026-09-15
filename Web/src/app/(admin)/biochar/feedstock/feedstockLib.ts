@@ -4,6 +4,7 @@ import type {
   FeedstockProducerRef,
   MethaneCompensationStrategy,
 } from "@/types";
+import { buildSearchIndex } from "@/lib/searchIndex";
 
 export type FeedstockSavePayload = {
   biomass_type: string;
@@ -86,6 +87,33 @@ export function producerLabel(producer: FeedstockProducerRef | null) {
     return `${producer.name} (${producer.producer_code})`;
   }
   return producer.name ?? producer.producer_code ?? producer.id;
+}
+
+export function feedstockSearchIndex(feedstock: FeedstockDetail): string {
+  const producer = resolveFeedstockProducer(feedstock);
+  return buildSearchIndex(
+    feedstock.id,
+    feedstock.biomass_type,
+    producerLabel(producer),
+    producer?.name,
+    producer?.producer_code,
+    producer?.id,
+    feedstock.biochar_producer_id,
+    feedstock.lab_status,
+    formatLabStatus(feedstock.lab_status),
+    feedstock.biochar_bulk_density_kg_m3,
+    feedstock.carbon_content_percent,
+    feedstock.hc_ratio,
+    feedstock.biomass_preparation_instruction,
+    feedstock.methane_compensation_strategy,
+    formatMethaneStrategy(feedstock.methane_compensation_strategy),
+    feedstock.lab_submission_date,
+    feedstock.lab_analysis_date,
+    formatDate(feedstock.lab_submission_date),
+    formatDate(feedstock.lab_analysis_date),
+    feedstock.created_at,
+    feedstock.updated_at,
+  );
 }
 
 export function formatDate(value?: string | null) {

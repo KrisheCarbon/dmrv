@@ -10,23 +10,21 @@ import {
   Platform
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Picker } from "@react-native-picker/picker";
 
 import FormInput from "./FormInput";
+import FormPicker from "./FormPicker";
 import PrimaryButton from "./PrimaryButton";
 import LocationPickerModal, {
   openMapPickerIfOnline
 } from "./LocationPickerModal";
-import { CROP_OPTIONS } from "../constants/crops";
+import { CROP_OPTIONS, CROP_BIOMASS_RATES } from "../constants/crops";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import { calculateEstimatedBiomass } from "../utils/biomass";
 import { getCurrentFarmLocation } from "../utils/location";
+import { startLocationCache } from "../services/locationCache";
 import { validateFarmerForm } from "../utils/validation";
-import {
-  pickConsentDocument,
-  pickConsentImageFromCamera,
-  pickConsentImageFromGallery
-} from "../services/permissions";
+
+const OTHER_CROP = "Other";
 
 const EMPTY_FORM = {
   farmer_name: "",
@@ -38,10 +36,7 @@ const EMPTY_FORM = {
   crops: [],
   interested_in_biochar: false,
   prior_biochar_exp: false,
-  prior_biochar_acreage: "",
-  consent_document_url: "",
-  consent_local_uri: "",
-  consent_file_name: ""
+  prior_biochar_acreage: ""
 };
 
 function formatDate(date) {
@@ -50,16 +45,17 @@ function formatDate(date) {
   return d.toISOString().split("T")[0];
 }
 
-function getConsentDisplayName(form) {
-  if (form.consent_file_name?.trim()) {
-    return form.consent_file_name.trim();
-  }
+const CROP_PICKER_OPTIONS = CROP_OPTIONS.map((crop) => ({
+  value: crop,
+  label: crop,
+  hint:
+    crop === OTHER_CROP
+      ? "Custom crop & rate"
+      : `~${CROP_BIOMASS_RATES[crop]} tonnes/acre`
+}));
 
-  const source = form.consent_local_uri || form.consent_document_url;
-  if (!source) return "Consent file";
-
-  const fileName = source.split("/").pop()?.split("?")[0];
-  return fileName ? decodeURIComponent(fileName) : "Consent file";
+function totalCropArea(crops) {
+  return crops.reduce((sum, crop) => sum + Number(crop.crop_area || 0), 0);
 }
 
 function ToggleRow({
@@ -116,6 +112,7 @@ export default function FarmerForm({
 
   const [cropPicker, setCropPicker] = useState<string>(CROP_OPTIONS[0]);
   const [cropOtherName, setCropOtherName] = useState("");
+  const [cropOtherRate, setCropOtherRate] = useState("");
   const [cropArea, setCropArea] = useState("");
   const [sowingDate, setSowingDate] = useState(new Date());
   const [harvestDate, setHarvestDate] = useState(new Date());
@@ -135,6 +132,7 @@ export default function FarmerForm({
     try {
       setLocationLoading(true);
       const loc = await getCurrentFarmLocation();
+      void startLocationCache();
       setForm((prev) => ({
         ...prev,
         latitude: loc.latitude,
@@ -170,14 +168,58 @@ export default function FarmerForm({
     }));
   }
 
+  function currentCropRate() {
+    if (cropPicker === OTHER_CROP) {
+      return Number(cropOtherRate);
+    }
+    return CROP_BIOMASS_RATES[cropPicker];
+  }
+
+  function resetCropInputs() {
+    setCropOtherName("");
+    setCropOtherRate("");
+    setCropArea("");
+    setCropPicker(CROP_OPTIONS[0]);
+    setSowingDate(new Date());
+    setHarvestDate(new Date());
+  }
+
   function addCrop() {
     const cropName =
-      cropPicker === "Other"
-        ? cropOtherName.trim()
-        : cropPicker;
+      cropPicker === OTHER_CROP ? cropOtherName.trim() : cropPicker;
 
     if (!cropName || !cropArea) {
       Alert.alert("Crop", "Enter crop name and area.");
+      return;
+    }
+
+    const areaNum = Number(cropArea);
+    if (isNaN(areaNum) || areaNum <= 0) {
+      Alert.alert("Crop", "Enter a valid crop area.");
+      return;
+    }
+
+    const totalLandSize = Number(form.total_land_size);
+    if (!form.total_land_size || isNaN(totalLandSize) || totalLandSize <= 0) {
+      Alert.alert("Crop", "Enter the total land size before adding crops.");
+      return;
+    }
+
+    const areaSoFar = totalCropArea(form.crops);
+    if (areaSoFar + areaNum > totalLandSize) {
+      Alert.alert(
+        "Crop area too large",
+        `Total crop area (${areaSoFar + areaNum} acres) cannot exceed the total land size (${totalLandSize} acres). You have ${Math.max(totalLandSize - areaSoFar, 0)} acres left to allocate.`
+      );
+      return;
+    }
+
+    const biomassRate = currentCropRate();
+    if (!biomassRate || isNaN(biomassRate) || biomassRate <= 0) {
+      Alert.alert(
+        "Crop",
+        "Enter a valid guesstimated biomass (tonnes/acre) for this crop."
+      );
       return;
     }
 
@@ -189,78 +231,19 @@ export default function FarmerForm({
           crop_name: cropName,
           crop_area: Number(cropArea),
           sowing_date: formatDate(sowingDate),
-          harvest_date: formatDate(harvestDate)
+          harvest_date: formatDate(harvestDate),
+          biomass_rate: biomassRate
         }
       ]
     }));
 
-    setCropOtherName("");
-    setCropArea("");
-    setCropPicker(CROP_OPTIONS[0]);
+    resetCropInputs();
   }
 
   function removeCrop(index) {
     setForm((prev) => ({
       ...prev,
       crops: prev.crops.filter((_, i) => i !== index)
-    }));
-  }
-
-  function showConsentOptions() {
-    Alert.alert("Consent Document", "Choose upload method (optional)", [
-      {
-        text: "Take Photo",
-        onPress: async () => {
-          const asset = await pickConsentImageFromCamera();
-          if (asset) {
-            setForm((prev) => ({
-              ...prev,
-              consent_local_uri: asset.uri,
-              consent_document_url: "",
-              consent_file_name: asset.fileName || "Camera photo.jpg"
-            }));
-          }
-        }
-      },
-      {
-        text: "Choose Image",
-        onPress: async () => {
-          const asset = await pickConsentImageFromGallery();
-          if (asset) {
-            setForm((prev) => ({
-              ...prev,
-              consent_local_uri: asset.uri,
-              consent_document_url: "",
-              consent_file_name: asset.fileName || "Gallery image.jpg"
-            }));
-          }
-        }
-      },
-      {
-        text: "Choose File (PDF/Image)",
-        onPress: async () => {
-          const result = await pickConsentDocument();
-          if (!result.canceled && result.assets?.[0]) {
-            const file = result.assets[0];
-            setForm((prev) => ({
-              ...prev,
-              consent_local_uri: file.uri,
-              consent_document_url: "",
-              consent_file_name: file.name || "Document"
-            }));
-          }
-        }
-      },
-      { text: "Cancel", style: "cancel" }
-    ]);
-  }
-
-  function removeConsent() {
-    setForm((prev) => ({
-      ...prev,
-      consent_local_uri: "",
-      consent_document_url: "",
-      consent_file_name: ""
     }));
   }
 
@@ -274,7 +257,20 @@ export default function FarmerForm({
   }
 
   const estimatedBiomass = calculateEstimatedBiomass(form.crops);
-  const hasConsent = !!(form.consent_local_uri || form.consent_document_url);
+
+  const landAllocation = (() => {
+    const total = Number(form.total_land_size) || 0;
+    const allocated = totalCropArea(form.crops);
+    const remaining = Math.max(total - allocated, 0);
+    const percent = total > 0 ? Math.min((allocated / total) * 100, 100) : 0;
+    return {
+      total,
+      allocated,
+      remaining,
+      percent,
+      overAllocated: allocated > total
+    };
+  })();
 
   return (
     <ScrollView
@@ -296,7 +292,7 @@ export default function FarmerForm({
 
       <FormInput
         label="Mobile Number"
-        placeholder="10-digit mobile (optional)"
+        placeholder="Enter your 10-digit mobile number"
         value={form.mobile_number}
         onChangeText={(text) =>
           setForm((prev) => ({ ...prev, mobile_number: text }))
@@ -356,98 +352,163 @@ export default function FarmerForm({
         keyboardType="numeric"
       />
 
-      <Text style={styles.section}>Crop Details *</Text>
-
-      <Text style={styles.label}>Crop Name</Text>
-      <View style={styles.pickerWrap}>
-        <Picker
-          selectedValue={cropPicker}
-          onValueChange={setCropPicker}
-          style={styles.picker}
-        >
-          {CROP_OPTIONS.map((crop) => (
-            <Picker.Item key={crop} label={crop} value={crop} />
-          ))}
-        </Picker>
-      </View>
-
-      {cropPicker === "Other" ? (
-        <FormInput
-          placeholder="Enter crop name"
-          value={cropOtherName}
-          onChangeText={setCropOtherName}
-        />
-      ) : null}
-
-      <FormInput
-        placeholder="Crop Area (Acres)"
-        value={cropArea}
-        onChangeText={setCropArea}
-        keyboardType="numeric"
-      />
-
-      <Text style={styles.label}>Estimated Sowing Date</Text>
-      <Pressable
-        style={({ pressed }) => [
-          styles.dateButton,
-          pressed && pressedStyle
-        ]}
-        onPress={() => setShowSowingPicker(true)}
-      >
-        <Text style={styles.dateText}>{formatDate(sowingDate)}</Text>
-      </Pressable>
-      {showSowingPicker && (
-        <DateTimePicker
-          value={sowingDate}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, date) => {
-            setShowSowingPicker(Platform.OS === "ios");
-            if (date) setSowingDate(date);
-          }}
-        />
-      )}
-
-      <Text style={styles.label}>Estimated Harvest Date</Text>
-      <Pressable
-        style={({ pressed }) => [
-          styles.dateButton,
-          pressed && pressedStyle
-        ]}
-        onPress={() => setShowHarvestPicker(true)}
-      >
-        <Text style={styles.dateText}>{formatDate(harvestDate)}</Text>
-      </Pressable>
-      {showHarvestPicker && (
-        <DateTimePicker
-          value={harvestDate}
-          mode="date"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(_, date) => {
-            setShowHarvestPicker(Platform.OS === "ios");
-            if (date) setHarvestDate(date);
-          }}
-        />
-      )}
-
-      <View style={styles.addCropWrap}>
-        <PrimaryButton title="+ Add Crop" onPress={addCrop} variant="outline" />
-      </View>
-
-      {form.crops.map((crop, index) => (
-        <View key={index} style={styles.cropCard}>
-          <View style={styles.cropHeader}>
-            <Text style={styles.cropName}>{crop.crop_name}</Text>
-            <TouchableOpacity onPress={() => removeCrop(index)}>
-              <Text style={styles.removeText}>Remove</Text>
-            </TouchableOpacity>
+      {landAllocation.total > 0 ? (
+        <View style={styles.allocationWrap}>
+          <View style={styles.allocationTrack}>
+            <View
+              style={[
+                styles.allocationFill,
+                landAllocation.overAllocated && styles.allocationFillOver,
+                { width: `${landAllocation.percent}%` }
+              ]}
+            />
           </View>
-          <Text style={styles.cropMeta}>{crop.crop_area} Acres</Text>
-          <Text style={styles.cropMeta}>
-            Sowing: {crop.sowing_date} · Harvest: {crop.harvest_date}
+          <Text
+            style={[
+              styles.allocationText,
+              landAllocation.overAllocated && styles.allocationTextOver
+            ]}
+          >
+            {landAllocation.allocated} of {landAllocation.total} acres
+            allocated
+            {landAllocation.overAllocated
+              ? " · over the total land size"
+              : ` · ${landAllocation.remaining} remaining`}
           </Text>
         </View>
-      ))}
+      ) : null}
+
+      <Text style={styles.section}>Crop Details *</Text>
+
+      <View style={styles.cropEntryCard}>
+        <Text style={styles.cropEntryTitle}>New crop</Text>
+
+        <FormPicker
+          label="Crop Name"
+          value={cropPicker}
+          options={CROP_PICKER_OPTIONS}
+          onValueChange={(value) => {
+            setCropPicker(value);
+            setCropOtherName("");
+            setCropOtherRate("");
+          }}
+        />
+
+        {cropPicker === OTHER_CROP ? (
+          <>
+            <FormInput
+              label="Crop Type"
+              placeholder="Enter crop type"
+              value={cropOtherName}
+              onChangeText={setCropOtherName}
+            />
+            <FormInput
+              label="Guesstimated Biomass (Tonnes/Acre)"
+              placeholder="e.g. 1.2"
+              value={cropOtherRate}
+              onChangeText={setCropOtherRate}
+              keyboardType="numeric"
+            />
+          </>
+        ) : (
+          <Text style={styles.fieldHint}>
+            Guesstimated biomass: {CROP_BIOMASS_RATES[cropPicker]} tonnes/acre
+          </Text>
+        )}
+
+        <FormInput
+          label="Crop Area (Acres)"
+          placeholder="Crop area"
+          value={cropArea}
+          onChangeText={setCropArea}
+          keyboardType="numeric"
+        />
+
+        <Text style={styles.label}>Estimated Sowing Date</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.dateButton,
+            pressed && pressedStyle
+          ]}
+          onPress={() => setShowSowingPicker(true)}
+        >
+          <Text style={styles.dateText}>{formatDate(sowingDate)}</Text>
+        </Pressable>
+        {showSowingPicker && (
+          <DateTimePicker
+            value={sowingDate}
+            mode="date"
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={(_, date) => {
+              setShowSowingPicker(Platform.OS === "ios");
+              if (date) setSowingDate(date);
+            }}
+          />
+        )}
+
+        <Text style={styles.label}>Estimated Harvest Date</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.dateButton,
+            pressed && pressedStyle
+          ]}
+          onPress={() => setShowHarvestPicker(true)}
+        >
+          <Text style={styles.dateText}>{formatDate(harvestDate)}</Text>
+        </Pressable>
+        {showHarvestPicker && (
+          <DateTimePicker
+            value={harvestDate}
+            mode="date"
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            onChange={(_, date) => {
+              setShowHarvestPicker(Platform.OS === "ios");
+              if (date) setHarvestDate(date);
+            }}
+          />
+        )}
+
+        <PrimaryButton
+          title="Add This Crop to the List"
+          onPress={addCrop}
+          variant="accent"
+        />
+      </View>
+
+      <View style={styles.addedCropsHeader}>
+        <Text style={styles.addedCropsTitle}>Added Crops</Text>
+        {form.crops.length ? (
+          <View style={styles.addedCropsCount}>
+            <Text style={styles.addedCropsCountText}>
+              {form.crops.length}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {form.crops.length === 0 ? (
+        <Text style={styles.emptyCropsHint}>
+          No crops added yet. Fill in the details above and tap "Add This
+          Crop to the List". You can add more than one crop.
+        </Text>
+      ) : (
+        form.crops.map((crop, index) => (
+          <View key={index} style={styles.cropCard}>
+            <View style={styles.cropHeader}>
+              <Text style={styles.cropName}>{crop.crop_name}</Text>
+              <TouchableOpacity onPress={() => removeCrop(index)}>
+                <Text style={styles.removeText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.cropMeta}>
+              {crop.crop_area} Acres · {crop.biomass_rate} tonnes/acre
+            </Text>
+            <Text style={styles.cropMeta}>
+              Sowing: {crop.sowing_date} · Harvest: {crop.harvest_date}
+            </Text>
+          </View>
+        ))
+      )}
 
       <ToggleRow
         label="Farmer Interested in Biochar *"
@@ -486,47 +547,15 @@ export default function FarmerForm({
         />
       ) : null}
 
-      <Text style={styles.section}>Consent Form (Optional)</Text>
-      {hasConsent ? (
-        <View style={styles.consentAttached}>
-          <View style={styles.consentFileRow}>
-            <Text style={styles.consentFileName} numberOfLines={1}>
-              {getConsentDisplayName(form)}
-            </Text>
-            <TouchableOpacity
-              style={styles.consentRemoveBtn}
-              onPress={removeConsent}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Remove consent file"
-            >
-              <Text style={styles.consentRemoveText}>×</Text>
-            </TouchableOpacity>
-          </View>
-          <TouchableOpacity
-            style={styles.consentReplaceBtn}
-            onPress={showConsentOptions}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.consentReplaceText}>Upload again</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <Pressable
-          style={({ pressed }) => [
-            styles.uploadCard,
-            pressed && pressedStyle
-          ]}
-          onPress={showConsentOptions}
-        >
-          <Text style={styles.uploadText}>Upload image, photo, or PDF</Text>
-        </Pressable>
-      )}
-
       <View style={styles.biomassCard}>
         <Text style={styles.biomassLabel}>Estimated Biomass</Text>
-        <Text style={styles.biomassValue}>{estimatedBiomass} Tons</Text>
+        <Text style={styles.biomassValue}>
+          {estimatedBiomass}
+          <Text style={styles.biomassUnit}> Tons</Text>
+        </Text>
         <Text style={styles.biomassHint}>
-          Auto-calculated from crop areas (×2 tons/acre)
+          Auto-calculated from each crop's area × its guesstimated biomass
+          rate.
         </Text>
       </View>
 
@@ -631,17 +660,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontFamily: fonts.regular
   },
-  pickerWrap: {
-    backgroundColor: colors.white,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-    overflow: "hidden"
-  },
-  picker: {
-    height: Platform.OS === "ios" ? 180 : 50
-  },
   dateButton: {
     backgroundColor: colors.white,
     padding: spacing.md,
@@ -654,16 +672,15 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.text
   },
-  addCropWrap: {
-    marginBottom: spacing.md
-  },
   cropCard: {
     backgroundColor: colors.white,
     padding: spacing.md,
     borderRadius: radius.sm,
     marginBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.chartreuse
   },
   cropHeader: {
     flexDirection: "row",
@@ -712,64 +729,88 @@ const styles = StyleSheet.create({
   activeToggleText: {
     color: colors.white
   },
-  uploadCard: {
-    backgroundColor: colors.white,
-    borderRadius: radius.md,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center"
+  fieldHint: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.smoke,
+    marginTop: -8,
+    marginBottom: spacing.md
   },
-  uploadText: {
-    color: colors.brunswick,
-    fontFamily: fonts.medium,
-    textAlign: "center"
-  },
-  consentAttached: {
+  cropEntryCard: {
     backgroundColor: colors.white,
     borderRadius: radius.md,
     padding: spacing.md,
-    marginBottom: 20,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border
   },
-  consentFileRow: {
+  cropEntryTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 14,
+    color: colors.brunswick,
+    marginBottom: spacing.sm,
+    textTransform: "uppercase",
+    letterSpacing: 0.3
+  },
+  addedCropsHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm
+    gap: 8,
+    marginBottom: spacing.sm
   },
-  consentFileName: {
-    flex: 1,
+  addedCropsTitle: {
     fontFamily: fonts.medium,
     fontSize: 14,
     color: colors.brunswick
   },
-  consentRemoveBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.error,
+  addedCropsCount: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.chartreuse,
     alignItems: "center",
     justifyContent: "center"
   },
-  consentRemoveText: {
-    fontSize: 20,
-    lineHeight: 22,
-    color: colors.error,
-    fontFamily: fonts.medium,
-    marginTop: -1
-  },
-  consentReplaceBtn: {
-    alignSelf: "flex-start",
-    marginTop: spacing.sm
-  },
-  consentReplaceText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
+  addedCropsCountText: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
     color: colors.brunswick
+  },
+  allocationWrap: {
+    marginTop: -8,
+    marginBottom: spacing.md
+  },
+  allocationTrack: {
+    height: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
+    overflow: "hidden",
+    marginBottom: 6
+  },
+  allocationFill: {
+    height: "100%",
+    borderRadius: radius.pill,
+    backgroundColor: colors.chartreuse
+  },
+  allocationFillOver: {
+    backgroundColor: colors.error
+  },
+  allocationText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.smoke
+  },
+  allocationTextOver: {
+    color: colors.error,
+    fontFamily: fonts.medium
+  },
+  emptyCropsHint: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: colors.smoke,
+    lineHeight: 18,
+    marginBottom: spacing.md
   },
   biomassCard: {
     backgroundColor: colors.brunswick,
@@ -784,9 +825,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular
   },
   biomassValue: {
-    color: colors.white,
+    color: colors.chartreuse,
     fontSize: 28,
     fontFamily: fonts.bold
+  },
+  biomassUnit: {
+    color: colors.white,
+    fontSize: 16,
+    fontFamily: fonts.medium
   },
   biomassHint: {
     color: "rgba(255,255,255,0.65)",

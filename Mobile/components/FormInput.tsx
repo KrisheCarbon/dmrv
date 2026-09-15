@@ -77,7 +77,8 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   inputFocused: {
-    backgroundColor: colors.chalk,
+    backgroundColor: colors.white,
+    borderColor: colors.brunswick,
   },
   inputDisabled: {
     opacity: 0.7,

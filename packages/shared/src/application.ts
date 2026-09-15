@@ -23,6 +23,9 @@ export interface ApplicationEntryRecord {
   applied_at: string;
   farm_id?: string | null;
   farm_name?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_address?: string | null;
   comment?: string | null;
   media_type: ApplicationMediaType;
   media_url?: string | null;
@@ -49,6 +52,9 @@ export interface CreateApplicationEntryPayload {
   applied_at: string;
   farm_id?: string | null;
   farm_name?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_address?: string | null;
   comment?: string | null;
   media_type: ApplicationMediaType;
   media_url?: string | null;

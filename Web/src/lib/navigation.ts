@@ -43,6 +43,8 @@ export const MAIN_NAV: NavEntry[] = [
       { href: "/network/supervisors", label: "Supervisors" },
       { href: "/network/climapreneurs", label: "Climapreneurs" },
       { href: "/network/farms", label: "Farms" },
+      { href: "/network/fields", label: "Fields" },
+      { href: "/network/soil-tests", label: "Soil tests" },
       { href: "/network/sensor-data", label: "Sensor data" },
     ],
   },

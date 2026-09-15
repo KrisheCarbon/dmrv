@@ -21,6 +21,7 @@ import {
   formatWatermarkTime,
 } from "../services/fieldPhoto";
 import { registerPhotoWatermarkHandle } from "../services/photoWatermark";
+import { logos } from "../constants/theme";
 
 export type PhotoWatermarkHandle = {
   watermark: (sourceUri: string, metadata: FieldPhotoMetadata) => Promise<string>;
@@ -140,6 +141,7 @@ const PhotoWatermarkProcessor = forwardRef<PhotoWatermarkHandle>(
     );
     const fontSize = scaledFontSize(job.width);
     const barPadding = Math.round(fontSize * 0.65);
+    const logoSize = Math.round(fontSize * 3.1);
 
     return (
       <View style={styles.offscreen} pointerEvents="none" collapsable={false}>
@@ -165,34 +167,61 @@ const PhotoWatermarkProcessor = forwardRef<PhotoWatermarkHandle>(
                 { paddingHorizontal: barPadding, paddingVertical: barPadding },
               ]}
             >
-              <Text
-                style={[styles.watermarkText, { fontSize, lineHeight: fontSize * 1.25 }]}
-              >
-                {gpsLine}
-              </Text>
-              <Text
-                style={[
-                  styles.watermarkText,
-                  { fontSize, lineHeight: fontSize * 1.25, marginTop: 4 },
-                ]}
-              >
-                {timeLine}
-              </Text>
-              {job.metadata.address ? (
-                <Text
+              <View style={styles.watermarkRow}>
+                <View
                   style={[
-                    styles.watermarkSubtext,
-                    {
-                      fontSize: Math.max(14, Math.round(fontSize * 0.78)),
-                      lineHeight: Math.max(18, Math.round(fontSize * 0.95)),
-                      marginTop: 6,
-                    },
+                    styles.logoBadge,
+                    { width: logoSize, height: logoSize, borderRadius: logoSize / 2 },
                   ]}
-                  numberOfLines={2}
                 >
-                  {job.metadata.address}
-                </Text>
-              ) : null}
+                  <Image
+                    source={logos.watermark}
+                    style={{ width: logoSize * 0.72, height: logoSize * 0.72 }}
+                    resizeMode="contain"
+                  />
+                </View>
+                <View style={styles.watermarkTextCol}>
+                  <Text
+                    style={[
+                      styles.brandText,
+                      {
+                        fontSize: Math.max(13, Math.round(fontSize * 0.8)),
+                        lineHeight: Math.max(16, Math.round(fontSize * 0.95)),
+                      },
+                    ]}
+                  >
+                    KriSHE Carbon
+                  </Text>
+                  <Text
+                    style={[styles.watermarkText, { fontSize, lineHeight: fontSize * 1.25, marginTop: 3 }]}
+                  >
+                    {gpsLine}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.watermarkText,
+                      { fontSize, lineHeight: fontSize * 1.25, marginTop: 2 },
+                    ]}
+                  >
+                    {timeLine}
+                  </Text>
+                  {job.metadata.address ? (
+                    <Text
+                      style={[
+                        styles.watermarkSubtext,
+                        {
+                          fontSize: Math.max(14, Math.round(fontSize * 0.78)),
+                          lineHeight: Math.max(18, Math.round(fontSize * 0.95)),
+                          marginTop: 4,
+                        },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {job.metadata.address}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
             </View>
           </View>
         </ViewShot>
@@ -217,6 +246,26 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "rgba(0, 0, 0, 0.72)",
+    borderTopWidth: 2,
+    borderTopColor: "#8DC63F",
+  },
+  watermarkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  logoBadge: {
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  watermarkTextCol: {
+    flex: 1,
+  },
+  brandText: {
+    color: "#8DC63F",
+    fontWeight: "800",
+    letterSpacing: 0.2,
   },
   watermarkText: {
     color: "#FFFFFF",

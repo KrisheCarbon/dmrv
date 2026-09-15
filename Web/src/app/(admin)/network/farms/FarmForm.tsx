@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import LocationPicker from "@/components/maps/Locationpicker";
 import { createFarm, updateFarm } from "./actions";
 import type { FarmerCrop, FarmDetail, LocationValue } from "@/types";
-import type { FarmUpsertPayload } from "@krishecarbon/shared";
+import {
+  CROP_BIOMASS_RATES,
+  CROP_OPTIONS,
+  validateMobileNumber,
+  type FarmUpsertPayload,
+} from "@krishecarbon/shared";
+
+const OTHER_CROP = "Other";
 
 interface FarmFormProps {
   mode: "create" | "edit";
@@ -53,7 +60,11 @@ function farmToFormState(farm: FarmDetail): FarmerFormState {
 }
 
 function estimateBiomass(crops: FarmerCrop[]) {
-  return crops.reduce((sum, crop) => sum + Number(crop.acreage) * 2, 0);
+  return crops.reduce(
+    (sum, crop) =>
+      sum + Number(crop.acreage) * Number(crop.biomass_rate || 0),
+    0,
+  );
 }
 
 export default function FarmForm({
@@ -67,7 +78,9 @@ export default function FarmForm({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cropName, setCropName] = useState("");
+  const [cropPicker, setCropPicker] = useState<string>(CROP_OPTIONS[0]);
+  const [cropOtherName, setCropOtherName] = useState("");
+  const [cropOtherRate, setCropOtherRate] = useState("");
   const [cropArea, setCropArea] = useState("");
   const [sowingDate, setSowingDate] = useState("");
   const [harvestDate, setHarvestDate] = useState("");
@@ -86,8 +99,48 @@ export default function FarmForm({
         },
   );
 
+  function currentCropRate() {
+    if (cropPicker === OTHER_CROP) return Number(cropOtherRate);
+    return CROP_BIOMASS_RATES[cropPicker];
+  }
+
   function addCrop() {
-    if (!cropName || !cropArea || !sowingDate || !harvestDate) return;
+    const cropName = cropPicker === OTHER_CROP ? cropOtherName.trim() : cropPicker;
+    const biomassRate = currentCropRate();
+    const areaNum = Number(cropArea);
+
+    if (
+      !cropName ||
+      !cropArea ||
+      Number.isNaN(areaNum) ||
+      areaNum <= 0 ||
+      !sowingDate ||
+      !harvestDate ||
+      !biomassRate ||
+      Number.isNaN(biomassRate) ||
+      biomassRate <= 0
+    ) {
+      return;
+    }
+
+    const totalLandSize = Number(form.total_land_size);
+    if (!form.total_land_size || Number.isNaN(totalLandSize) || totalLandSize <= 0) {
+      setError("Enter the total land size before adding crops.");
+      return;
+    }
+
+    const areaSoFar = form.crops.reduce(
+      (sum, crop) => sum + Number(crop.acreage || 0),
+      0,
+    );
+    if (areaSoFar + areaNum > totalLandSize) {
+      setError(
+        `Total crop area (${areaSoFar + areaNum} acres) cannot exceed the total land size (${totalLandSize} acres).`,
+      );
+      return;
+    }
+
+    setError(null);
 
     setForm({
       ...form,
@@ -98,11 +151,14 @@ export default function FarmForm({
           acreage: Number(cropArea),
           sowing_date: sowingDate,
           estimated_harvest_date: harvestDate,
+          biomass_rate: biomassRate,
         },
       ],
     });
 
-    setCropName("");
+    setCropPicker(CROP_OPTIONS[0]);
+    setCropOtherName("");
+    setCropOtherRate("");
     setCropArea("");
     setSowingDate("");
     setHarvestDate("");
@@ -128,8 +184,27 @@ export default function FarmForm({
       return;
     }
 
+    if (!validateMobileNumber(form.mobile_number)) {
+      setError(
+        "Enter a valid 10-digit mobile number (optionally with +91 country code).",
+      );
+      return;
+    }
+
     if (form.crops.length === 0) {
       setError("Please add at least one crop");
+      return;
+    }
+
+    const totalLandSize = Number(form.total_land_size);
+    const totalCropArea = form.crops.reduce(
+      (sum, crop) => sum + Number(crop.acreage || 0),
+      0,
+    );
+    if (totalCropArea > totalLandSize) {
+      setError(
+        `Total crop area (${totalCropArea} acres) cannot exceed the total land size (${totalLandSize} acres).`,
+      );
       return;
     }
 
@@ -202,13 +277,17 @@ export default function FarmForm({
           <div className="space-y-1.5">
             <label className={labelClass}>Phone number *</label>
             <input
-              placeholder="Phone number"
+              placeholder="e.g. 9381548046 or +919381548046"
               className={inputClass}
               value={form.mobile_number}
               onChange={(e) =>
                 setForm({ ...form, mobile_number: e.target.value })
               }
             />
+            <p className="text-xs text-neutral-400">
+              Enter your 10-digit mobile number, with or without the +91
+              country code.
+            </p>
           </div>
         </div>
 
@@ -246,13 +325,31 @@ export default function FarmForm({
         </div>
 
         <div className="space-y-4 rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">
+            New crop
+          </p>
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <input
-              placeholder="Crop name"
-              className={inputClass}
-              value={cropName}
-              onChange={(e) => setCropName(e.target.value)}
-            />
+            <div className="space-y-1.5">
+              <label className={labelClass}>Crop name</label>
+              <select
+                className={inputClass}
+                value={cropPicker}
+                onChange={(e) => {
+                  setCropPicker(e.target.value);
+                  setCropOtherName("");
+                  setCropOtherRate("");
+                }}
+              >
+                {CROP_OPTIONS.map((crop) => (
+                  <option key={crop} value={crop}>
+                    {crop === OTHER_CROP
+                      ? `${crop} (custom rate)`
+                      : `${crop} — ~${CROP_BIOMASS_RATES[crop]} tonnes/acre`}
+                  </option>
+                ))}
+              </select>
+            </div>
             <input
               type="number"
               placeholder="Crop area (acres)"
@@ -261,6 +358,28 @@ export default function FarmForm({
               onChange={(e) => setCropArea(e.target.value)}
             />
           </div>
+
+          {cropPicker === OTHER_CROP ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <input
+                placeholder="Crop type"
+                className={inputClass}
+                value={cropOtherName}
+                onChange={(e) => setCropOtherName(e.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Guesstimated biomass (tonnes/acre)"
+                className={inputClass}
+                value={cropOtherRate}
+                onChange={(e) => setCropOtherRate(e.target.value)}
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-neutral-500">
+              Guesstimated biomass: {CROP_BIOMASS_RATES[cropPicker]} tonnes/acre
+            </p>
+          )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
@@ -288,9 +407,13 @@ export default function FarmForm({
             onClick={addCrop}
             className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
           >
-            + Add crop
+            Add this crop to the list
           </button>
         </div>
+
+        <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">
+          Added crops {form.crops.length ? `(${form.crops.length})` : ""}
+        </p>
 
         {form.crops.length > 0 ? (
           <div className="space-y-3">
@@ -302,8 +425,8 @@ export default function FarmForm({
                 <div>
                   <p className="font-medium text-neutral-900">{crop.crop}</p>
                   <p className="text-sm text-neutral-500">
-                    {crop.acreage} acres · Sowing: {crop.sowing_date} · Harvest:{" "}
-                    {crop.estimated_harvest_date}
+                    {crop.acreage} acres · {crop.biomass_rate} tonnes/acre · Sowing:{" "}
+                    {crop.sowing_date} · Harvest: {crop.estimated_harvest_date}
                   </p>
                 </div>
                 <button
@@ -318,7 +441,10 @@ export default function FarmForm({
             ))}
           </div>
         ) : (
-          <p className="text-xs text-neutral-500">No crops added yet.</p>
+          <p className="text-xs text-neutral-500">
+            Fill in the details above and click &ldquo;Add this crop to the
+            list&rdquo;. You can add more than one crop.
+          </p>
         )}
       </section>
 

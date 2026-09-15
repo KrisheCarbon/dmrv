@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  TouchableOpacity,
   Alert,
 } from "react-native";
 import {
@@ -18,7 +19,6 @@ import {
   normalizeStagePhotos,
   normalizeStageSavedAt,
   pyrolysisWorkflowSectionLabel,
-  pyrolysisWorkflowSectionSubtitle,
   type FieldPhotoMetadata,
   type PyrolysisKontikkiData,
   type PyrolysisKontikkiWorkflowSection,
@@ -30,23 +30,19 @@ import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
 import PyrolysisCollapsibleSection from "../components/PyrolysisCollapsibleSection";
 import PyrolysisPhotoSlot from "../components/PyrolysisPhotoSlot";
-import PhotoReviewModal from "../components/PhotoReviewModal";
-import { captureFieldPhotoFromCamera } from "../services/fieldPhoto";
-import {
-  persistAcceptedFieldPhoto,
-  watermarkFieldPhotoForReview,
-} from "../services/photoWatermark";
+import { LocationUnavailableError } from "../services/fieldPhoto";
+import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import {
   autoSaveKontikkiSectionLocal,
   getSessionKontikkis,
 } from "../services/pyrolysisService";
+import { waitForLocation } from "../services/locationCache";
 import {
   fetchMobileNetworkOverview,
-  type NetworkFarm,
   type NetworkFeedstock,
 } from "../services/backendApi";
 import type { SessionKontikkiView } from "../services/pyrolysisService";
-import { colors, fonts, spacing } from "../constants/theme";
+import { colors, fonts, spacing, radius } from "../constants/theme";
 
 function kontikkiFlags(row: SessionKontikkiView) {
   return {
@@ -69,12 +65,26 @@ function firstOpenSection(row: SessionKontikkiView): PyrolysisKontikkiWorkflowSe
   return "info";
 }
 
+const MAX_MOISTURE_READING = 25;
+
+function isMoistureReadingCompleted(reading: {
+  reading: number | null;
+  photo_local_uri?: string | null;
+  photo_url?: string | null;
+}): boolean {
+  return reading.reading != null && Boolean(reading.photo_local_uri || reading.photo_url);
+}
+
+function isMoistureAboveLimit(text: string): boolean {
+  if (!text) return false;
+  const value = Number(text);
+  return Number.isFinite(value) && value > MAX_MOISTURE_READING;
+}
+
 function emptyInfoDraft(): PyrolysisKontikkiData {
   return {
     batch_number: "",
     feedstock_quantity: null,
-    farm_id: null,
-    farm_name: "",
     avg_feedstock_size_cm: null,
     feedstock_id: null,
     feedstock_name: "",
@@ -87,14 +97,8 @@ function emptyInfoDraft(): PyrolysisKontikkiData {
   };
 }
 
-type PhotoReviewState = {
-  previewUri: string;
-  metadata: FieldPhotoMetadata;
-  onAccept: () => Promise<void>;
-};
-
 export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
-  const { sessionId, kontikkiRowId, kontikkiCode } = route.params;
+  const { sessionId, kontikkiRowId, kontikkiCode } = route.params ?? {};
   const [kontikki, setKontikki] = useState<SessionKontikkiView | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedSection, setExpandedSection] =
@@ -102,13 +106,13 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   const [savingSection, setSavingSection] =
     useState<PyrolysisKontikkiWorkflowSection | null>(null);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
-  const [photoReview, setPhotoReview] = useState<PhotoReviewState | null>(null);
-  const [farms, setFarms] = useState<NetworkFarm[]>([]);
   const [feedstockOptions, setFeedstockOptions] = useState<NetworkFeedstock[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
 
   const [infoDraft, setInfoDraft] = useState(emptyInfoDraft());
   const [moistureDraft, setMoistureDraft] = useState(emptyMoistureReadings());
+  const [expandedMoistureIndex, setExpandedMoistureIndex] = useState(0);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [stagePhotos, setStagePhotos] = useState<PyrolysisStagePhotos>({});
   const [yieldDraft, setYieldDraft] = useState({
     yield_percent: null as number | null,
@@ -123,8 +127,10 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
   const draftLoadedFor = useRef<string | null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const sampleIdManuallyEdited = useRef(false);
 
   const loadKontikki = useCallback(async () => {
+    if (!sessionId || !kontikkiRowId) return null;
     const rows = await getSessionKontikkis(sessionId);
     const row = rows.find((item) => item.id === kontikkiRowId) ?? null;
     setKontikki(row);
@@ -132,12 +138,19 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   }, [sessionId, kontikkiRowId]);
 
   const loadData = useCallback(async () => {
+    if (!sessionId || !kontikkiRowId) {
+      setLoading(false);
+      Alert.alert("Batch not found", "This kontikki batch is missing.", [
+        { text: "OK", onPress: () => navigation.goBack() }
+      ]);
+      return;
+    }
     try {
       await loadKontikki();
     } finally {
       setLoading(false);
     }
-  }, [loadKontikki]);
+  }, [loadKontikki, sessionId, kontikkiRowId, navigation]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", loadData);
@@ -151,11 +164,9 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       try {
         const overview = await fetchMobileNetworkOverview();
         if (cancelled) return;
-        setFarms(overview.farms ?? []);
         setFeedstockOptions(overview.feedstock ?? []);
       } catch {
         if (!cancelled) {
-          setFarms([]);
           setFeedstockOptions([]);
         }
       } finally {
@@ -176,8 +187,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     setInfoDraft({
       batch_number: payload.batch_number ?? "",
       feedstock_quantity: payload.feedstock_quantity ?? null,
-      farm_id: payload.farm_id ?? null,
-      farm_name: payload.farm_name ?? "",
       avg_feedstock_size_cm: payload.avg_feedstock_size_cm ?? null,
       feedstock_id: payload.feedstock_id ?? null,
       feedstock_name: payload.feedstock_name ?? "",
@@ -190,10 +199,16 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       feedstock_size_photo_metadata: payload.feedstock_size_photo_metadata ?? null,
       info_saved_at: payload.info_saved_at ?? null,
     });
-    setMoistureDraft(
+    const moisture =
       payload.moisture_readings?.length === MOISTURE_READING_COUNT
         ? payload.moisture_readings
-        : emptyMoistureReadings(),
+        : emptyMoistureReadings();
+    setMoistureDraft(moisture);
+    const firstIncompleteMoisture = moisture.findIndex(
+      (reading) => !isMoistureReadingCompleted(reading),
+    );
+    setExpandedMoistureIndex(
+      firstIncompleteMoisture === -1 ? moisture.length - 1 : firstIncompleteMoisture,
     );
     setStagePhotos(normalizeStagePhotos(payload.stage_photos));
     setYieldDraft({
@@ -201,13 +216,36 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       comment: payload.comment ?? "",
     });
     setSampleDraft({
-      sample_id: payload.sample_id ?? "",
+      sample_id: payload.sample_id ?? payload.batch_number ?? "",
       sample_photo_local_uri: payload.sample_photo_local_uri ?? null,
       sample_photo_url: payload.sample_photo_url ?? null,
       sample_photo_metadata: payload.sample_photo_metadata ?? null,
     });
+    sampleIdManuallyEdited.current = Boolean(
+      payload.sample_id?.trim() && payload.sample_id.trim() !== payload.batch_number?.trim(),
+    );
     setExpandedSection(firstOpenSection(kontikki));
     draftLoadedFor.current = kontikki.id;
+  }, [kontikki?.id]);
+
+  useEffect(() => {
+    if (!kontikki) return;
+    if (kontikki.payload?.location) return;
+
+    let cancelled = false;
+    setLocationLoading(true);
+    waitForLocation()
+      .then((location) => {
+        if (cancelled || !location) return;
+        updateInfoDraft({ location });
+      })
+      .finally(() => {
+        if (!cancelled) setLocationLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [kontikki?.id]);
 
   useEffect(() => {
@@ -215,17 +253,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       Object.values(saveTimers.current).forEach(clearTimeout);
     };
   }, []);
-
-  const farmPickerOptions = useMemo(
-    () =>
-      farms.map((farm) => ({
-        value: farm.id,
-        label: farm.address
-          ? `${farm.farmer_name} — ${farm.address}`
-          : farm.farmer_name,
-      })),
-    [farms],
-  );
 
   const feedstockPickerOptions = useMemo(
     () =>
@@ -294,20 +321,14 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     ) => {
       try {
         setCapturingKey(captureKey);
-        const raw = await captureFieldPhotoFromCamera();
-        if (!raw) return;
-
-        const previewUri = await watermarkFieldPhotoForReview(raw.uri, raw.metadata);
-
-        setPhotoReview({
-          previewUri,
-          metadata: raw.metadata,
-          onAccept: async () => {
-            const persistedUri = await persistAcceptedFieldPhoto(previewUri);
-            await onAccepted({ uri: persistedUri, metadata: raw.metadata });
-          },
-        });
+        const captured = await captureAndSaveFieldPhoto();
+        if (!captured) return;
+        await onAccepted(captured);
       } catch (err) {
+        if (err instanceof LocationUnavailableError) {
+          Alert.alert("Location error", err.message);
+          return;
+        }
         Alert.alert(
           "Camera",
           err instanceof Error ? err.message : "Could not capture photo.",
@@ -359,6 +380,9 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       };
       setMoistureDraft(next);
       queueAutoSave("moisture", { moisture_readings: next });
+      if (isMoistureReadingCompleted(next[index]) && index < next.length - 1) {
+        setExpandedMoistureIndex(index + 1);
+      }
     });
   }
 
@@ -405,14 +429,15 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       queueAutoSave("info", next);
       return next;
     });
-  }
 
-  function handleFarmChange(farmId: string) {
-    const farm = farms.find((item) => item.id === farmId);
-    updateInfoDraft({
-      farm_id: farmId || null,
-      farm_name: farm?.farmer_name ?? "",
-    });
+    if (patch.batch_number !== undefined && !sampleIdManuallyEdited.current) {
+      const nextSampleId = patch.batch_number ?? "";
+      setSampleDraft((prev) => {
+        const next = { ...prev, sample_id: nextSampleId };
+        queueAutoSave("sample", next);
+        return next;
+      });
+    }
   }
 
   function handleFeedstockChange(feedstockId: string) {
@@ -463,19 +488,52 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {kontikki.producerName ? (
-          <Text style={styles.producer}>{kontikki.producerName}</Text>
-        ) : null}
-
-        <Text style={styles.hint}>
-          Complete each section in order. Changes save automatically on this device.
-          Submit the full batch from the kontikki list when finished.
-        </Text>
+        <View style={styles.metaCard}>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Date & time</Text>
+            <Text style={styles.metaValue}>
+              {new Date(kontikki.createdAt).toLocaleString()}
+            </Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaLabel}>Location</Text>
+            {locationLoading && !infoDraft.location ? (
+              <View style={styles.metaLocationLoading}>
+                <ActivityIndicator size="small" color={colors.brunswick} />
+                <Text style={styles.metaValue}>Fetching GPS…</Text>
+              </View>
+            ) : infoDraft.location ? (
+              <View style={styles.metaLocationValue}>
+                <Text style={styles.metaValue}>
+                  {infoDraft.location.lat.toFixed(4)}, {infoDraft.location.lng.toFixed(4)}
+                </Text>
+                {infoDraft.location.address ? (
+                  <Text style={styles.metaSubValue} numberOfLines={1}>
+                    {infoDraft.location.address}
+                  </Text>
+                ) : null}
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={() => {
+                  setLocationLoading(true);
+                  waitForLocation()
+                    .then((location) => {
+                      if (location) updateInfoDraft({ location });
+                    })
+                    .finally(() => setLocationLoading(false));
+                }}
+              >
+                <Text style={styles.metaRetry}>Tap to fetch location</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
 
         {optionsLoading ? (
           <View style={styles.optionsLoading}>
             <ActivityIndicator size="small" color={colors.brunswick} />
-            <Text style={styles.optionsLoadingText}>Loading farm & feedstock lists…</Text>
+            <Text style={styles.optionsLoadingText}>Loading feedstock list…</Text>
           </View>
         ) : null}
 
@@ -496,7 +554,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
             <PyrolysisCollapsibleSection
               key={section}
               title={pyrolysisWorkflowSectionLabel(section)}
-              subtitle={pyrolysisWorkflowSectionSubtitle(section)}
               expanded={expandedSection === section}
               unlocked={unlocked}
               completed={completed}
@@ -527,14 +584,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                         feedstock_quantity: text ? Number(text) : null,
                       })
                     }
-                  />
-                  <FormPicker
-                    label="Farm"
-                    placeholder="Select a farm"
-                    value={infoDraft.farm_id ?? ""}
-                    options={farmPickerOptions}
-                    onValueChange={handleFarmChange}
-                    enabled={!optionsLoading}
                   />
                   <FormInput
                     label="Average feedstock size (cm)"
@@ -596,34 +645,62 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "moisture" ? (
                 <View style={styles.form}>
-                  {moistureDraft.map((reading, index) => (
-                    <View key={`moisture-${index}`} style={styles.moistureBlock}>
-                      <Text style={styles.moistureTitle}>Reading {index + 1}</Text>
-                      <FormInput
-                        label="Moisture value"
-                        keyboardType="decimal-pad"
-                        value={reading.reading != null ? String(reading.reading) : ""}
-                        onChangeText={(text) => {
-                          const next = [...moistureDraft];
-                          next[index] = {
-                            ...next[index],
-                            reading: text ? Number(text) : null,
-                          };
-                          setMoistureDraft(next);
-                          queueAutoSave("moisture", { moisture_readings: next });
+                  {moistureDraft.map((reading, index) => {
+                    const readingCompleted = isMoistureReadingCompleted(reading);
+                    const readingUnlocked =
+                      index === 0 || isMoistureReadingCompleted(moistureDraft[index - 1]);
+                    return (
+                      <PyrolysisCollapsibleSection
+                        key={`moisture-${index}`}
+                        title={`Moisture reading ${index + 1}`}
+                        expanded={expandedMoistureIndex === index}
+                        unlocked={readingUnlocked}
+                        completed={readingCompleted}
+                        savedLocally={readingCompleted}
+                        onToggle={() => {
+                          if (!readingUnlocked) return;
+                          setExpandedMoistureIndex(index);
                         }}
-                      />
-                      <PyrolysisPhotoSlot
-                        label="Moisture photo"
-                        required
-                        localUri={reading.photo_local_uri}
-                        remoteUrl={reading.photo_url}
-                        metadata={reading.photo_metadata}
-                        capturing={capturingKey === `moisture-${index}`}
-                        onCapture={() => handleMoisturePhoto(index)}
-                      />
-                    </View>
-                  ))}
+                      >
+                        <FormInput
+                          label="Moisture value"
+                          keyboardType="decimal-pad"
+                          value={reading.reading != null ? String(reading.reading) : ""}
+                          onChangeText={(text) => {
+                            if (isMoistureAboveLimit(text)) {
+                              Alert.alert(
+                                "Moisture not allowed",
+                                "Moisture more than 25 is not allowed.",
+                              );
+                              return;
+                            }
+                            const next = [...moistureDraft];
+                            next[index] = {
+                              ...next[index],
+                              reading: text ? Number(text) : null,
+                            };
+                            setMoistureDraft(next);
+                            queueAutoSave("moisture", { moisture_readings: next });
+                            if (
+                              isMoistureReadingCompleted(next[index]) &&
+                              index < next.length - 1
+                            ) {
+                              setExpandedMoistureIndex(index + 1);
+                            }
+                          }}
+                        />
+                        <PyrolysisPhotoSlot
+                          label="Moisture photo"
+                          required
+                          localUri={reading.photo_local_uri}
+                          remoteUrl={reading.photo_url}
+                          metadata={reading.photo_metadata}
+                          capturing={capturingKey === `moisture-${index}`}
+                          onCapture={() => handleMoisturePhoto(index)}
+                        />
+                      </PyrolysisCollapsibleSection>
+                    );
+                  })}
 
                   {savedAt ? (
                     <Text style={styles.savedAt}>
@@ -696,7 +773,10 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                   <FormInput
                     label="Sample ID"
                     value={sampleDraft.sample_id}
-                    onChangeText={(text) => updateSampleDraft({ sample_id: text })}
+                    onChangeText={(text) => {
+                      sampleIdManuallyEdited.current = true;
+                      updateSampleDraft({ sample_id: text });
+                    }}
                   />
                   <PyrolysisPhotoSlot
                     label="Sample photo"
@@ -719,29 +799,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
           );
         })}
       </ScrollView>
-
-      {photoReview ? (
-        <PhotoReviewModal
-          visible
-          previewUri={photoReview.previewUri}
-          metadata={photoReview.metadata}
-          onReject={() => {
-            setTimeout(() => setPhotoReview(null), 200);
-          }}
-          onAccept={async () => {
-            try {
-              await photoReview.onAccept();
-              await new Promise((resolve) => setTimeout(resolve, 600));
-              setPhotoReview(null);
-            } catch (err) {
-              Alert.alert(
-                "Photo",
-                err instanceof Error ? err.message : "Could not save photo.",
-              );
-            }
-          }}
-        />
-      ) : null}
     </ScreenShell>
   );
 }
@@ -758,17 +815,53 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  producer: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: colors.smoke,
+  metaCard: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.chartreuseMuted,
+    padding: spacing.md,
+    gap: spacing.xs,
   },
-  hint: {
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  metaLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.brunswick,
+  },
+  metaValue: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.brunswick,
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  metaLocationValue: {
+    flexShrink: 1,
+    maxWidth: "62%",
+    alignItems: "flex-end",
+  },
+  metaSubValue: {
     fontFamily: fonts.regular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.smoke,
-    lineHeight: 17,
-    marginBottom: spacing.xs,
+    textAlign: "right",
+  },
+  metaLocationLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  metaRetry: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.brunswick,
+    textDecorationLine: "underline",
   },
   optionsLoading: {
     flexDirection: "row",
@@ -782,17 +875,6 @@ const styles = StyleSheet.create({
     color: colors.smoke,
   },
   form: { gap: spacing.sm },
-  moistureBlock: {
-    gap: spacing.xs,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  moistureTitle: {
-    fontFamily: fonts.medium,
-    fontSize: 14,
-    color: colors.brunswick,
-  },
   locationMeta: {
     fontFamily: fonts.regular,
     fontSize: 12,

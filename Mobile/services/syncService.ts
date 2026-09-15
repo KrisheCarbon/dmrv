@@ -1,27 +1,29 @@
 import { AppState, type AppStateStatus } from "react-native";
 import NetInfo, { type NetInfoState } from "@react-native-community/netinfo";
-import { Q } from "@nozbe/watermelondb";
-import type { Farmer as FarmerRow, FarmerCrop, FarmCropRecord, FarmUpsertPayload } from "@krishecarbon/shared";
-import { database } from "../database";
-import Farmer from "../database/models/Farmer";
-import SyncQueue from "../database/models/SyncQueue";
+import type {
+  Farmer as FarmerRow,
+  FarmerCrop,
+  FarmCropRecord,
+  FarmUpsertPayload,
+} from "@krishecarbon/shared";
+import { canAccessWebPortal } from "@krishecarbon/shared";
+import { getDb } from "../database/db";
+import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
+import { farmerToRow, rowToFarmer, syncQueueItemToRow, type Farmer } from "../database/types";
+import { getFarmerByIdLocal } from "./farmerService";
 import { backendFetch, clearBackendUrlCache } from "./backendApi";
-import PyrolysisSession from "../database/models/PyrolysisSession";
-import MixingEntry from "../database/models/MixingEntry";
-import ApplicationEntry from "../database/models/ApplicationEntry";
-import {
-  syncPyrolysisBatch,
-} from "./pyrolysisService";
-import { syncMixingEntry } from "./mixingService";
-import { syncApplicationEntry } from "./applicationService";
+import { getPyrolysisSession, syncPyrolysisBatch } from "./pyrolysisService";
+import { getMixingEntry, syncMixingEntry } from "./mixingService";
+import { getApplicationEntry, syncApplicationEntry } from "./applicationService";
 import { syncEncryptedKilnBatches } from "./kiln/kilnSyncService";
-import {
-  buildConsentFileName,
-  buildConsentStoragePath,
-  extractConsentStoragePath,
-  getModuleBucket,
-} from "../utils/consentStorage";
 import { supabase } from "./supabase";
+import { getUserProfile } from "./userProfile";
+import {
+  syncFarmField,
+  syncFarmerConsent,
+  syncSoilTest,
+  pullSoilNetworkFromServer,
+} from "./farmerNetworkSync";
 
 const MAX_RETRIES = 5;
 const SYNC_POLL_MS = 20000;
@@ -54,13 +56,6 @@ export function canUploadToCloud(net: NetInfoState) {
 
 function isOnline(net: NetInfoState) {
   return canStartSync(net);
-}
-
-function userScopeQuery(userId: string) {
-  return Q.or(
-    Q.where("created_by", userId),
-    Q.where("assigned_to", userId)
-  );
 }
 
 function emitSyncEvent(event: Record<string, unknown>) {
@@ -100,26 +95,6 @@ function setFarmerProgress(farmerId: string, progress: number) {
 function clearFarmerProgress(farmerId: string) {
   progressByFarmerId.delete(farmerId);
   emitSyncEvent({ type: "progress", farmerId, progress: 0 });
-}
-
-function farmersCollection() {
-  return database.get<Farmer>("farmers");
-}
-
-function syncQueueCollection() {
-  return database.get<SyncQueue>("sync_queue");
-}
-
-function pyrolysisSessionsCollection() {
-  return database.get<PyrolysisSession>("pyrolysis_sessions");
-}
-
-function mixingEntriesCollection() {
-  return database.get<MixingEntry>("mixing_entries");
-}
-
-function applicationEntriesCollection() {
-  return database.get<ApplicationEntry>("application_entries");
 }
 
 export function startSyncListener() {
@@ -174,41 +149,51 @@ export function processSyncQueue() {
   return syncChain;
 }
 
-export async function retryFailedFarmSyncs(userId: string) {
-  await database.write(async () => {
-    const failedFarmers = await farmersCollection()
-      .query(userScopeQuery(userId), Q.where("sync_status", "error"))
-      .fetch();
+export async function retryFailedFarmSyncs(userId: string, role?: string | null) {
+  const db = await getDb();
+  const seeAll = canAccessWebPortal(role ?? "");
 
+  const failedRows = seeAll
+    ? await db.getAllAsync<any>("SELECT * FROM farmers WHERE sync_status = ?", ["error"])
+    : await db.getAllAsync<any>(
+        "SELECT * FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+        [userId, userId, "error"],
+      );
+  const failedFarmers = failedRows.map(rowToFarmer);
+
+  await db.withTransactionAsync(async () => {
     for (const farmer of failedFarmers) {
-      await farmer.update((record) => {
-        record.uploadStatus = "pending";
-        record.syncError = null;
-      });
+      await db.runAsync(
+        "UPDATE farmers SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", farmer.id],
+      );
 
-      const queueItems = await syncQueueCollection()
-        .query(Q.where("entity_local_id", farmer.id))
-        .fetch();
+      const queueItems = await db.getAllAsync<any>(
+        "SELECT * FROM sync_queue WHERE entity_local_id = ?",
+        [farmer.id],
+      );
 
       const failedItems = queueItems.filter((item) => item.status === "failed");
 
       for (const item of failedItems) {
-        await item.update((record) => {
-          record.status = "pending";
-          record.retries = 0;
-          record.errorMessage = null;
-        });
+        await db.runAsync(
+          "UPDATE sync_queue SET status = ?, retries = 0, error_message = NULL WHERE id = ?",
+          ["pending", item.id],
+        );
       }
 
       if (queueItems.length === 0) {
-        await syncQueueCollection().create((record) => {
-          record.entityType = "farmer";
-          record.entityLocalId = farmer.id;
-          record.operation = farmer.serverId ? "update" : "create";
-          record.status = "pending";
-          record.retries = 0;
-          record.createdAt = Date.now();
+        const row = syncQueueItemToRow({
+          entityType: "farmer",
+          entityLocalId: farmer.id,
+          operation: farmer.serverId ? "update" : "create",
+          status: "pending",
+          retries: 0,
+          errorMessage: null,
+          createdAt: Date.now(),
         });
+        const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+        await db.runAsync(sql, args);
       }
     }
   });
@@ -243,15 +228,20 @@ async function runSyncQueue() {
     const userId = session.user.id;
     let result = { synced: 0, failed: 0 };
 
-    const pendingItems = await syncQueueCollection()
-      .query(Q.where("status", "pending"), Q.sortBy("created_at", Q.asc))
-      .fetch();
+    const db = await getDb();
+    const pendingItems = await db.getAllAsync<any>(
+      "SELECT * FROM sync_queue WHERE status = ? ORDER BY created_at ASC",
+      ["pending"],
+    );
 
     if (pendingItems.length > 0) {
       result = await processPendingSyncItems(pendingItems, userId);
     }
 
     await reconcileFarmersWithServer(userId);
+    await pullSoilNetworkFromServer().catch((err) => {
+      console.warn("[sync] farmers network pull failed:", syncErrorMessage(err));
+    });
     emitSyncEvent({ type: "reconcileComplete" });
 
     await syncEncryptedKilnBatches().catch((err) => {
@@ -264,25 +254,27 @@ async function runSyncQueue() {
   }
 }
 
-async function processPendingSyncItems(pendingItems: SyncQueue[], userId: string) {
+async function processPendingSyncItems(pendingItems: any[], userId: string) {
   emitSyncEvent({ type: "syncStart" });
 
+  const db = await getDb();
   let synced = 0;
   let failed = 0;
 
   for (const item of pendingItems) {
-    if (item.entityType === "application_entry") {
+    if (item.entity_type === "application_entry") {
       try {
-        const entry = await applicationEntriesCollection().find(item.entityLocalId);
+        const entry = await getApplicationEntry(item.entity_local_id);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "processing";
-          });
-          await entry.update((r) => {
-            r.uploadStatus = "syncing";
-            r.syncError = null;
-          });
+        await db.withTransactionAsync(async () => {
+          await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+            "processing",
+            item.id,
+          ]);
+          await db.runAsync(
+            "UPDATE application_entries SET sync_status = ?, sync_error = NULL WHERE id = ?",
+            ["syncing", entry.id],
+          );
         });
 
         syncingApplicationEntryIds.add(entry.id);
@@ -290,58 +282,53 @@ async function processPendingSyncItems(pendingItems: SyncQueue[], userId: string
 
         await syncApplicationEntry(entry);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "done";
-          });
-        });
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", ["done", item.id]);
 
         syncingApplicationEntryIds.delete(entry.id);
         emitSyncEvent({ type: "applicationSyncComplete", entryId: entry.id, success: true });
         synced += 1;
       } catch (err) {
         const message = syncErrorMessage(err);
-        console.warn("[sync] application entry sync failed:", item.entityLocalId, message);
+        console.warn("[sync] application entry sync failed:", item.entity_local_id, message);
         failed += 1;
         const retries = item.retries + 1;
 
-        syncingApplicationEntryIds.delete(item.entityLocalId);
+        syncingApplicationEntryIds.delete(item.entity_local_id);
         emitSyncEvent({
           type: "applicationSyncComplete",
-          entryId: item.entityLocalId,
+          entryId: item.entity_local_id,
           success: false,
           error: message,
         });
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.retries = retries;
-            r.errorMessage = message;
-            r.status = retries >= MAX_RETRIES ? "failed" : "pending";
-          });
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            "UPDATE sync_queue SET retries = ?, error_message = ?, status = ? WHERE id = ?",
+            [retries, message, retries >= MAX_RETRIES ? "failed" : "pending", item.id],
+          );
 
-          const entry = await applicationEntriesCollection().find(item.entityLocalId);
-          await entry.update((r) => {
-            r.uploadStatus = retries >= MAX_RETRIES ? "error" : "pending";
-            r.syncError = message;
-          });
+          await db.runAsync(
+            "UPDATE application_entries SET sync_status = ?, sync_error = ? WHERE id = ?",
+            [retries >= MAX_RETRIES ? "error" : "pending", message, item.entity_local_id],
+          );
         });
       }
       continue;
     }
 
-    if (item.entityType === "mixing_entry") {
+    if (item.entity_type === "mixing_entry") {
       try {
-        const entry = await mixingEntriesCollection().find(item.entityLocalId);
+        const entry = await getMixingEntry(item.entity_local_id);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "processing";
-          });
-          await entry.update((r) => {
-            r.uploadStatus = "syncing";
-            r.syncError = null;
-          });
+        await db.withTransactionAsync(async () => {
+          await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+            "processing",
+            item.id,
+          ]);
+          await db.runAsync(
+            "UPDATE mixing_entries SET sync_status = ?, sync_error = NULL WHERE id = ?",
+            ["syncing", entry.id],
+          );
         });
 
         syncingMixingEntryIds.add(entry.id);
@@ -349,58 +336,53 @@ async function processPendingSyncItems(pendingItems: SyncQueue[], userId: string
 
         await syncMixingEntry(entry);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "done";
-          });
-        });
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", ["done", item.id]);
 
         syncingMixingEntryIds.delete(entry.id);
         emitSyncEvent({ type: "mixingSyncComplete", entryId: entry.id, success: true });
         synced += 1;
       } catch (err) {
         const message = syncErrorMessage(err);
-        console.warn("[sync] mixing entry sync failed:", item.entityLocalId, message);
+        console.warn("[sync] mixing entry sync failed:", item.entity_local_id, message);
         failed += 1;
         const retries = item.retries + 1;
 
-        syncingMixingEntryIds.delete(item.entityLocalId);
+        syncingMixingEntryIds.delete(item.entity_local_id);
         emitSyncEvent({
           type: "mixingSyncComplete",
-          entryId: item.entityLocalId,
+          entryId: item.entity_local_id,
           success: false,
           error: message,
         });
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.retries = retries;
-            r.errorMessage = message;
-            r.status = retries >= MAX_RETRIES ? "failed" : "pending";
-          });
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            "UPDATE sync_queue SET retries = ?, error_message = ?, status = ? WHERE id = ?",
+            [retries, message, retries >= MAX_RETRIES ? "failed" : "pending", item.id],
+          );
 
-          const entry = await mixingEntriesCollection().find(item.entityLocalId);
-          await entry.update((r) => {
-            r.uploadStatus = retries >= MAX_RETRIES ? "error" : "pending";
-            r.syncError = message;
-          });
+          await db.runAsync(
+            "UPDATE mixing_entries SET sync_status = ?, sync_error = ? WHERE id = ?",
+            [retries >= MAX_RETRIES ? "error" : "pending", message, item.entity_local_id],
+          );
         });
       }
       continue;
     }
 
-    if (item.entityType === "pyrolysis_session") {
+    if (item.entity_type === "pyrolysis_session") {
       try {
-        const session = await pyrolysisSessionsCollection().find(item.entityLocalId);
+        const session = await getPyrolysisSession(item.entity_local_id);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "processing";
-          });
-          await session.update((r) => {
-            r.uploadStatus = "syncing";
-            r.syncError = null;
-          });
+        await db.withTransactionAsync(async () => {
+          await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+            "processing",
+            item.id,
+          ]);
+          await db.runAsync(
+            "UPDATE pyrolysis_sessions SET sync_status = ?, sync_error = NULL WHERE id = ?",
+            ["syncing", session.id],
+          );
         });
 
         syncingPyrolysisSessionIds.add(session.id);
@@ -408,165 +390,165 @@ async function processPendingSyncItems(pendingItems: SyncQueue[], userId: string
 
         await syncPyrolysisBatch(session);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "done";
-          });
-        });
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", ["done", item.id]);
 
         syncingPyrolysisSessionIds.delete(session.id);
         emitSyncEvent({ type: "pyrolysisSyncComplete", sessionId: session.id, success: true });
         synced += 1;
       } catch (err) {
         const message = syncErrorMessage(err);
-        console.warn("[sync] pyrolysis session sync failed:", item.entityLocalId, message);
+        console.warn("[sync] pyrolysis session sync failed:", item.entity_local_id, message);
         failed += 1;
         const retries = item.retries + 1;
 
-        syncingPyrolysisSessionIds.delete(item.entityLocalId);
+        syncingPyrolysisSessionIds.delete(item.entity_local_id);
         emitSyncEvent({
           type: "pyrolysisSyncComplete",
-          sessionId: item.entityLocalId,
+          sessionId: item.entity_local_id,
           success: false,
           error: message,
         });
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.retries = retries;
-            r.errorMessage = message;
-            r.status = retries >= MAX_RETRIES ? "failed" : "pending";
-          });
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            "UPDATE sync_queue SET retries = ?, error_message = ?, status = ? WHERE id = ?",
+            [retries, message, retries >= MAX_RETRIES ? "failed" : "pending", item.id],
+          );
 
-          const session = await pyrolysisSessionsCollection().find(item.entityLocalId);
-          await session.update((r) => {
-            r.uploadStatus = retries >= MAX_RETRIES ? "error" : "pending";
-            r.syncError = message;
-          });
+          await db.runAsync(
+            "UPDATE pyrolysis_sessions SET sync_status = ?, sync_error = ? WHERE id = ?",
+            [retries >= MAX_RETRIES ? "error" : "pending", message, item.entity_local_id],
+          );
         });
       }
       continue;
     }
 
-    const farmerId = item.entityLocalId;
-
+    if (
+      item.entity_type === "field" ||
+      item.entity_type === "consent" ||
+      item.entity_type === "soil_test"
+    ) {
       try {
-        const farmer = await farmersCollection().find(farmerId);
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+          "processing",
+          item.id,
+        ]);
 
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "processing";
-          });
-          await farmer.update((r) => {
-            r.uploadStatus = "syncing";
-            r.syncError = null;
-          });
-        });
-
-        setFarmerProgress(farmerId, 10);
-        emitSyncEvent({ type: "farmerSyncStart", farmerId });
-
-        if (item.operation === "create") {
-          await syncCreateFarmer(farmer, userId, (p) =>
-            setFarmerProgress(farmerId, p)
-          );
+        if (item.entity_type === "field") {
+          await syncFarmField(item.entity_local_id, item.operation);
+        } else if (item.entity_type === "consent") {
+          await syncFarmerConsent(item.entity_local_id);
         } else {
-          await syncUpdateFarmer(farmer, userId, (p) =>
-            setFarmerProgress(farmerId, p)
-          );
+          await syncSoilTest(item.entity_local_id, item.operation);
         }
 
-        setFarmerProgress(farmerId, 100);
-
-        await database.write(async () => {
-          await item.update((r) => {
-            r.status = "done";
-          });
-        });
-
-        clearFarmerProgress(farmerId);
-        emitSyncEvent({ type: "farmerSyncComplete", farmerId, success: true });
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+          "done",
+          item.id,
+        ]);
         synced += 1;
       } catch (err) {
         const message = syncErrorMessage(err);
-        console.warn("[sync] farmer sync failed:", farmerId, message);
+        console.warn(
+          `[sync] ${item.entity_type} sync failed:`,
+          item.entity_local_id,
+          message,
+        );
         failed += 1;
-        clearFarmerProgress(farmerId);
-        emitSyncEvent({
-          type: "farmerSyncComplete",
-          farmerId,
-          success: false,
-          error: message
-        });
-
         const retries = item.retries + 1;
-
-        await database.write(async () => {
-          await item.update((r) => {
-            r.retries = retries;
-            r.errorMessage = message;
-            r.status = retries >= MAX_RETRIES ? "failed" : "pending";
-          });
-
-          const farmer = await farmersCollection().find(item.entityLocalId);
-
-          await farmer.update((r) => {
-            r.uploadStatus = retries >= MAX_RETRIES ? "error" : "pending";
-            r.syncError = message;
-          });
+        const table =
+          item.entity_type === "field"
+            ? "farm_fields"
+            : item.entity_type === "consent"
+              ? "farmer_consents"
+              : "soil_tests";
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            "UPDATE sync_queue SET retries = ?, error_message = ?, status = ? WHERE id = ?",
+            [
+              retries,
+              message,
+              retries >= MAX_RETRIES ? "failed" : "pending",
+              item.id,
+            ],
+          );
+          await db.runAsync(
+            `UPDATE ${table} SET sync_status = ?, sync_error = ? WHERE id = ?`,
+            [
+              retries >= MAX_RETRIES ? "error" : "pending",
+              message,
+              item.entity_local_id,
+            ],
+          );
         });
       }
+      continue;
+    }
+
+    const farmerId = item.entity_local_id;
+
+    try {
+      const farmer = await getFarmerByIdLocal(farmerId);
+
+      await db.withTransactionAsync(async () => {
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+          "processing",
+          item.id,
+        ]);
+        await db.runAsync(
+          "UPDATE farmers SET sync_status = ?, sync_error = NULL WHERE id = ?",
+          ["syncing", farmer.id],
+        );
+      });
+
+      setFarmerProgress(farmerId, 10);
+      emitSyncEvent({ type: "farmerSyncStart", farmerId });
+
+      if (item.operation === "create") {
+        await syncCreateFarmer(farmer, userId, (p) => setFarmerProgress(farmerId, p));
+      } else {
+        await syncUpdateFarmer(farmer, userId, (p) => setFarmerProgress(farmerId, p));
+      }
+
+      setFarmerProgress(farmerId, 100);
+
+      await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", ["done", item.id]);
+
+      clearFarmerProgress(farmerId);
+      emitSyncEvent({ type: "farmerSyncComplete", farmerId, success: true });
+      synced += 1;
+    } catch (err) {
+      const message = syncErrorMessage(err);
+      console.warn("[sync] farmer sync failed:", farmerId, message);
+      failed += 1;
+      clearFarmerProgress(farmerId);
+      emitSyncEvent({
+        type: "farmerSyncComplete",
+        farmerId,
+        success: false,
+        error: message
+      });
+
+      const retries = item.retries + 1;
+
+      await db.withTransactionAsync(async () => {
+        await db.runAsync(
+          "UPDATE sync_queue SET retries = ?, error_message = ?, status = ? WHERE id = ?",
+          [retries, message, retries >= MAX_RETRIES ? "failed" : "pending", item.id],
+        );
+
+        await db.runAsync(
+          "UPDATE farmers SET sync_status = ?, sync_error = ? WHERE id = ?",
+          [retries >= MAX_RETRIES ? "error" : "pending", message, item.entity_local_id],
+        );
+      });
+    }
   }
 
   emitSyncEvent({ type: "syncEnd", synced, failed });
 
   return { synced, failed };
-}
-
-async function uploadConsentFile(
-  localUri: string | null,
-  existingUrl: string | null,
-  onProgress?: (progress: number) => void,
-) {
-  if (!localUri) return existingUrl || null;
-
-  const net = await NetInfo.fetch();
-  if (!canUploadToCloud(net)) {
-    throw new Error(
-      "Internet required to upload consent documents. Connect to Wi‑Fi or mobile data.",
-    );
-  }
-
-  onProgress?.(25);
-
-  const response = await fetch(localUri);
-  const arrayBuffer = await response.arrayBuffer();
-  const ext = localUri.split(".").pop()?.split("?")[0] || "jpg";
-  const farmsBucket = getModuleBucket("farms");
-  const storagePath = buildConsentStoragePath(buildConsentFileName(ext));
-
-  const contentType =
-    ext === "pdf"
-      ? "application/pdf"
-      : ext === "png"
-      ? "image/png"
-      : "image/jpeg";
-
-  onProgress?.(40);
-
-  const { error } = await supabase.storage
-    .from(farmsBucket)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: false });
-
-  if (error) throw error;
-
-  onProgress?.(55);
-
-  const { data } = supabase.storage
-    .from(farmsBucket)
-    .getPublicUrl(storagePath);
-
-  return data.publicUrl;
 }
 
 function cropsToApiFormat(crops: FarmerCrop[]): FarmCropRecord[] {
@@ -582,6 +564,7 @@ function cropsToApiFormat(crops: FarmerCrop[]): FarmCropRecord[] {
       acreage: Number(row.crop_area ?? row.acreage ?? 0),
       sowing_date: row.sowing_date,
       estimated_harvest_date: row.harvest_date || row.estimated_harvest_date || "",
+      biomass_rate: row.biomass_rate != null ? Number(row.biomass_rate) : undefined,
     };
   });
 }
@@ -596,14 +579,13 @@ function cropsFromRemote(crops: unknown): FarmerCrop[] {
       crop_area: Number(row.crop_area ?? row.acreage ?? 0),
       sowing_date: String(row.sowing_date ?? ""),
       harvest_date: String(row.harvest_date ?? row.estimated_harvest_date ?? ""),
+      biomass_rate:
+        row.biomass_rate != null ? Number(row.biomass_rate) : undefined,
     };
   });
 }
 
-function farmerToApiPayload(
-  farmer: Farmer,
-  consentUrl: string | null,
-): FarmUpsertPayload {
+function farmerToApiPayload(farmer: Farmer): FarmUpsertPayload {
   return {
     farmer_name: farmer.farmerName,
     mobile_number: farmer.mobileNumber,
@@ -616,30 +598,48 @@ function farmerToApiPayload(
     prior_biochar_exp: farmer.priorBiocharExp,
     prior_biochar_acreage: farmer.priorBiocharAcreage,
     estimated_biomass: farmer.estimatedBiomass,
-    consent_document_url: consentUrl,
+    farmer_code: farmer.farmerCode,
+    father_spouse_name: farmer.fatherSpouseName,
+    agri_id: farmer.agriId,
+    village: farmer.village,
+    mandal: farmer.mandal,
+    district: farmer.district,
+    state: farmer.state,
+    owned_land_size: farmer.ownedLandSize,
+    leased_land_size: farmer.leasedLandSize,
   };
 }
 
-function applyRemoteToLocal(record: Farmer, remote: FarmerRow) {
-  record.serverId = remote.id;
-  record.farmerName = remote.farmer_name;
-  record.mobileNumber = remote.mobile_number;
-  record.latitude = remote.latitude;
-  record.longitude = remote.longitude;
-  record.address = remote.address;
-  record.totalLandSize = Number(remote.total_land_size);
-  record.crops = cropsFromRemote(remote.crops);
-  record.interestedInBiochar = remote.interested_in_biochar;
-  record.priorBiocharExp = remote.prior_biochar_exp;
-  record.priorBiocharAcreage = remote.prior_biochar_acreage;
-  record.consentDocumentUrl = remote.consent_document_url;
-  record.estimatedBiomass = Number(remote.estimated_biomass);
-  record.createdBy = remote.created_by;
-  record.assignedTo = remote.assigned_to;
-  record.uploadStatus = "synced";
-  record.syncError = null;
-  record.createdAt = new Date(remote.created_at).getTime();
-  record.updatedAt = new Date(remote.updated_at).getTime();
+function remoteFarmerToRow(remote: FarmerRow): Record<string, unknown> {
+  return farmerToRow({
+    serverId: remote.id,
+    farmerCode: remote.farmer_code ?? null,
+    farmerName: remote.farmer_name,
+    fatherSpouseName: remote.father_spouse_name ?? null,
+    agriId: remote.agri_id ?? null,
+    mobileNumber: remote.mobile_number,
+    latitude: remote.latitude,
+    longitude: remote.longitude,
+    address: remote.address,
+    village: remote.village ?? null,
+    mandal: remote.mandal ?? null,
+    district: remote.district ?? null,
+    state: remote.state ?? null,
+    totalLandSize: Number(remote.total_land_size),
+    ownedLandSize: remote.owned_land_size ?? null,
+    leasedLandSize: remote.leased_land_size ?? null,
+    crops: cropsFromRemote(remote.crops),
+    interestedInBiochar: remote.interested_in_biochar,
+    priorBiocharExp: remote.prior_biochar_exp,
+    priorBiocharAcreage: remote.prior_biochar_acreage,
+    estimatedBiomass: Number(remote.estimated_biomass),
+    createdBy: remote.created_by,
+    assignedTo: remote.assigned_to,
+    uploadStatus: "synced",
+    syncError: null,
+    createdAt: new Date(remote.created_at).getTime(),
+    updatedAt: new Date(remote.updated_at).getTime(),
+  });
 }
 
 async function syncCreateFarmer(
@@ -647,17 +647,9 @@ async function syncCreateFarmer(
   userId: string,
   onProgress?: (progress: number) => void,
 ) {
-  onProgress?.(15);
+  onProgress?.(30);
 
-  const consentUrl = await uploadConsentFile(
-    farmer.consentLocalUri,
-    farmer.consentDocumentUrl,
-    onProgress
-  );
-
-  onProgress?.(65);
-
-  const payload = farmerToApiPayload(farmer, consentUrl);
+  const payload = farmerToApiPayload(farmer);
 
   const data = await backendFetch<FarmerRow>("/farms", {
     method: "POST",
@@ -666,16 +658,11 @@ async function syncCreateFarmer(
 
   onProgress?.(85);
 
-  await database.write(async () => {
-    await farmer.update((r) => {
-      r.serverId = data.id;
-      r.consentDocumentUrl = consentUrl;
-      r.consentLocalUri = null;
-      r.uploadStatus = "synced";
-      r.syncError = null;
-      r.updatedAt = Date.now();
-    });
-  });
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE farmers SET server_id = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+    [data.id, "synced", Date.now(), farmer.id],
+  );
 
   onProgress?.(100);
 }
@@ -690,17 +677,9 @@ async function syncUpdateFarmer(
     return;
   }
 
-  onProgress?.(15);
+  onProgress?.(30);
 
-  const consentUrl = await uploadConsentFile(
-    farmer.consentLocalUri,
-    farmer.consentDocumentUrl,
-    onProgress
-  );
-
-  onProgress?.(65);
-
-  const payload = farmerToApiPayload(farmer, consentUrl);
+  const payload = farmerToApiPayload(farmer);
 
   await backendFetch<FarmerRow>(`/farms/${farmer.serverId}`, {
     method: "PATCH",
@@ -709,29 +688,18 @@ async function syncUpdateFarmer(
 
   onProgress?.(85);
 
-  await database.write(async () => {
-    await farmer.update((r) => {
-      r.consentDocumentUrl = consentUrl;
-      r.consentLocalUri = null;
-      r.uploadStatus = "synced";
-      r.syncError = null;
-      r.updatedAt = Date.now();
-    });
-  });
+  const db = await getDb();
+  await db.runAsync(
+    "UPDATE farmers SET sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
+    ["synced", Date.now(), farmer.id],
+  );
 
   onProgress?.(100);
 }
 
-async function deleteFarmerAndQueue(farmer: Farmer) {
-  const items = await syncQueueCollection()
-    .query(Q.where("entity_local_id", farmer.id))
-    .fetch();
-
-  for (const item of items) {
-    await item.destroyPermanently();
-  }
-
-  await farmer.destroyPermanently();
+async function deleteFarmerAndQueue(db: Awaited<ReturnType<typeof getDb>>, farmerId: string) {
+  await db.runAsync("DELETE FROM sync_queue WHERE entity_local_id = ?", [farmerId]);
+  await db.runAsync("DELETE FROM farmers WHERE id = ?", [farmerId]);
 }
 
 async function reconcileFarmersWithServer(userId: string) {
@@ -744,35 +712,51 @@ async function reconcileFarmersWithServer(userId: string) {
     return;
   }
 
+  const profile = await getUserProfile();
+  const seeAll = canAccessWebPortal(profile?.role ?? "");
   const remoteIds = new Set(data.map((row) => row.id));
 
-  await database.write(async () => {
-    const allLocal = await farmersCollection().query().fetch();
+  const db = await getDb();
+
+  await db.withTransactionAsync(async () => {
+    const allLocalRows = await db.getAllAsync<any>("SELECT * FROM farmers");
+    const allLocal = allLocalRows.map(rowToFarmer);
 
     for (const local of allLocal) {
-      const belongsToUser =
-        local.createdBy === userId || local.assignedTo === userId;
+      const belongsToUser = local.createdBy === userId || local.assignedTo === userId;
+      const visibleOnServer = Boolean(local.serverId && remoteIds.has(local.serverId));
+      const pendingLocalCreate =
+        !local.serverId &&
+        (local.uploadStatus === "pending" || local.uploadStatus === "syncing");
 
-      if (!belongsToUser) {
-        await deleteFarmerAndQueue(local);
+      if (visibleOnServer) {
         continue;
       }
 
-      if (
-        local.serverId &&
-        !remoteIds.has(local.serverId) &&
-        local.uploadStatus === "synced"
-      ) {
-        await deleteFarmerAndQueue(local);
+      if (pendingLocalCreate && belongsToUser) {
+        continue;
+      }
+
+      if (!belongsToUser && !seeAll) {
+        await deleteFarmerAndQueue(db, local.id);
+        continue;
+      }
+
+      if (local.serverId && !remoteIds.has(local.serverId) && local.uploadStatus === "synced") {
+        await deleteFarmerAndQueue(db, local.id);
       }
     }
 
-    const userLocals = await farmersCollection()
-      .query(userScopeQuery(userId))
-      .fetch();
+    const userLocalsRows = seeAll
+      ? await db.getAllAsync<any>("SELECT * FROM farmers")
+      : await db.getAllAsync<any>(
+          "SELECT * FROM farmers WHERE created_by = ? OR assigned_to = ?",
+          [userId, userId],
+        );
+    const userLocals = userLocalsRows.map(rowToFarmer);
 
-    const byServerId = new Map();
-    const deletedIds = new Set();
+    const byServerId = new Map<string, Farmer>();
+    const deletedIds = new Set<string>();
 
     for (const local of userLocals) {
       if (!local.serverId || deletedIds.has(local.id)) continue;
@@ -783,37 +767,36 @@ async function reconcileFarmersWithServer(userId: string) {
         continue;
       }
 
-      const keep =
-        local.updatedAt >= existing.updatedAt ? local : existing;
+      const keep = local.updatedAt >= existing.updatedAt ? local : existing;
       const drop = keep === local ? existing : local;
 
-      await deleteFarmerAndQueue(drop);
+      await deleteFarmerAndQueue(db, drop.id);
       deletedIds.add(drop.id);
       byServerId.set(local.serverId, keep);
     }
 
-    const pendingWithoutServerId = await farmersCollection()
-      .query(userScopeQuery(userId), Q.where("sync_status", "pending"))
-      .fetch();
+    const pendingRows = await db.getAllAsync<any>(
+      "SELECT * FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+      [userId, userId, "pending"],
+    );
+    const pendingWithoutServerId = pendingRows.map(rowToFarmer);
 
     for (const remote of data) {
-      const matched = await farmersCollection()
-        .query(Q.where("server_id", remote.id))
-        .fetch();
+      const matchedRows = await db.getAllAsync<any>(
+        "SELECT * FROM farmers WHERE server_id = ?",
+        [remote.id],
+      );
 
-      if (matched.length > 0) {
-        const local = matched[0];
+      if (matchedRows.length > 0) {
+        const local = rowToFarmer(matchedRows[0]);
 
-        if (
-          local.uploadStatus === "pending" ||
-          local.uploadStatus === "syncing"
-        ) {
+        if (local.uploadStatus === "pending" || local.uploadStatus === "syncing") {
           continue;
         }
 
-        await local.update((r) => {
-          applyRemoteToLocal(r, remote);
-        });
+        const row = remoteFarmerToRow(remote);
+        const { sql, args } = buildUpdate("farmers", row, "id = ?", [local.id]);
+        await db.runAsync(sql, args);
         continue;
       }
 
@@ -827,54 +810,108 @@ async function reconcileFarmersWithServer(userId: string) {
       );
 
       if (pendingMatch) {
-        await pendingMatch.update((r) => {
-          applyRemoteToLocal(r, remote);
-        });
+        const row = remoteFarmerToRow(remote);
+        row.farmer_code = pendingMatch.farmerCode;
+        row.father_spouse_name = pendingMatch.fatherSpouseName;
+        row.agri_id = pendingMatch.agriId;
+        row.village = pendingMatch.village;
+        row.mandal = pendingMatch.mandal;
+        row.district = pendingMatch.district;
+        row.state = pendingMatch.state;
+        row.owned_land_size = pendingMatch.ownedLandSize;
+        row.leased_land_size = pendingMatch.leasedLandSize;
+        const { sql, args } = buildUpdate("farmers", row, "id = ?", [pendingMatch.id]);
+        await db.runAsync(sql, args);
 
-        const queueItems = await syncQueueCollection()
-          .query(Q.where("entity_local_id", pendingMatch.id))
-          .fetch();
-
-        for (const item of queueItems) {
-          await item.destroyPermanently();
-        }
+        await db.runAsync("DELETE FROM sync_queue WHERE entity_local_id = ?", [pendingMatch.id]);
         continue;
       }
 
-      await farmersCollection().create((r) => {
-        applyRemoteToLocal(r, remote);
-      });
+      const row = remoteFarmerToRow(remote);
+      const { sql, args } = buildInsert("farmers", { id: generateId(), ...row });
+      await db.runAsync(sql, args);
     }
 
-    const doneItems = await syncQueueCollection()
-      .query(Q.where("status", "done"))
-      .fetch();
-
-    for (const item of doneItems) {
-      await item.destroyPermanently();
-    }
+    await db.runAsync("DELETE FROM sync_queue WHERE status = ?", ["done"]);
   });
 }
 
-export async function getSyncStatusSummary(userId: string | undefined) {
+export async function getSyncStatusSummary(
+  userId: string | undefined,
+  role?: string | null,
+) {
   if (!userId) {
     const net = await NetInfo.fetch();
     return { pending: 0, errors: 0, online: isOnline(net) };
   }
 
-  const pending = await farmersCollection()
-    .query(
-      userScopeQuery(userId),
-      Q.or(
-        Q.where("sync_status", "pending"),
-        Q.where("sync_status", "syncing")
-      )
-    )
-    .fetchCount();
+  const db = await getDb();
+  const seeAll = canAccessWebPortal(role ?? "");
 
-  const errors = await farmersCollection()
-    .query(userScopeQuery(userId), Q.where("sync_status", "error"))
-    .fetchCount();
+  const pendingRow = seeAll
+    ? await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM farmers WHERE sync_status = ? OR sync_status = ?",
+        ["pending", "syncing"],
+      )
+    : await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND (sync_status = ? OR sync_status = ?)",
+        [userId, userId, "pending", "syncing"],
+      );
+
+  const errorRow = seeAll
+    ? await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM farmers WHERE sync_status = ?",
+        ["error"],
+      )
+    : await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+        [userId, userId, "error"],
+      );
+
+  const pending = pendingRow?.count ?? 0;
+  const errors = errorRow?.count ?? 0;
+
+  const net = await NetInfo.fetch();
+  const online = isOnline(net);
+
+  return { pending, errors, online };
+}
+
+export type EntitySyncTable = "pyrolysis_sessions" | "mixing_entries" | "application_entries";
+
+async function countByStatus(
+  table: EntitySyncTable,
+  userId: string,
+  statuses: string[],
+): Promise<number> {
+  const db = await getDb();
+  const placeholders = statuses.map(() => "?").join(", ");
+  const row = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM ${table} WHERE operator_id = ? AND sync_status IN (${placeholders})`,
+    [userId, ...statuses],
+  );
+  return row?.count ?? 0;
+}
+
+/**
+ * Same shape as `getSyncStatusSummary` (farmers) but for the other
+ * operator-scoped tables (pyrolysis/mixing/application) that also need a
+ * "dynamic" sync status pill on the Home dashboard. Drafts ("local") are
+ * excluded — only entries actually queued for upload count as pending.
+ */
+export async function getEntitySyncSummary(
+  table: EntitySyncTable,
+  userId: string | undefined,
+) {
+  if (!userId) {
+    const net = await NetInfo.fetch();
+    return { pending: 0, errors: 0, online: isOnline(net) };
+  }
+
+  const [pending, errors] = await Promise.all([
+    countByStatus(table, userId, ["pending", "syncing"]),
+    countByStatus(table, userId, ["error"]),
+  ]);
 
   const net = await NetInfo.fetch();
   const online = isOnline(net);
@@ -883,199 +920,194 @@ export async function getSyncStatusSummary(userId: string | undefined) {
 }
 
 export async function isFarmerSyncing(farmerId: string) {
-  const farmer = await farmersCollection().find(farmerId);
+  const farmer = await getFarmerByIdLocal(farmerId);
   return farmer.uploadStatus === "syncing";
 }
 
 export async function retryFailedApplicationSyncs() {
-  await database.write(async () => {
-    const failedEntries = await applicationEntriesCollection()
-      .query(Q.where("sync_status", "error"))
-      .fetch();
+  const db = await getDb();
+  const failedRows = await db.getAllAsync<any>(
+    "SELECT * FROM application_entries WHERE sync_status = ?",
+    ["error"],
+  );
 
-    for (const entry of failedEntries) {
-      await entry.update((record) => {
-        record.uploadStatus = "pending";
-        record.syncError = null;
-      });
+  await db.withTransactionAsync(async () => {
+    for (const row of failedRows) {
+      await db.runAsync(
+        "UPDATE application_entries SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", row.id],
+      );
 
-      const queueItems = await syncQueueCollection()
-        .query(
-          Q.where("entity_local_id", entry.id),
-          Q.where("entity_type", "application_entry"),
-        )
-        .fetch();
+      const queueItems = await db.getAllAsync<any>(
+        "SELECT * FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+        [row.id, "application_entry"],
+      );
 
       const failedItems = queueItems.filter((item) => item.status === "failed");
 
       for (const item of failedItems) {
-        await item.update((record) => {
-          record.status = "pending";
-          record.retries = 0;
-          record.errorMessage = null;
-        });
+        await db.runAsync(
+          "UPDATE sync_queue SET status = ?, retries = 0, error_message = NULL WHERE id = ?",
+          ["pending", item.id],
+        );
       }
 
       if (queueItems.length === 0) {
-        await syncQueueCollection().create((record) => {
-          record.entityType = "application_entry";
-          record.entityLocalId = entry.id;
-          record.operation = "create";
-          record.status = "pending";
-          record.retries = 0;
-          record.createdAt = Date.now();
+        const queueRow = syncQueueItemToRow({
+          entityType: "application_entry",
+          entityLocalId: row.id,
+          operation: "create",
+          status: "pending",
+          retries: 0,
+          errorMessage: null,
+          createdAt: Date.now(),
         });
+        const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...queueRow });
+        await db.runAsync(sql, args);
       }
     }
   });
 }
 
 export async function retryFailedMixingSyncs() {
-  await database.write(async () => {
-    const failedEntries = await mixingEntriesCollection()
-      .query(Q.where("sync_status", "error"))
-      .fetch();
+  const db = await getDb();
+  const failedRows = await db.getAllAsync<any>(
+    "SELECT * FROM mixing_entries WHERE sync_status = ?",
+    ["error"],
+  );
 
-    for (const entry of failedEntries) {
-      await entry.update((record) => {
-        record.uploadStatus = "pending";
-        record.syncError = null;
-      });
+  await db.withTransactionAsync(async () => {
+    for (const row of failedRows) {
+      await db.runAsync(
+        "UPDATE mixing_entries SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", row.id],
+      );
 
-      const queueItems = await syncQueueCollection()
-        .query(
-          Q.where("entity_local_id", entry.id),
-          Q.where("entity_type", "mixing_entry"),
-        )
-        .fetch();
+      const queueItems = await db.getAllAsync<any>(
+        "SELECT * FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+        [row.id, "mixing_entry"],
+      );
 
       const failedItems = queueItems.filter((item) => item.status === "failed");
 
       for (const item of failedItems) {
-        await item.update((record) => {
-          record.status = "pending";
-          record.retries = 0;
-          record.errorMessage = null;
-        });
+        await db.runAsync(
+          "UPDATE sync_queue SET status = ?, retries = 0, error_message = NULL WHERE id = ?",
+          ["pending", item.id],
+        );
       }
 
       if (queueItems.length === 0) {
-        await syncQueueCollection().create((record) => {
-          record.entityType = "mixing_entry";
-          record.entityLocalId = entry.id;
-          record.operation = "create";
-          record.status = "pending";
-          record.retries = 0;
-          record.createdAt = Date.now();
+        const queueRow = syncQueueItemToRow({
+          entityType: "mixing_entry",
+          entityLocalId: row.id,
+          operation: "create",
+          status: "pending",
+          retries: 0,
+          errorMessage: null,
+          createdAt: Date.now(),
         });
+        const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...queueRow });
+        await db.runAsync(sql, args);
       }
     }
   });
 }
 
 export async function retryFailedPyrolysisSyncs() {
-  await database.write(async () => {
-    const failedSessions = await pyrolysisSessionsCollection()
-      .query(Q.where("sync_status", "error"))
-      .fetch();
+  const db = await getDb();
+  const failedRows = await db.getAllAsync<any>(
+    "SELECT * FROM pyrolysis_sessions WHERE sync_status = ?",
+    ["error"],
+  );
 
-    for (const session of failedSessions) {
-      await session.update((record) => {
-        record.uploadStatus = "pending";
-        record.syncError = null;
-      });
+  await db.withTransactionAsync(async () => {
+    for (const row of failedRows) {
+      await db.runAsync(
+        "UPDATE pyrolysis_sessions SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", row.id],
+      );
 
-      const queueItems = await syncQueueCollection()
-        .query(
-          Q.where("entity_local_id", session.id),
-          Q.where("entity_type", "pyrolysis_session"),
-        )
-        .fetch();
+      const queueItems = await db.getAllAsync<any>(
+        "SELECT * FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+        [row.id, "pyrolysis_session"],
+      );
 
       const failedItems = queueItems.filter((item) => item.status === "failed");
 
       for (const item of failedItems) {
-        await item.update((record) => {
-          record.status = "pending";
-          record.retries = 0;
-          record.errorMessage = null;
-        });
+        await db.runAsync(
+          "UPDATE sync_queue SET status = ?, retries = 0, error_message = NULL WHERE id = ?",
+          ["pending", item.id],
+        );
       }
 
       if (queueItems.length === 0) {
-        await syncQueueCollection().create((record) => {
-          record.entityType = "pyrolysis_session";
-          record.entityLocalId = session.id;
-          record.operation = "complete";
-          record.status = "pending";
-          record.retries = 0;
-          record.createdAt = Date.now();
+        const queueRow = syncQueueItemToRow({
+          entityType: "pyrolysis_session",
+          entityLocalId: row.id,
+          operation: "complete",
+          status: "pending",
+          retries: 0,
+          errorMessage: null,
+          createdAt: Date.now(),
         });
+        const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...queueRow });
+        await db.runAsync(sql, args);
       }
     }
   });
 }
 
 async function recoverStuckSyncItems() {
-  const stuckFarmers = await farmersCollection()
-    .query(Q.where("sync_status", "syncing"))
-    .fetch();
+  const db = await getDb();
 
-  const stuckPyrolysisSessions = await pyrolysisSessionsCollection()
-    .query(Q.where("sync_status", "syncing"))
-    .fetch();
+  const stuckCounts = await Promise.all([
+    db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM farmers WHERE sync_status = ?",
+      ["syncing"],
+    ),
+    db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM pyrolysis_sessions WHERE sync_status = ?",
+      ["syncing"],
+    ),
+    db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM mixing_entries WHERE sync_status = ?",
+      ["syncing"],
+    ),
+    db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM application_entries WHERE sync_status = ?",
+      ["syncing"],
+    ),
+    db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM sync_queue WHERE status = ?",
+      ["processing"],
+    ),
+  ]);
 
-  const stuckMixingEntries = await mixingEntriesCollection()
-    .query(Q.where("sync_status", "syncing"))
-    .fetch();
+  const anyStuck = stuckCounts.some((row) => (row?.count ?? 0) > 0);
+  if (!anyStuck) return;
 
-  const stuckApplicationEntries = await applicationEntriesCollection()
-    .query(Q.where("sync_status", "syncing"))
-    .fetch();
-
-  const stuckQueue = await syncQueueCollection()
-    .query(Q.where("status", "processing"))
-    .fetch();
-
-  if (
-    stuckFarmers.length === 0 &&
-    stuckPyrolysisSessions.length === 0 &&
-    stuckMixingEntries.length === 0 &&
-    stuckApplicationEntries.length === 0 &&
-    stuckQueue.length === 0
-  ) {
-    return;
-  }
-
-  await database.write(async () => {
-    for (const farmer of stuckFarmers) {
-      await farmer.update((r) => {
-        r.uploadStatus = "pending";
-      });
-    }
-
-    for (const session of stuckPyrolysisSessions) {
-      await session.update((r) => {
-        r.uploadStatus = "pending";
-      });
-    }
-
-    for (const entry of stuckMixingEntries) {
-      await entry.update((r) => {
-        r.uploadStatus = "pending";
-      });
-    }
-
-    for (const entry of stuckApplicationEntries) {
-      await entry.update((r) => {
-        r.uploadStatus = "pending";
-      });
-    }
-
-    for (const item of stuckQueue) {
-      await item.update((r) => {
-        r.status = "pending";
-      });
-    }
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("UPDATE farmers SET sync_status = ? WHERE sync_status = ?", [
+      "pending",
+      "syncing",
+    ]);
+    await db.runAsync("UPDATE pyrolysis_sessions SET sync_status = ? WHERE sync_status = ?", [
+      "pending",
+      "syncing",
+    ]);
+    await db.runAsync("UPDATE mixing_entries SET sync_status = ? WHERE sync_status = ?", [
+      "pending",
+      "syncing",
+    ]);
+    await db.runAsync("UPDATE application_entries SET sync_status = ? WHERE sync_status = ?", [
+      "pending",
+      "syncing",
+    ]);
+    await db.runAsync("UPDATE sync_queue SET status = ? WHERE status = ?", [
+      "pending",
+      "processing",
+    ]);
   });
 }

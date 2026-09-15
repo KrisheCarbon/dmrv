@@ -60,5 +60,7 @@ export const logos = {
   symbolDark: require("../assets/branding/logo-symbol-dark.png"),
   /** Symbol mark — bg matched to Pure White #FFFFFF */
   symbolWhiteBg: require("../assets/branding/logo-symbol-white-bg.png"),
-  symbolGreenBg: require("../assets/branding/logo-symbol-green-bg.png")
+  symbolGreenBg: require("../assets/branding/logo-symbol-green-bg.png"),
+  /** Symbol mark burned into every field-photo watermark. */
+  watermark: require("../assets/branding/watermark-logo.png")
 };

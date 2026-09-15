@@ -19,6 +19,7 @@ import { listPyrolysisBatches } from "./actions";
 import {
   formatBatchLabel,
   formatReviewStatus,
+  productionBatchSearchIndex,
   reviewStatusTone,
   type PyrolysisBatchDetail,
   type PyrolysisBatchTableRow,
@@ -64,6 +65,7 @@ export default function ProductionPage() {
           review_status_raw: batch.review_status,
           yield_percent:
             batch.yield_percent != null ? `${batch.yield_percent}%` : "—",
+          search_index: productionBatchSearchIndex(batch),
         })),
       );
     } catch (err) {
@@ -95,13 +97,7 @@ export default function ProductionPage() {
           !sessionFilter || row.session_status === sessionFilter;
         const matchesQuery = matchesAllSearchTerms(
           searchFilters,
-          row.batch_label,
-          row.kontikki_code,
-          row.producer,
-          row.operator_name,
-          row.session_status,
-          row.review_status,
-          row.yield_percent,
+          row.search_index,
         );
         return matchesStatus && matchesSession && matchesQuery;
       }),
@@ -123,6 +119,8 @@ export default function ProductionPage() {
               ...row,
               review_status: formatReviewStatus(status),
               review_status_raw: status,
+              yield_percent:
+                batch.yield_percent != null ? `${batch.yield_percent}%` : "—",
             }
           : row,
       ),
@@ -157,7 +155,7 @@ export default function ProductionPage() {
         onAddSearchFilter={addSearchFilter}
         onRemoveSearchFilter={removeSearchFilter}
         onClearSearchFilters={clearSearchFilters}
-        searchPlaceholder="Search batch, kontikki, producer, operator…"
+        searchPlaceholder="Search batch, location, comment, feedstock, reviewer notes…"
         filteredCount={filteredRows.length}
         totalCount={rows.length}
         filters={[

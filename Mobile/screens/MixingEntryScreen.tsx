@@ -17,9 +17,10 @@ import {
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
-import FormMultiSelect from "../components/FormMultiSelect";
+import FormMultiSelectDropdown from "../components/FormMultiSelectDropdown";
 import PyrolysisPhotoSlot from "../components/PyrolysisPhotoSlot";
 import PhotoReviewModal from "../components/PhotoReviewModal";
+import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
@@ -32,6 +33,7 @@ import {
 import {
   fetchAvailablePyrolysisBatches,
   getMixingEntry,
+  refreshMixingReviewStatuses,
   setMixingPyrolysisLinks,
   submitMixingEntry,
   toMixingEntryView,
@@ -44,6 +46,7 @@ import {
   type NetworkFarm,
 } from "../services/backendApi";
 import { getCurrentFarmLocation } from "../utils/location";
+import { startLocationCache } from "../services/locationCache";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
 type PhotoKind = "biochar" | "substrate" | "mixing";
@@ -69,6 +72,7 @@ export default function MixingEntryScreen({ navigation, route }) {
   } | null>(null);
 
   const isEditable = entry?.status === "draft" || entry?.uploadStatus === "local";
+  const locationAutoFetchTried = useRef(false);
 
   const farmOptions = useMemo(
     () =>
@@ -81,10 +85,19 @@ export default function MixingEntryScreen({ navigation, route }) {
 
   const materialOptions = useMemo(
     () =>
-      MIXING_MATERIAL_TYPES.map((type) => ({
+      MIXING_MATERIAL_TYPES.filter((type) => type !== "liquid_manure").map((type) => ({
         value: type,
         label: mixingMaterialLabel(type),
       })),
+    [],
+  );
+
+  const ratioOptions = useMemo(
+    () => [
+      { value: "1", label: "1:1" },
+      { value: "2", label: "1:2" },
+      { value: "3", label: "1:3" },
+    ],
     [],
   );
 
@@ -103,6 +116,11 @@ export default function MixingEntryScreen({ navigation, route }) {
   );
 
   const loadEntry = useCallback(async () => {
+    try {
+      await refreshMixingReviewStatuses();
+    } catch {
+      // Keep cached review status offline.
+    }
     const row = await getMixingEntry(entryId);
     const view = await toMixingEntryView(row);
     setEntry(view);
@@ -170,24 +188,40 @@ export default function MixingEntryScreen({ navigation, route }) {
     });
   }
 
-  async function captureLocation() {
+  async function captureLocation(showErrors = true) {
     setLocationLoading(true);
     try {
       const location = await getCurrentFarmLocation();
+      void startLocationCache();
       queueAutoSave({
         locationLat: location.latitude,
         locationLng: location.longitude,
         locationAddress: location.address,
       });
     } catch (err) {
-      Alert.alert(
-        "Location",
-        err instanceof Error ? err.message : "Could not get GPS location.",
-      );
+      if (showErrors) {
+        Alert.alert(
+          "Location",
+          err instanceof Error ? err.message : "Could not get GPS location.",
+        );
+      }
     } finally {
       setLocationLoading(false);
     }
   }
+
+  // Location should be captured by default as soon as the entry is open,
+  // without requiring the operator to tap "Use GPS" first. Only attempted
+  // once per entry — a failure (e.g. permission denied) falls back to the
+  // manual buttons below instead of repeatedly prompting.
+  useEffect(() => {
+    if (!entry || !isEditable) return;
+    if (locationAutoFetchTried.current) return;
+    if (entry.locationLat != null && entry.locationLng != null) return;
+
+    locationAutoFetchTried.current = true;
+    void captureLocation(false);
+  }, [entry, isEditable]);
 
   async function openMapPicker() {
     const opened = await openMapPickerIfOnline(() => setMapVisible(true));
@@ -300,37 +334,54 @@ export default function MixingEntryScreen({ navigation, route }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Start</Text>
+          <Text style={styles.sectionTitle}>Entry started</Text>
           <Text style={styles.metaLine}>
-            Time: {new Date(entry.startedAt).toLocaleString()}
+            {new Date(entry.startedAt).toLocaleDateString()} ·{" "}
+            {new Date(entry.startedAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
           </Text>
-          {saving ? <Text style={styles.saveHint}>Saving…</Text> : null}
-        </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Farm</Text>
-          <FormPicker
-            label="Select farm *"
-            value={entry.farmId ?? ""}
-            options={farmOptions}
-            onValueChange={handleFarmChange}
-            enabled={isEditable}
-          />
-        </View>
+          <View style={styles.locationHeaderRow}>
+            <Text style={styles.sectionTitle}>Location *</Text>
+            {locationLoading ? (
+              <ActivityIndicator size="small" color={colors.brunswick} />
+            ) : null}
+          </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Mixing location *</Text>
+          {entry.locationLat != null && entry.locationLng != null ? (
+            <>
+              <Text style={styles.locationText}>
+                {entry.locationLat.toFixed(4)}, {entry.locationLng.toFixed(4)}
+              </Text>
+              {entry.locationAddress ? (
+                <Text style={styles.metaLine} numberOfLines={2}>
+                  {entry.locationAddress}
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            <Text style={styles.metaLine}>
+              {locationLoading ? "Fetching GPS…" : "Location not captured yet."}
+            </Text>
+          )}
+
           <View style={styles.locationActions}>
             <Pressable
               style={({ pressed }) => [
                 styles.secondaryBtn,
                 pressed && styles.secondaryBtnPressed,
               ]}
-              onPress={captureLocation}
+              onPress={() => captureLocation(true)}
               disabled={!isEditable || locationLoading}
             >
               <Text style={styles.secondaryBtnText}>
-                {locationLoading ? "Getting GPS…" : "Use GPS"}
+                {locationLoading
+                  ? "Getting GPS…"
+                  : entry.locationLat != null
+                    ? "Retry GPS"
+                    : "Use GPS"}
               </Text>
             </Pressable>
             <Pressable
@@ -344,22 +395,27 @@ export default function MixingEntryScreen({ navigation, route }) {
               <Text style={styles.secondaryBtnText}>Pick on map</Text>
             </Pressable>
           </View>
-          {entry.locationAddress ? (
-            <Text style={styles.locationText}>{entry.locationAddress}</Text>
-          ) : null}
-          {entry.locationLat != null && entry.locationLng != null ? (
-            <Text style={styles.metaLine}>
-              {entry.locationLat.toFixed(6)}, {entry.locationLng.toFixed(6)}
-            </Text>
-          ) : null}
+
+          {saving ? <Text style={styles.saveHint}>Saving…</Text> : null}
+        </View>
+
+        <View style={styles.sectionCard}>
+          <FormPicker
+            label="Select farm *"
+            value={entry.farmId ?? ""}
+            options={farmOptions}
+            onValueChange={handleFarmChange}
+            enabled={isEditable}
+          />
         </View>
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Pyrolysis batches *</Text>
           <Text style={styles.sectionHint}>
-            Completed batches from producers in your network.
+            Completed batches from producers in your network. Once a batch is
+            mixed, it can’t be selected again.
           </Text>
-          <FormMultiSelect
+          <FormMultiSelectDropdown
             label="Link batches"
             values={selectedBatchIds}
             options={batchOptions}
@@ -370,9 +426,8 @@ export default function MixingEntryScreen({ navigation, route }) {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Biochar photo *</Text>
           <PyrolysisPhotoSlot
-            label="Biochar"
+            label="Biochar photo"
             required
             localUri={entry.biocharPhotoLocalUri}
             remoteUrl={entry.biocharPhotoUrl}
@@ -393,30 +448,29 @@ export default function MixingEntryScreen({ navigation, route }) {
             }
             enabled={isEditable}
           />
-          <FormInput
+          <FormPicker
             label="Material to biochar ratio *"
-            placeholder="e.g. 3"
+            placeholder="Select ratio"
             value={
               entry.materialToBiocharRatio != null
                 ? String(entry.materialToBiocharRatio)
                 : ""
             }
-            onChangeText={(text) => {
-              const parsed = text.trim() === "" ? null : Number(text);
+            options={ratioOptions}
+            onValueChange={(value) => {
+              const parsed = value.trim() === "" ? null : Number(value);
               queueAutoSave({
                 materialToBiocharRatio:
                   parsed == null || Number.isNaN(parsed) ? null : parsed,
               });
             }}
-            keyboardType="decimal-pad"
-            editable={isEditable}
+            enabled={isEditable}
           />
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Substrate photo *</Text>
           <PyrolysisPhotoSlot
-            label="Substrate material"
+            label="Substrate photo"
             required
             localUri={entry.substratePhotoLocalUri}
             remoteUrl={entry.substratePhotoUrl}
@@ -427,27 +481,25 @@ export default function MixingEntryScreen({ navigation, route }) {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Comment</Text>
-          <FormInput
-            label="Notes (optional)"
-            placeholder="Any observations about this mixing"
-            value={entry.comment ?? ""}
-            onChangeText={(text) => queueAutoSave({ comment: text || null })}
-            multiline
-            editable={isEditable}
-          />
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Mixing photo *</Text>
           <PyrolysisPhotoSlot
-            label="Mixing"
+            label="Mixing photo"
             required
             localUri={entry.mixingPhotoLocalUri}
             remoteUrl={entry.mixingPhotoUrl}
             metadata={entry.mixingPhotoMetadata}
             capturing={capturingKey === "mixing"}
             onCapture={() => handlePhoto("mixing")}
+          />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <FormInput
+            label="Comments (optional)"
+            placeholder="Any observations about this mixing"
+            value={entry.comment ?? ""}
+            onChangeText={(text) => queueAutoSave({ comment: text || null })}
+            multiline
+            editable={isEditable}
           />
         </View>
 
@@ -458,9 +510,17 @@ export default function MixingEntryScreen({ navigation, route }) {
             disabled={submitting}
           />
         ) : (
-          <Text style={styles.readOnlyNote}>
-            This entry has been submitted. Sync status: {entry.uploadStatus}
-          </Text>
+          <View style={styles.reviewBox}>
+            <ReviewStatusBadge status={entry.reviewStatus || "pending_review"} />
+            {entry.reviewerNotes ? (
+              <Text style={styles.readOnlyNote}>{entry.reviewerNotes}</Text>
+            ) : (
+              <Text style={styles.readOnlyNote}>
+                This entry has been submitted. Pull to refresh for the latest dashboard
+                review.
+              </Text>
+            )}
+          </View>
         )}
       </ScrollView>
 
@@ -547,6 +607,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.brunswick,
   },
+  locationHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+  },
   locationActions: {
     flexDirection: "row",
     gap: spacing.sm,
@@ -572,6 +638,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 14,
     color: colors.text,
+  },
+  reviewBox: {
+    gap: spacing.sm,
+    alignItems: "flex-start",
   },
   readOnlyNote: {
     fontFamily: fonts.regular,

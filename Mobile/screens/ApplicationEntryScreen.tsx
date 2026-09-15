@@ -9,24 +9,23 @@ import {
   Image,
   Pressable,
 } from "react-native";
-import type { FieldPhotoMetadata } from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
-import FormMultiSelect from "../components/FormMultiSelect";
-import PhotoReviewModal from "../components/PhotoReviewModal";
+import FormMultiSelectDropdown from "../components/FormMultiSelectDropdown";
+import ReviewStatusBadge from "../components/ReviewStatusBadge";
+import LocationPickerModal, {
+  openMapPickerIfOnline,
+} from "../components/LocationPickerModal";
 import PrimaryButton from "../components/PrimaryButton";
-import {
-  captureApplicationVideo,
-  captureFieldPhotoFromCamera,
-} from "../services/fieldPhoto";
-import {
-  persistAcceptedFieldPhoto,
-  watermarkFieldPhotoForReview,
-} from "../services/photoWatermark";
+import { captureApplicationVideo, LocationUnavailableError } from "../services/fieldPhoto";
+import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
+import { getCurrentFarmLocation } from "../utils/location";
+import { startLocationCache } from "../services/locationCache";
 import {
   fetchAvailablePyrolysisBatches,
   getApplicationEntry,
+  refreshApplicationReviewStatuses,
   setApplicationPyrolysisLinks,
   submitApplicationEntry,
   toApplicationEntryView,
@@ -50,13 +49,11 @@ export default function ApplicationEntryScreen({ navigation, route }) {
   const [pyrolysisBatches, setPyrolysisBatches] = useState<SelectablePyrolysisBatch[]>([]);
   const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
-  const [photoReview, setPhotoReview] = useState<{
-    previewUri: string;
-    metadata: FieldPhotoMetadata;
-    onAccept: () => Promise<void>;
-  } | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [mapVisible, setMapVisible] = useState(false);
 
   const isEditable = entry?.status === "draft" || entry?.uploadStatus === "local";
+  const locationAutoFetchTried = useRef(false);
 
   const farmOptions = useMemo(
     () =>
@@ -90,6 +87,11 @@ export default function ApplicationEntryScreen({ navigation, route }) {
   }, [entry?.mediaLocalUri, entry?.mediaUrl, entry?.mediaType]);
 
   const loadEntry = useCallback(async () => {
+    try {
+      await refreshApplicationReviewStatuses();
+    } catch {
+      // Keep cached review status offline.
+    }
     const row = await getApplicationEntry(entryId);
     const view = await toApplicationEntryView(row);
     setEntry(view);
@@ -157,6 +159,51 @@ export default function ApplicationEntryScreen({ navigation, route }) {
     });
   }
 
+  async function captureLocation(showErrors = true) {
+    setLocationLoading(true);
+    try {
+      const location = await getCurrentFarmLocation();
+      void startLocationCache();
+      queueAutoSave({
+        locationLat: location.latitude,
+        locationLng: location.longitude,
+        locationAddress: location.address,
+      });
+    } catch (err) {
+      if (showErrors) {
+        Alert.alert(
+          "Location",
+          err instanceof Error ? err.message : "Could not get GPS location.",
+        );
+      }
+    } finally {
+      setLocationLoading(false);
+    }
+  }
+
+  async function openMapPicker() {
+    const opened = await openMapPickerIfOnline(() => setMapVisible(true));
+    if (!opened) {
+      Alert.alert(
+        "Offline",
+        "Map picker needs an internet connection. Use GPS or try again when online.",
+      );
+    }
+  }
+
+  // Location should be captured by default as soon as the entry is open,
+  // without requiring the operator to tap "Use GPS" first. Only attempted
+  // once per entry — a failure (e.g. permission denied) falls back to the
+  // manual buttons below instead of repeatedly prompting.
+  useEffect(() => {
+    if (!entry || !isEditable) return;
+    if (locationAutoFetchTried.current) return;
+    if (entry.locationLat != null && entry.locationLng != null) return;
+
+    locationAutoFetchTried.current = true;
+    void captureLocation(false);
+  }, [entry, isEditable]);
+
   async function handleBatchSelection(nextIds: string[]) {
     setSelectedBatchIds(nextIds);
     const selected = pyrolysisBatches.filter((batch) => nextIds.includes(batch.id));
@@ -169,24 +216,19 @@ export default function ApplicationEntryScreen({ navigation, route }) {
 
     try {
       setCapturingKey("photo");
-      const raw = await captureFieldPhotoFromCamera();
-      if (!raw) return;
+      const captured = await captureAndSaveFieldPhoto();
+      if (!captured) return;
 
-      const previewUri = await watermarkFieldPhotoForReview(raw.uri, raw.metadata);
-
-      setPhotoReview({
-        previewUri,
-        metadata: raw.metadata,
-        onAccept: async () => {
-          const persistedUri = await persistAcceptedFieldPhoto(previewUri);
-          queueAutoSave({
-            mediaType: "photo",
-            mediaLocalUri: persistedUri,
-            mediaMetadata: raw.metadata,
-          });
-        },
+      queueAutoSave({
+        mediaType: "photo",
+        mediaLocalUri: captured.uri,
+        mediaMetadata: captured.metadata,
       });
     } catch (err) {
+      if (err instanceof LocationUnavailableError) {
+        Alert.alert("Location error", err.message);
+        return;
+      }
       Alert.alert(
         "Camera",
         err instanceof Error ? err.message : "Could not capture photo.",
@@ -259,15 +301,72 @@ export default function ApplicationEntryScreen({ navigation, route }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Time</Text>
+          <Text style={styles.sectionTitle}>Entry started</Text>
           <Text style={styles.metaLine}>
-            Applied at: {new Date(entry.appliedAt).toLocaleString()}
+            {new Date(entry.appliedAt).toLocaleDateString()} ·{" "}
+            {new Date(entry.appliedAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
           </Text>
+
+          <View style={styles.locationHeaderRow}>
+            <Text style={styles.sectionTitle}>Location</Text>
+            {locationLoading ? (
+              <ActivityIndicator size="small" color={colors.brunswick} />
+            ) : null}
+          </View>
+
+          {entry.locationLat != null && entry.locationLng != null ? (
+            <>
+              <Text style={styles.locationText}>
+                {entry.locationLat.toFixed(4)}, {entry.locationLng.toFixed(4)}
+              </Text>
+              {entry.locationAddress ? (
+                <Text style={styles.metaLine} numberOfLines={2}>
+                  {entry.locationAddress}
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            <Text style={styles.metaLine}>
+              {locationLoading ? "Fetching GPS…" : "Location not captured yet."}
+            </Text>
+          )}
+
+          <View style={styles.locationActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.mediaBtn,
+                pressed && styles.mediaBtnPressed,
+              ]}
+              onPress={() => captureLocation(true)}
+              disabled={!isEditable || locationLoading}
+            >
+              <Text style={styles.mediaBtnText}>
+                {locationLoading
+                  ? "Getting GPS…"
+                  : entry.locationLat != null
+                    ? "Retry GPS"
+                    : "Use GPS"}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.mediaBtn,
+                pressed && styles.mediaBtnPressed,
+              ]}
+              onPress={openMapPicker}
+              disabled={!isEditable}
+            >
+              <Text style={styles.mediaBtnText}>Pick on map</Text>
+            </Pressable>
+          </View>
+
           {saving ? <Text style={styles.saveHint}>Saving…</Text> : null}
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Farm</Text>
           <FormPicker
             label="Select farm *"
             value={entry.farmId ?? ""}
@@ -282,25 +381,13 @@ export default function ApplicationEntryScreen({ navigation, route }) {
           <Text style={styles.sectionHint}>
             Completed pyrolysis batches from producers in your network.
           </Text>
-          <FormMultiSelect
+          <FormMultiSelectDropdown
             label="Link batches"
             values={selectedBatchIds}
             options={batchOptions}
             onChange={handleBatchSelection}
             emptyText="No completed pyrolysis batches available yet."
             enabled={isEditable}
-          />
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Comment</Text>
-          <FormInput
-            label="Notes (optional)"
-            placeholder="Any observations about this application"
-            value={entry.comment ?? ""}
-            onChangeText={(text) => queueAutoSave({ comment: text || null })}
-            multiline
-            editable={isEditable}
           />
         </View>
 
@@ -370,6 +457,17 @@ export default function ApplicationEntryScreen({ navigation, route }) {
           </View>
         </View>
 
+        <View style={styles.sectionCard}>
+          <FormInput
+            label="Comments (optional)"
+            placeholder="Any observations about this application"
+            value={entry.comment ?? ""}
+            onChangeText={(text) => queueAutoSave({ comment: text || null })}
+            multiline
+            editable={isEditable}
+          />
+        </View>
+
         {isEditable ? (
           <PrimaryButton
             title={submitting ? "Submitting…" : "Submit application entry"}
@@ -377,34 +475,34 @@ export default function ApplicationEntryScreen({ navigation, route }) {
             disabled={submitting}
           />
         ) : (
-          <Text style={styles.readOnlyNote}>
-            This entry has been submitted. Sync status: {entry.uploadStatus}
-          </Text>
+          <View style={styles.reviewBox}>
+            <ReviewStatusBadge status={entry.reviewStatus || "pending_review"} />
+            {entry.reviewerNotes ? (
+              <Text style={styles.readOnlyNote}>{entry.reviewerNotes}</Text>
+            ) : (
+              <Text style={styles.readOnlyNote}>
+                This entry has been submitted. Pull to refresh for the latest dashboard
+                review.
+              </Text>
+            )}
+          </View>
         )}
       </ScrollView>
 
-      {photoReview ? (
-        <PhotoReviewModal
-          visible
-          previewUri={photoReview.previewUri}
-          metadata={photoReview.metadata}
-          onReject={() => {
-            setTimeout(() => setPhotoReview(null), 200);
-          }}
-          onAccept={async () => {
-            try {
-              await photoReview.onAccept();
-              await new Promise((resolve) => setTimeout(resolve, 600));
-              setPhotoReview(null);
-            } catch (err) {
-              Alert.alert(
-                "Photo",
-                err instanceof Error ? err.message : "Could not save photo.",
-              );
-            }
-          }}
-        />
-      ) : null}
+      <LocationPickerModal
+        visible={mapVisible}
+        initialLatitude={entry.locationLat}
+        initialLongitude={entry.locationLng}
+        onClose={() => setMapVisible(false)}
+        onConfirm={(location) => {
+          setMapVisible(false);
+          queueAutoSave({
+            locationLat: location.latitude,
+            locationLng: location.longitude,
+            locationAddress: location.address,
+          });
+        }}
+      />
     </ScreenShell>
   );
 }
@@ -450,6 +548,21 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: colors.brunswick,
+  },
+  locationHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+  },
+  locationActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  locationText: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: colors.text,
   },
   previewBox: {
     gap: spacing.xs,
@@ -508,6 +621,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 14,
     color: colors.brunswick,
+  },
+  reviewBox: {
+    gap: spacing.sm,
+    alignItems: "flex-start",
   },
   readOnlyNote: {
     fontFamily: fonts.regular,

@@ -101,16 +101,39 @@ function parseApiError(body: unknown, status: number): string {
   return `Request failed (${status})`;
 }
 
-async function getAccessToken(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
+/**
+ * Reads the current Supabase access token, tolerating brief gaps while a
+ * background refresh is in flight (e.g. after a weak-signal stretch or the
+ * phone waking from sleep). Only throws once a few short retries — with an
+ * explicit refresh attempt in between — all come back empty.
+ */
+async function getAccessToken(): Promise<string> {
+  const RETRY_DELAYS_MS = [300, 800, 1500];
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.access_token) {
+      return session.access_token;
+    }
+
+    if (attempt < RETRY_DELAYS_MS.length) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch {
+        // Ignore — we'll re-check getSession() after the delay below.
+      }
+      await wait(RETRY_DELAYS_MS[attempt]);
+    }
   }
 
-  return session.access_token;
+  throw new Error("You must be signed in.");
 }
 
 async function requestBackend<T>(

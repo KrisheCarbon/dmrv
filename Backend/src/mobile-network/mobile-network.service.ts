@@ -11,6 +11,7 @@ import {
   type UserRole,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
+import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 export interface MobileNetworkPerson {
@@ -153,7 +154,24 @@ export class MobileNetworkService {
   private async getSupervisorOverview(
     user: AuthenticatedUser,
   ): Promise<MobileNetworkOverview> {
-    const producerIds = await this.fetchProducerIdsForSupervisor(user.id);
+    const producerIds = this.uniqueIds([
+      ...(await this.fetchProducerIdsForSupervisor(user.id)),
+      ...(await this.fetchProducerIdsForAssignedKontikkis(user.id)),
+    ]);
+    return this.buildScopedOverview(user.role, producerIds);
+  }
+
+  private async getClimapreneurOverview(
+    user: AuthenticatedUser,
+  ): Promise<MobileNetworkOverview> {
+    const kontikkiIds = await this.fetchKontikkiIdsForOperator(user.id);
+    return this.buildKontikkiScopedOverview(user.role, kontikkiIds);
+  }
+
+  private async buildScopedOverview(
+    role: string,
+    producerIds: string[],
+  ): Promise<MobileNetworkOverview> {
     const producers = await this.fetchProducers(producerIds);
     const kontikkis = await this.fetchKontikkis(producerIds);
     const climapreneurs = this.collectOperators(kontikkis);
@@ -164,7 +182,7 @@ export class MobileNetworkService {
     ]);
 
     return {
-      role: user.role,
+      role,
       producers,
       kontikkis,
       supervisors,
@@ -174,20 +192,15 @@ export class MobileNetworkService {
     };
   }
 
-  private async getClimapreneurOverview(
-    user: AuthenticatedUser,
+  private async buildKontikkiScopedOverview(
+    role: string,
+    kontikkiIds: string[],
   ): Promise<MobileNetworkOverview> {
-    const kontikkiIds = await this.fetchKontikkiIdsForOperator(user.id);
-    const assignedKontikkis = await this.fetchKontikkis(undefined, kontikkiIds);
-    const producerIds = [
-      ...new Set(
-        assignedKontikkis
-          .map((row) => row.biochar_producer_id)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
+    const kontikkis = await this.fetchKontikkis(undefined, kontikkiIds);
+    const producerIds = this.uniqueIds(
+      kontikkis.map((kontikki) => kontikki.biochar_producer_id),
+    );
     const producers = await this.fetchProducers(producerIds);
-    const kontikkis = await this.fetchKontikkis(producerIds);
     const climapreneurs = this.collectOperators(kontikkis);
     const supervisors = await this.fetchSupervisorsForProducers(producerIds);
     const [feedstock, farms] = await Promise.all([
@@ -196,7 +209,7 @@ export class MobileNetworkService {
     ]);
 
     return {
-      role: user.role,
+      role,
       producers,
       kontikkis,
       supervisors,
@@ -230,43 +243,69 @@ export class MobileNetworkService {
     return (data ?? []).map((row) => row.kontikki_id as string);
   }
 
-  private async fetchProducers(ids?: string[]): Promise<MobileNetworkProducer[]> {
-    let query = this.supabase
-      .from('biochar_producers')
-      .select(PRODUCER_SELECT)
-      .order('name', { ascending: true });
+  private uniqueIds(ids: Array<string | null | undefined>): string[] {
+    return [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  }
 
-    if (ids) {
-      if (ids.length === 0) return [];
-      query = query.in('id', ids);
-    }
+  private async fetchProducerIdsForAssignedKontikkis(
+    operatorId: string,
+  ): Promise<string[]> {
+    const kontikkiIds = await this.fetchKontikkiIdsForOperator(operatorId);
+    if (kontikkiIds.length === 0) return [];
 
-    const { data, error } = await query;
+    const { data, error } = await this.supabase
+      .from('kontikkis')
+      .select('biochar_producer_id')
+      .in('id', kontikkiIds);
+
     if (error) throw new BadRequestException(error.message);
-    return (data ?? []) as MobileNetworkProducer[];
+    return this.uniqueIds(
+      (data ?? []).map((row) => row.biochar_producer_id as string | null),
+    );
+  }
+
+  private async fetchProducers(ids?: string[]): Promise<MobileNetworkProducer[]> {
+    if (ids && ids.length === 0) return [];
+
+    return fetchAllPages<MobileNetworkProducer>((from, to) => {
+      let query = this.supabase
+        .from('biochar_producers')
+        .select(PRODUCER_SELECT)
+        .order('name', { ascending: true })
+        .range(from, to);
+
+      if (ids) {
+        query = query.in('id', ids);
+      }
+
+      return query;
+    });
   }
 
   private async fetchKontikkis(
     producerIds?: string[],
     kontikkiIds?: string[],
   ): Promise<MobileNetworkKontikki[]> {
-    let query = this.supabase
-      .from('kontikkis')
-      .select(KONTIKKI_SELECT)
-      .order('kontikki_code', { ascending: true });
+    if (kontikkiIds && kontikkiIds.length === 0) return [];
+    if (!kontikkiIds && producerIds && producerIds.length === 0) return [];
 
-    if (kontikkiIds) {
-      if (kontikkiIds.length === 0) return [];
-      query = query.in('id', kontikkiIds);
-    } else if (producerIds) {
-      if (producerIds.length === 0) return [];
-      query = query.in('biochar_producer_id', producerIds);
-    }
+    const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
+      let query = this.supabase
+        .from('kontikkis')
+        .select(KONTIKKI_SELECT)
+        .order('kontikki_code', { ascending: true })
+        .range(from, to);
 
-    const { data, error } = await query;
-    if (error) throw new BadRequestException(error.message);
+      if (kontikkiIds) {
+        query = query.in('id', kontikkiIds);
+      } else if (producerIds) {
+        query = query.in('biochar_producer_id', producerIds);
+      }
 
-    return (data ?? []).map((row) => this.mapKontikki(row));
+      return query;
+    });
+
+    return rows.map((row) => this.mapKontikki(row));
   }
 
   private mapKontikki(row: Record<string, unknown>): MobileNetworkKontikki {
@@ -343,15 +382,16 @@ export class MobileNetworkService {
   }
 
   private async fetchUsersByRole(role: UserRole): Promise<MobileNetworkPerson[]> {
-    const { data, error } = await this.supabase
-      .from('users')
-      .select('id, full_name, role, email, phone')
-      .eq('role', role)
-      .order('full_name', { ascending: true });
+    const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
+      this.supabase
+        .from('users')
+        .select('id, full_name, role, email, phone')
+        .eq('role', role)
+        .order('full_name', { ascending: true })
+        .range(from, to),
+    );
 
-    if (error) throw new BadRequestException(error.message);
-
-    return (data ?? []).map((row) => ({
+    return rows.map((row) => ({
       id: row.id as string,
       full_name: (row.full_name as string | null)?.trim() || 'Unnamed',
       role: row.role as string,
@@ -381,14 +421,15 @@ export class MobileNetworkService {
   }
 
   private async fetchAllFarms(): Promise<MobileNetworkFarm[]> {
-    const { data, error } = await this.supabase
-      .from('farms')
-      .select('id, farmer_name, address, mobile_number')
-      .order('farmer_name', { ascending: true });
+    const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
+      this.supabase
+        .from('farms')
+        .select('id, farmer_name, address, mobile_number')
+        .order('farmer_name', { ascending: true })
+        .range(from, to),
+    );
 
-    if (error) throw new BadRequestException(error.message);
-
-    return (data ?? []).map((row) => ({
+    return rows.map((row) => ({
       id: row.id as string,
       farmer_name: (row.farmer_name as string | null)?.trim() || 'Unnamed farm',
       address: (row.address as string | null) ?? null,
@@ -399,10 +440,13 @@ export class MobileNetworkService {
   private async fetchFeedstock(
     producerIds?: string[],
   ): Promise<MobileNetworkFeedstock[]> {
-    let query = this.supabase
-      .from('feedstocks')
-      .select(
-        `
+    if (producerIds && producerIds.length === 0) return [];
+
+    const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
+      let query = this.supabase
+        .from('feedstocks')
+        .select(
+          `
         id,
         biomass_type,
         lab_status,
@@ -416,20 +460,19 @@ export class MobileNetworkService {
           mobile_number
         )
       `,
-      )
-      .is('deleted_at', null)
-      .order('biomass_type', { ascending: true });
+        )
+        .is('deleted_at', null)
+        .order('biomass_type', { ascending: true })
+        .range(from, to);
 
-    if (producerIds) {
-      if (producerIds.length === 0) return [];
-      query = query.in('biochar_producer_id', producerIds);
-    }
+      if (producerIds) {
+        query = query.in('biochar_producer_id', producerIds);
+      }
 
-    const { data, error } = await query;
+      return query;
+    });
 
-    if (error) throw new BadRequestException(error.message);
-
-    return (data ?? []).map((row) => {
+    return rows.map((row) => {
       const producerRaw = row.biochar_producer;
       const producer = Array.isArray(producerRaw)
         ? (producerRaw[0] as MobileNetworkProducer | undefined) ?? null

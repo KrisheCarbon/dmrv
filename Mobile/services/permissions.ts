@@ -1,102 +1,44 @@
-import * as Location from "expo-location";
-import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
-import { Platform, PermissionsAndroid } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const PERMISSIONS_KEY = "dmrv_permissions_granted";
+const GALLERY_TMP_DIR = `${FileSystem.cacheDirectory}gallery-export/`;
 
-export async function arePermissionsGranted() {
-  const value = await AsyncStorage.getItem(PERMISSIONS_KEY);
-  return value === "true";
-}
+/**
+ * Best-effort save of a local photo/video to the phone's Gallery app.
+ * Never throws — a missing permission or storage error should not block
+ * the capture flow the caller is in the middle of.
+ *
+ * IMPORTANT: on Android, `MediaLibrary.createAssetAsync` does not copy the
+ * given file — it *moves* it into gallery-managed storage. If we handed it
+ * the app's own persisted photo (the one referenced by the local database
+ * and used for cloud sync), the app's copy and the Gallery photo would
+ * become the exact same file, so deleting the photo from the Gallery would
+ * silently delete it from the app too. To keep the Gallery copy as a pure
+ * backup, we always export a disposable duplicate for MediaLibrary to take
+ * ownership of, leaving the app's own copy untouched.
+ */
+export async function savePhotoToGallery(uri: string): Promise<void> {
+  let exportedUri: string | null = null;
 
-export async function markPermissionsGranted() {
-  await AsyncStorage.setItem(PERMISSIONS_KEY, "true");
-}
-
-export async function requestAllPermissions() {
-  const results = {
-    location: false,
-    camera: false,
-    media: false,
-    bluetooth: false,
-  };
-
-  const { status: locationStatus } =
-    await Location.requestForegroundPermissionsAsync();
-  results.location = locationStatus === "granted";
-
-  const camera = await ImagePicker.requestCameraPermissionsAsync();
-  results.camera = camera.status === "granted";
-
-  const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  results.media = media.status === "granted";
-
-  const mediaLibrary = await MediaLibrary.requestPermissionsAsync(true);
-  results.media =
-    results.media || mediaLibrary.status === "granted";
-
-  if (Platform.OS === "android") {
-    const apiLevel = Platform.Version as number;
-    if (apiLevel >= 31) {
-      const bleResults = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      ]);
-      results.bluetooth =
-        bleResults[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === "granted" &&
-        bleResults[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === "granted";
-    } else {
-      results.bluetooth = true;
-    }
-  } else {
-    results.bluetooth = true;
-  }
-
-  return results;
-}
-
-export async function pickConsentDocument() {
-  return DocumentPicker.getDocumentAsync({
-    type: ["image/*", "application/pdf"],
-    copyToCacheDirectory: true
-  });
-}
-
-async function savePhotoToGallery(uri) {
   try {
     const { status } = await MediaLibrary.requestPermissionsAsync(true);
     if (status !== "granted") return;
 
-    await MediaLibrary.createAssetAsync(uri);
+    await FileSystem.makeDirectoryAsync(GALLERY_TMP_DIR, { intermediates: true });
+    const ext = uri.split(".").pop()?.split("?")[0] || "jpg";
+    exportedUri = `${GALLERY_TMP_DIR}export_${Date.now()}_${Math.round(Math.random() * 1e6)}.${ext}`;
+    await FileSystem.copyAsync({ from: uri, to: exportedUri });
+
+    await MediaLibrary.createAssetAsync(exportedUri);
   } catch (err) {
-    console.warn("Could not save photo to gallery:", err.message);
+    console.warn(
+      "Could not save photo to gallery:",
+      err instanceof Error ? err.message : err
+    );
+  } finally {
+    if (exportedUri) {
+      // If MediaLibrary already moved the file, this is a harmless no-op.
+      await FileSystem.deleteAsync(exportedUri, { idempotent: true }).catch(() => {});
+    }
   }
-}
-
-export async function pickConsentImageFromCamera() {
-  const result = await ImagePicker.launchCameraAsync({
-    mediaTypes: ["images"],
-    quality: 0.8
-  });
-
-  if (result.canceled) return null;
-
-  const asset = result.assets[0];
-  await savePhotoToGallery(asset.uri);
-
-  return asset;
-}
-
-export async function pickConsentImageFromGallery() {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ["images"],
-    quality: 0.8
-  });
-
-  if (result.canceled) return null;
-
-  return result.assets[0];
 }

@@ -141,3 +141,10 @@ export type {
   Supervisor,
   UserTableRow,
 } from "./entities";
+
+export type {
+  FarmFieldRecord,
+  FarmerConsentRecord,
+  SoilTestRecord,
+  SoilReportRecord,
+} from "@krishecarbon/shared";

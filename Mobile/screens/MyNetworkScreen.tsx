@@ -13,6 +13,7 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 import {
   fetchMobileNetworkOverview,
   type MobileNetworkOverview,
+  type NetworkFarm,
   type NetworkKontikki,
   type NetworkPerson,
   type NetworkProducer,
@@ -112,6 +113,20 @@ function FeedstockCard({ item }: { item: NetworkFeedstock }) {
   );
 }
 
+function FarmCard({ farm }: { farm: NetworkFarm }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{farm.farmer_name}</Text>
+      {farm.address ? (
+        <Text style={styles.cardMeta}>{farm.address}</Text>
+      ) : null}
+      {farm.mobile_number ? (
+        <Text style={styles.cardDetail}>{farm.mobile_number}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 export default function MyNetworkScreen({ navigation }) {
   const [data, setData] = useState<MobileNetworkOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +205,7 @@ export default function MyNetworkScreen({ navigation }) {
               <View style={styles.noteCard}>
                 <Text style={styles.noteText}>
                   {isAdminView
-                    ? "Read-only network overview. Editing will be added in a later update."
+                    ? "All producers, kontikkis, and farms across the network."
                     : "Read-only view of producers, kontikkis, and people linked to your work."}
                 </Text>
               </View>
@@ -211,6 +226,16 @@ export default function MyNetworkScreen({ navigation }) {
                 ) : (
                   data.kontikkis.map((kontikki) => (
                     <KontikkiCard key={kontikki.id} kontikki={kontikki} />
+                  ))
+                )}
+              </Section>
+
+              <Section title="Farms" count={data.farms.length}>
+                {data.farms.length === 0 ? (
+                  <EmptyRow message="No farms yet." />
+                ) : (
+                  data.farms.map((farm) => (
+                    <FarmCard key={farm.id} farm={farm} />
                   ))
                 )}
               </Section>

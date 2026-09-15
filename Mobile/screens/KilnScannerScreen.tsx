@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BleError } from "react-native-ble-plx";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import { bleService } from "../services/kiln/bleManagerService";
+import { startLocationCache } from "../services/locationCache";
 import { useKilnStore } from "../store/useKilnStore";
 import type { ScannedDevice } from "../types/kiln";
 import { colors, fonts, spacing, radius } from "../constants/theme";
@@ -55,7 +56,6 @@ export default function KilnScannerScreen({ navigation }: Props) {
 
   const connectingIdRef = useRef<string | null>(null);
   const [connectingId, setConnectingId] = React.useState<string | null>(null);
-  const permissionsGrantedRef = useRef(false);
 
   useEffect(() => {
     if (!selectedKontikki) {
@@ -63,37 +63,24 @@ export default function KilnScannerScreen({ navigation }: Props) {
     }
   }, [navigation, selectedKontikki]);
 
-  useEffect(() => {
-    bleService
-      .requestPermissions()
-      .then((granted) => {
-        permissionsGrantedRef.current = granted;
-        if (!granted) {
-          Alert.alert(
-            "Permissions Required",
-            "Bluetooth and Location permissions are needed to scan for kiln sensors.",
-          );
-        }
-      })
-      .catch(console.error);
-  }, []);
-
   const stopScan = useCallback(() => {
     bleService.stopScan();
     setIsScanning(false);
   }, [setIsScanning]);
 
-  const startScan = useCallback(() => {
+  const startScan = useCallback(async () => {
     if (!selectedKontikki) return;
 
-    if (!permissionsGrantedRef.current) {
+    const granted = await bleService.requestPermissions();
+    if (!granted) {
       Alert.alert(
         "Permissions Required",
-        "Grant Bluetooth and Location permissions before scanning.",
+        "Bluetooth and Location permissions are needed to scan for kiln sensors. Allow them in the system prompt, or enable them in Settings.",
       );
       return;
     }
 
+    void startLocationCache();
     clearScannedDevices();
     setIsScanning(true);
 

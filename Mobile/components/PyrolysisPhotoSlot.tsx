@@ -43,50 +43,61 @@ export default function PyrolysisPhotoSlot({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>
-        {label}
-        {required ? " *" : " (optional)"}
-      </Text>
-
-      {hasPhoto ? (
-        <View style={styles.savedRow}>
-          <View style={styles.savedBadge}>
-            <Text style={styles.savedBadgeText}>✓</Text>
-          </View>
-          <View style={styles.savedCopy}>
-            <Text style={styles.savedTitle}>Photo saved on device</Text>
-            <TouchableOpacity onPress={() => setViewerOpen(true)} activeOpacity={0.85}>
-              <Text style={styles.viewLink}>View photo</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <View style={styles.placeholder}>
-          <Text style={styles.placeholderText}>
-            {previewError ? "Could not load photo — retake" : "Camera capture only"}
-          </Text>
-        </View>
-      )}
-
-      {metadata && hasPhoto ? (
-        <Text style={styles.meta}>
-          GPS: {metadata.latitude.toFixed(6)}, {metadata.longitude.toFixed(6)}
-          {" · "}
-          {metadata.captured_at.slice(0, 19).replace("T", " ")} IST
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>
+          {label}
+          {required ? " *" : " (optional)"}
         </Text>
-      ) : null}
+        {hasPhoto ? <Text style={styles.savedTag}>✓ Saved</Text> : null}
+      </View>
 
-      <TouchableOpacity
-        style={[styles.button, capturing && styles.buttonDisabled]}
-        onPress={onCapture}
-        disabled={capturing}
-      >
-        {capturing ? (
-          <ActivityIndicator color={colors.white} size="small" />
+      <View style={styles.row}>
+        {hasPhoto ? (
+          <TouchableOpacity
+            style={styles.thumbnail}
+            onPress={() => setViewerOpen(true)}
+            activeOpacity={0.85}
+          >
+            <Image
+              source={{ uri: previewUri! }}
+              style={styles.thumbnailImage}
+              onError={() => setPreviewError(true)}
+            />
+          </TouchableOpacity>
         ) : (
-          <Text style={styles.buttonText}>{hasPhoto ? "Retake photo" : "Take photo"}</Text>
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderIcon}>📷</Text>
+          </View>
         )}
-      </TouchableOpacity>
+
+        <View style={styles.rowBody}>
+          {!hasPhoto && previewError ? (
+            <Text style={styles.errorText}>Could not load photo — retake</Text>
+          ) : null}
+          {metadata && hasPhoto ? (
+            <Text style={styles.meta} numberOfLines={2}>
+              {metadata.captured_at.slice(0, 19).replace("T", " ")} IST
+              {"\n"}
+              {metadata.latitude.toFixed(5)}, {metadata.longitude.toFixed(5)}
+            </Text>
+          ) : (
+            <Text style={styles.hint}>Photo is watermarked automatically</Text>
+          )}
+
+          <TouchableOpacity
+            style={[styles.button, capturing && styles.buttonDisabled]}
+            onPress={onCapture}
+            disabled={capturing}
+            activeOpacity={0.85}
+          >
+            {capturing ? (
+              <ActivityIndicator color={colors.brunswick} size="small" />
+            ) : (
+              <Text style={styles.buttonText}>{hasPhoto ? "Retake photo" : "Take photo"}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
 
       <Modal
         visible={viewerOpen}
@@ -114,53 +125,46 @@ export default function PyrolysisPhotoSlot({
 
 const styles = StyleSheet.create({
   container: { gap: spacing.xs },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   label: {
     fontFamily: fonts.medium,
     fontSize: 14,
     color: colors.brunswick,
   },
-  savedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.chalk,
-  },
-  savedBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.success,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  savedBadgeText: {
-    color: colors.white,
-    fontFamily: fonts.bold,
-    fontSize: 14,
-  },
-  savedCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  savedTitle: {
-    fontFamily: fonts.medium,
-    fontSize: 14,
-    color: colors.brunswick,
-  },
-  viewLink: {
+  savedTag: {
     fontFamily: fonts.medium,
     fontSize: 12,
-    color: colors.brunswick,
-    textDecorationLine: "underline",
+    color: colors.success,
+  },
+  row: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    alignItems: "flex-start",
+  },
+  rowBody: {
+    flex: 1,
+    gap: 6,
+    justifyContent: "center",
+  },
+  thumbnail: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    backgroundColor: colors.chalk,
+  },
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
   },
   placeholder: {
-    width: "100%",
-    height: 72,
-    borderRadius: 10,
+    width: 64,
+    height: 64,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     borderStyle: "dashed",
@@ -168,7 +172,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#FAFAFA",
   },
-  placeholderText: {
+  placeholderIcon: {
+    fontSize: 22,
+  },
+  errorText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.error,
+  },
+  hint: {
     fontFamily: fonts.regular,
     fontSize: 12,
     color: colors.smoke,
@@ -181,16 +193,18 @@ const styles = StyleSheet.create({
   },
   button: {
     alignSelf: "flex-start",
-    backgroundColor: colors.brunswick,
+    backgroundColor: colors.chalk,
+    borderWidth: 1,
+    borderColor: colors.brunswick,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 8,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
   },
   buttonDisabled: { opacity: 0.7 },
   buttonText: {
     fontFamily: fonts.medium,
     fontSize: 13,
-    color: colors.white,
+    color: colors.brunswick,
   },
   viewerBackdrop: {
     flex: 1,

@@ -10,6 +10,7 @@ import {
   pyrolysisBatchStatusFlagValueLabel,
 } from "@krishecarbon/shared";
 import type { DbRow } from "@/types/entities";
+import { buildSearchIndex } from "@/lib/searchIndex";
 
 export const PYROLYSIS_PHOTOS_BUCKET = "pyrolysis";
 
@@ -28,6 +29,18 @@ export interface PyrolysisBatchListItem extends DbRow {
   pyrolysis_completed: boolean;
   review_status: PyrolysisBatchStatusValue;
   reviewed_at?: string | null;
+  feedstock_name?: string | null;
+  feedstock_id?: string | null;
+  feedstock_quantity?: number | null;
+  avg_feedstock_size_cm?: number | null;
+  sample_id?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_address?: string | null;
+  comment?: string | null;
+  reviewer_notes?: string | null;
+  review_flag_text?: string[];
+  moisture_readings?: (number | null)[];
   created_at?: string;
   updated_at?: string;
 }
@@ -62,6 +75,7 @@ export interface PyrolysisBatchTableRow extends DbRow {
   session_status: string;
   review_status: string;
   yield_percent: string;
+  search_index: string;
 }
 
 const PHOTO_URL_FIELD: Record<PyrolysisBatchStatusPhotoKey, keyof PyrolysisBatchRecord> = {
@@ -93,6 +107,38 @@ export function formatBatchLabel(batch: {
 }) {
   if (batch.batch_number?.trim()) return batch.batch_number;
   return batch.kontikki_code;
+}
+
+export function productionBatchSearchIndex(batch: PyrolysisBatchListItem): string {
+  return buildSearchIndex(
+    batch.id,
+    batch.batch_number,
+    batch.kontikki_code,
+    batch.kontikki_id,
+    batch.producer_name,
+    batch.producer_id,
+    batch.operator_name,
+    batch.session_status,
+    batch.review_status,
+    pyrolysisBatchStatusValueLabel(batch.review_status),
+    batch.feedstock_name,
+    batch.feedstock_id,
+    batch.feedstock_quantity,
+    batch.avg_feedstock_size_cm,
+    batch.sample_id,
+    batch.location_address,
+    batch.location_lat,
+    batch.location_lng,
+    batch.comment,
+    batch.reviewer_notes,
+    batch.review_flag_text,
+    batch.moisture_readings,
+    batch.yield_percent,
+    batch.pyrolysis_completed ? "completed" : "in progress",
+    batch.reviewed_at,
+    batch.created_at,
+    batch.updated_at,
+  );
 }
 
 export function formatReviewStatus(status: PyrolysisBatchStatusValue) {

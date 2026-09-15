@@ -77,3 +77,24 @@ async function updateFromCoords(latitude: number, longitude: number) {
 export function getLocationForPhotoCapture(): LocationValue | null {
   return getCachedLocationValue();
 }
+
+/**
+ * Starts the location watch (if needed) and waits up to `timeoutMs` for a
+ * GPS fix, polling the cache. Used for screens that want to auto-fill the
+ * current location without requiring a photo capture.
+ */
+export async function waitForLocation(timeoutMs = 8000): Promise<LocationValue | null> {
+  await startLocationCache();
+
+  const cached = getCachedLocationValue();
+  if (cached) return cached;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const value = getCachedLocationValue();
+    if (value) return value;
+  }
+
+  return getCachedLocationValue();
+}

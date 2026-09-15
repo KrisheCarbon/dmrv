@@ -12,7 +12,7 @@ export default async function NetworkOverviewPage() {
   return (
     <SectionOverview
       section="Network"
-      description="Partners, producers, clusters, kontikkis, supervisors, climapreneurs, and farms."
+      description="Partners, producers, clusters, kontikkis, supervisors, climapreneurs, farms, fields, and soil tests."
       stats={networkOverviewStats(counts)}
     />
   );

@@ -3,15 +3,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import SignedStorageLink from "@/components/SignedStorageLink";
 import DataTable from "@/components/table/DataTable";
-import { BIOCHAR_PRODUCER_DOCS_BUCKET } from "@/lib/privateStorage";
+import ProducerDocumentsSection from "../ProducerDocumentsSection";
 import { deleteProducer, getProducer } from "../actions";
 import {
   affiliationFromProducer,
   formatProducerClass,
   formatSiteModel,
-  normalizeOtherDocumentPaths,
   resolveAffiliationLabel,
   resolveKontikkiOperators,
   resolveSiteAffiliation,
@@ -43,9 +41,11 @@ export default function BiocharProducerViewPage() {
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  async function fetchData() {
+  async function fetchData(options?: { silent?: boolean }) {
     if (!id) return;
-    setLoading(true);
+    if (!options?.silent) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -56,7 +56,9 @@ export default function BiocharProducerViewPage() {
       setData(null);
     }
 
-    setLoading(false);
+    if (!options?.silent) {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -109,7 +111,6 @@ export default function BiocharProducerViewPage() {
   const producerLocation = data.producer_location;
   const sites = data.producer_sites ?? [];
   const kontikkis = data.kontikkis ?? [];
-  const otherDocuments = normalizeOtherDocumentPaths(data);
 
   const supervisors =
     data.biochar_producer_supervisors?.map((assignment) => {
@@ -345,61 +346,12 @@ export default function BiocharProducerViewPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
-        <div className="border-b border-neutral-100 px-6 py-4">
-          <h2 className="text-lg font-semibold text-neutral-900">Documents</h2>
-        </div>
-
-        <dl className="px-6 py-2">
-          <DetailRow label="Contract">
-            {data.contract_url ? (
-              <SignedStorageLink
-                bucket={BIOCHAR_PRODUCER_DOCS_BUCKET}
-                path={data.contract_url}
-                className="text-brand-dark hover:underline"
-              >
-                View contract
-              </SignedStorageLink>
-            ) : (
-              "—"
-            )}
-          </DetailRow>
-
-          <DetailRow label="Training certification">
-            {data.training_cert_url ? (
-              <SignedStorageLink
-                bucket={BIOCHAR_PRODUCER_DOCS_BUCKET}
-                path={data.training_cert_url}
-                className="text-brand-dark hover:underline"
-              >
-                View training certification
-              </SignedStorageLink>
-            ) : (
-              "—"
-            )}
-          </DetailRow>
-
-          <DetailRow label="Other documents">
-            {otherDocuments.length > 0 ? (
-              <ul className="space-y-2">
-                {otherDocuments.map((path, index) => (
-                  <li key={path}>
-                    <SignedStorageLink
-                      bucket={BIOCHAR_PRODUCER_DOCS_BUCKET}
-                      path={path}
-                      className="text-brand-dark hover:underline"
-                    >
-                      Document {index + 1}
-                    </SignedStorageLink>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              "—"
-            )}
-          </DetailRow>
-        </dl>
-      </section>
+      <ProducerDocumentsSection
+        producerId={data.id}
+        contractUrl={data.contract_url}
+        trainingCertUrl={data.training_cert_url}
+        onUpdated={() => fetchData({ silent: true })}
+      />
     </div>
   );
 }

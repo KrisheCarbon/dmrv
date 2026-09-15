@@ -3,8 +3,9 @@ import type {
   MixingEntryReviewStatus,
   MixingPyrolysisLinkRecord,
 } from "@krishecarbon/shared";
-import { mixingEntryReviewStatusLabel, mixingMaterialLabel } from "@krishecarbon/shared";
+import { mixingEntryReviewStatusLabel, mixingMaterialLabel, mixingEntryPhotoLabel } from "@krishecarbon/shared";
 import type { DbRow } from "@/types/entities";
+import { buildSearchIndex, photoMetadataSearchParts } from "@/lib/searchIndex";
 
 export interface MixingEntryListItem extends MixingEntryRecord {
   operator_name: string;
@@ -25,6 +26,7 @@ export interface MixingEntryTableRow extends DbRow {
   pyrolysis_links: MixingPyrolysisLinkRecord[];
   status: string;
   status_raw: MixingEntryReviewStatus;
+  search_index: string;
 }
 
 export function formatDateTime(value?: string | null) {
@@ -80,6 +82,42 @@ export function formatLocation(
     return `${entry.location_lat}, ${entry.location_lng}`;
   }
   return "—";
+}
+
+export function mixingEntrySearchIndex(entry: MixingEntryListItem): string {
+  const reviewStatus = resolveReviewStatus(entry);
+  return buildSearchIndex(
+    entry.id,
+    entry.farm_name,
+    entry.farm_id,
+    formatLocation(entry),
+    entry.location_address,
+    entry.location_lat,
+    entry.location_lng,
+    entry.material_type,
+    formatMaterial(entry),
+    entry.material_to_biochar_ratio,
+    entry.comment,
+    entry.operator_name,
+    reviewStatus,
+    formatReviewStatus(reviewStatus),
+    entry.entry_status?.reviewer_notes,
+    entry.entry_status?.reviewer?.full_name,
+    entry.started_at,
+    formatDateTime(entry.started_at),
+    entry.pyrolysis_links,
+    entry.pyrolysis_links.map((link) => formatLinkedBatchLabel(link)),
+    entry.pyrolysis_links.map((link) => link.producer_name),
+    photoMetadataSearchParts(entry.biochar_photo_metadata),
+    photoMetadataSearchParts(entry.substrate_photo_metadata),
+    photoMetadataSearchParts(entry.mixing_photo_metadata),
+    entry.entry_status?.photo_flags?.map(
+      (flag) => `${flag.photo_key} ${flag.flagged ? "flagged" : "ok"}`,
+    ),
+    entry.entry_status?.photo_flags
+      ?.filter((flag) => flag.flagged)
+      .map((flag) => mixingEntryPhotoLabel(flag.photo_key)),
+  );
 }
 
 export function resolveReviewStatus(entry: MixingEntryDetail): MixingEntryReviewStatus {

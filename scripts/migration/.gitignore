@@ -1,0 +1,5 @@
+# Contains real operator names/emails pulled from the live DB.
+data/*/db-snapshot.json
+
+# Downloaded Kobo attachments (large, source data lives in Kobo).
+photos/

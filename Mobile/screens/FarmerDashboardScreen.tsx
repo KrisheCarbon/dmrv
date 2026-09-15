@@ -10,8 +10,9 @@ import {
 } from "react-native";
 import FarmerCard from "../components/FarmerCard";
 import { ScreenShell } from "../components/ScreenHeader";
-import { getAllFarmersLocal } from "../services/farmerService";
-import { getStoredAuthUser } from "../services/auth";
+import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
+import { getFarmersChecklist } from "../services/farmersNetworkService";
+import { getUserProfile } from "../services/userProfile";
 import {
   processSyncQueue,
   retryFailedFarmSyncs,
@@ -70,25 +71,29 @@ function StatTile({ label, value, active, onPress }) {
   );
 }
 
-export default function FarmerDashboardScreen({ navigation }) {
+export default function FarmerDashboardScreen({ navigation, route }) {
+  const listTitle = route.params?.title || "All Farmers";
+  const listMode = route.params?.listMode || "all";
   const [farmers, setFarmers] = useState([]);
   const [stats, setStats] = useState({ total: 0, synced: 0, pendingSync: 0 });
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
   const [syncProgress, setSyncProgress] = useState({});
+  const [checklist, setChecklist] = useState({});
 
   const loadData = useCallback(async () => {
-    const user = await getStoredAuthUser();
-    if (!user) {
+    const profile = await getUserProfile();
+    if (!profile) {
       setFarmers([]);
       setStats({ total: 0, synced: 0, pendingSync: 0 });
       return;
     }
 
-    const localFarmers = await getAllFarmersLocal(user.id);
+    const localFarmers = await getAllFarmersLocal(profile.id, profile.role);
     setStats(buildStats(localFarmers));
-    setFarmers(localFarmers.map((f) => f.toFormData()));
+    setFarmers(localFarmers.map((f) => farmerToFormData(f)));
     setSyncProgress(getAllSyncProgress());
+    setChecklist(await getFarmersChecklist(localFarmers.map((f) => f.id)));
   }, []);
 
   useEffect(() => {
@@ -127,9 +132,9 @@ export default function FarmerDashboardScreen({ navigation }) {
 
   async function onRefresh() {
     setRefreshing(true);
-    const user = await getStoredAuthUser();
-    if (user) {
-      await retryFailedFarmSyncs(user.id);
+    const profile = await getUserProfile();
+    if (profile) {
+      await retryFailedFarmSyncs(profile.id, profile.role);
     }
     await processSyncQueue();
     await loadData();
@@ -144,12 +149,12 @@ export default function FarmerDashboardScreen({ navigation }) {
     <ScreenShell>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Farms</Text>
+          <Text style={styles.headerTitle}>{listTitle}</Text>
         </View>
 
         <TouchableOpacity
           style={styles.addBtn}
-          onPress={() => navigation.navigate("AddFarmer")}
+          onPress={() => navigation.navigate("NewFarmerOnboarding")}
           activeOpacity={0.85}
           accessibilityLabel="Onboard farmer"
         >
@@ -207,7 +212,9 @@ export default function FarmerDashboardScreen({ navigation }) {
             </Text>
             <Text style={styles.emptyText}>
               {activeFilter === "all"
-                ? "Tap + to onboard your first farmer."
+                ? listMode === "repeat"
+                  ? "No farmers yet. Onboard under New Farmer, then return here to update them."
+                  : "Use New Farmer from Farmers Network, or tap +."
                 : "Try another filter or pull to refresh."}
             </Text>
           </View>
@@ -216,6 +223,7 @@ export default function FarmerDashboardScreen({ navigation }) {
           <FarmerCard
             farmer={item}
             syncProgress={syncProgress[item.id] ?? 0}
+            checklist={checklist[item.id]}
             onPress={() => handleFarmerPress(item)}
           />
         )}
@@ -278,8 +286,10 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   statTileActive: {
-    backgroundColor: colors.chalk,
-    borderColor: colors.brunswick
+    backgroundColor: colors.white,
+    borderColor: colors.brunswick,
+    borderBottomWidth: 3,
+    borderBottomColor: colors.chartreuse
   },
   statValue: {
     fontSize: 22,

@@ -22,11 +22,13 @@ function KontikkiRow({
   item,
   selected,
   disabled,
+  disabledLabel,
   onToggle,
 }: {
   item: PyrolysisKontikkiOption;
   selected: boolean;
   disabled: boolean;
+  disabledLabel?: string;
   onToggle: () => void;
 }) {
   return (
@@ -52,7 +54,9 @@ function KontikkiRow({
       <View style={[styles.check, selected && styles.checkSelected]}>
         {selected ? <Text style={styles.checkMark}>✓</Text> : null}
       </View>
-      {disabled ? <Text style={styles.busyLabel}>In use</Text> : null}
+      {disabled && disabledLabel ? (
+        <Text style={styles.busyLabel}>{disabledLabel}</Text>
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -89,7 +93,8 @@ export default function PyrolysisSelectKontikkisScreen({ navigation }) {
   );
 
   function toggleSelection(id: string) {
-    if (occupiedIds.has(id)) return;
+    const row = kontikkis.find((item) => item.id === id);
+    if (!row || occupiedIds.has(id) || row.status !== "active") return;
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
     );
@@ -143,7 +148,7 @@ export default function PyrolysisSelectKontikkisScreen({ navigation }) {
     <ScreenShell>
       <ScreenHeader
         title="Select kontikkis"
-        subtitle="Choose all units for this batch"
+        subtitle="Choose all units for this session"
         onBack={() => navigation.goBack()}
       />
 
@@ -163,15 +168,22 @@ export default function PyrolysisSelectKontikkisScreen({ navigation }) {
             {kontikkis.length === 0 ? (
               <Text style={styles.emptyText}>No kontikkis available for you.</Text>
             ) : (
-              kontikkis.map((item) => (
-                <KontikkiRow
-                  key={item.id}
-                  item={item}
-                  selected={selectedIds.includes(item.id)}
-                  disabled={occupiedIds.has(item.id)}
-                  onToggle={() => toggleSelection(item.id)}
-                />
-              ))
+              kontikkis.map((item) => {
+                const occupied = occupiedIds.has(item.id);
+                const inactive = item.status !== "active";
+                return (
+                  <KontikkiRow
+                    key={item.id}
+                    item={item}
+                    selected={selectedIds.includes(item.id)}
+                    disabled={occupied || inactive}
+                    disabledLabel={
+                      occupied ? "In use" : inactive ? "Inactive" : undefined
+                    }
+                    onToggle={() => toggleSelection(item.id)}
+                  />
+                );
+              })
             )}
           </ScrollView>
 

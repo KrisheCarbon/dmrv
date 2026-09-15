@@ -3,17 +3,24 @@ import { View, Alert, ActivityIndicator } from "react-native";
 import { getStoredAuthUser } from "../services/auth";
 import FarmerForm from "../components/FarmerForm";
 import { ScreenShell } from "../components/ScreenHeader";
-import { getFarmerByIdLocal, saveFarmerLocal } from "../services/farmerService";
+import { farmerToFormData, getFarmerByIdLocal, saveFarmerLocal } from "../services/farmerService";
 import { isFarmerSyncing, processSyncQueue } from "../services/syncService";
 import { colors } from "../constants/theme";
 
 export default function EditFarmerScreen({ route, navigation }) {
-  const { farmerId } = route.params;
+  const farmerId = route.params?.farmerId;
   const [initialData, setInitialData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
 
   useEffect(() => {
+    if (!farmerId) {
+      setFetching(false);
+      Alert.alert("Farmer not found", "This farmer record is missing.", [
+        { text: "OK", onPress: () => navigation.goBack() }
+      ]);
+      return;
+    }
     loadFarmer();
   }, [farmerId]);
 
@@ -30,7 +37,7 @@ export default function EditFarmerScreen({ route, navigation }) {
         return;
       }
 
-      setInitialData(farmer.toFormData());
+      setInitialData(farmerToFormData(farmer));
     } catch (err) {
       Alert.alert("Error", err.message, [
         { text: "OK", onPress: () => navigation.goBack() }
@@ -59,7 +66,25 @@ export default function EditFarmerScreen({ route, navigation }) {
         return;
       }
 
-      await saveFarmerLocal(form, user.id, farmerId);
+      await saveFarmerLocal(
+        {
+          ...initialData,
+          ...form,
+          father_spouse_name:
+            form.father_spouse_name ?? initialData?.father_spouse_name,
+          agri_id: form.agri_id ?? initialData?.agri_id,
+          village: form.village ?? initialData?.village,
+          mandal: form.mandal ?? initialData?.mandal,
+          district: form.district ?? initialData?.district,
+          state: form.state ?? initialData?.state,
+          owned_land_size:
+            form.owned_land_size ?? initialData?.owned_land_size,
+          leased_land_size:
+            form.leased_land_size ?? initialData?.leased_land_size,
+        },
+        user.id,
+        farmerId,
+      );
       processSyncQueue();
 
       Alert.alert(

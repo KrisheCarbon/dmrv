@@ -149,16 +149,24 @@ export interface FarmerTableRow extends DbRow {
 export interface FarmDetail extends DbRow {
   id: string;
   farmer_name: string;
+  farmer_code?: string | null;
+  father_spouse_name?: string | null;
+  agri_id?: string | null;
   mobile_number: string | null;
   latitude: number;
   longitude: number;
   address: string;
+  village?: string | null;
+  mandal?: string | null;
+  district?: string | null;
+  state?: string | null;
   total_land_size: number;
+  owned_land_size?: number | null;
+  leased_land_size?: number | null;
   crops: FarmerCrop[];
   interested_in_biochar: boolean;
   prior_biochar_exp: boolean;
   prior_biochar_acreage: number | null;
-  consent_document_url: string | null;
   estimated_biomass: number;
   created_by: string;
   assigned_to: string;
@@ -171,6 +179,8 @@ export interface FarmerCrop {
   acreage: number;
   sowing_date: string;
   estimated_harvest_date: string;
+  /** Tonnes/acre used to estimate biomass for this crop. */
+  biomass_rate?: number;
 }
 
 export interface Partner extends DbRow {
@@ -241,6 +251,53 @@ export interface ClimapreneurTableRow extends DbRow {
   status: string;
   bankDetails: string;
   raw: Climapreneur;
+}
+
+export interface TrainingRecord extends DbRow {
+  id: string;
+  supervisor_id: string;
+  biochar_producer_id?: string | null;
+  producer_site_id?: string | null;
+  certificate_url: string;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  supervisor?: {
+    id: string;
+    full_name?: string | null;
+  } | null;
+  biochar_producer?: {
+    id: string;
+    name?: string | null;
+  } | null;
+  producer_site?: {
+    id: string;
+    site_name?: string | null;
+  } | null;
+}
+
+export interface TrainingSupervisorOption {
+  id: string;
+  full_name: string;
+}
+
+export interface TrainingLocationOption {
+  type: "producer" | "site";
+  id: string;
+  label: string;
+}
+
+export interface TrainingFormOptions {
+  supervisors: TrainingSupervisorOption[];
+  locations: TrainingLocationOption[];
+}
+
+export interface TrainingTableRow extends DbRow {
+  id: string;
+  supervisor: string;
+  location: string;
+  date: string;
+  raw: TrainingRecord;
 }
 
 export type BiocharProducerClass = "artisan_pro" | "csink" | "not_registered";

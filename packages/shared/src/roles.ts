@@ -68,6 +68,17 @@ export function canAccessNetwork(role: string): boolean {
   return isUserRole(role) && NETWORK_ACCESS_ROLES.includes(role);
 }
 
+/** Roles allowed to open farmer fields and soil tests in the portal. */
+export const FARMERS_NETWORK_PORTAL_ROLES: readonly UserRole[] = [
+  "admin",
+  "manager",
+  "supervisor",
+];
+
+export function canAccessFarmersNetworkPortal(role: string): boolean {
+  return isUserRole(role) && FARMERS_NETWORK_PORTAL_ROLES.includes(role);
+}
+
 /** Roles allowed to open Carbon (credits, removals, MRV reporting). */
 export const CARBON_ACCESS_ROLES: readonly UserRole[] = ["admin", "manager"];
 
