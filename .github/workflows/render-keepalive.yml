@@ -1,0 +1,37 @@
+name: Render backend keep-alive
+
+on:
+  schedule:
+    # Two offset crons so GitHub hits /health about every 5–10 minutes.
+    # That is inside Render Free's ~15 minute idle window.
+    - cron: "*/10 * * * *"
+    - cron: "5-59/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: render-keepalive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wake and ping backend
+        run: |
+          set -u
+          url="https://krishecarbon-backend.onrender.com/health"
+          echo "Pinging $url"
+          for i in 1 2 3 4 5 6 7 8; do
+            echo "--- attempt $i ---"
+            if curl -sS --max-time 90 "$url" | tee /tmp/health.json | grep -Eq '"status":[[:space:]]*"ok"'; then
+              cat /tmp/health.json
+              echo " OK"
+              exit 0
+            fi
+            echo "Cold start or timeout — retry in 20s"
+            sleep 20
+          done
+          echo "Backend did not become healthy"
+          cat /tmp/health.json 2>/dev/null || true
+          exit 1
