@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "installCommand": "npm ci --workspace=@krishecarbon/shared --workspace=@krishecarbon/web --include-workspace-root",
-  "buildCommand": "npm run build --workspace=@krishecarbon/shared && npm run build --workspace=@krishecarbon/web"
+  "installCommand": "npm ci --workspace=@krishecarbon/shared --workspace=@krishecarbon/web --include-workspace-root && npm run build --workspace=@krishecarbon/shared",
+  "buildCommand": "npm run build --workspace=@krishecarbon/web"
 }

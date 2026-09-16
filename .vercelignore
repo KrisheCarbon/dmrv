@@ -11,7 +11,7 @@ scripts
 *.pdf
 .~*
 node_modules
-** /node_modules
+**/node_modules
 .next
 .turbo
 Web/.next
