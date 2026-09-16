@@ -1,5 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd .. && npm ci",
-  "buildCommand": "cd .. && npm run build --workspace=@krishecarbon/shared && npm run build --workspace=@krishecarbon/web"
+  "installCommand": "cd .. && npm ci --workspace=@krishecarbon/shared --workspace=@krishecarbon/web --include-workspace-root && npm run build --workspace=@krishecarbon/shared",
+  "buildCommand": "cd .. && npm run build --workspace=@krishecarbon/web"
 }

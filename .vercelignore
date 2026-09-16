@@ -1,7 +1,8 @@
 node_modules
 .next
 .turbo
-Mobile
+Mobile/**
+!Mobile/package.json
 Hardware
 Backend/dist
 Backend/node_modules

@@ -18,4 +18,4 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: CORS_ORIGINS
-        value: https://krishecarbon-web.vercel.app,http://localhost:3000,http://localhost:8081
+        value: https://krishecarbon-webportal.vercel.app,https://krishecarbon-web.vercel.app,http://localhost:3000,http://localhost:8081
