@@ -4,7 +4,7 @@ services:
     runtime: docker
     dockerfilePath: Backend/Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     branch: deploy-monorepo
     autoDeployTrigger: commit
     healthCheckPath: /health

@@ -49,7 +49,7 @@ case "${1:-help}" in
     echo "2. https://dashboard.render.com/blueprint/new"
     echo "3. Select the repo and apply render.yaml."
     echo "4. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and CORS_ORIGINS in the Render dashboard."
-    echo "5. Use the Starter instance (always-on). Free instances sleep after 15 minutes."
+    echo "5. Free instances sleep after ~15 minutes; GitHub keep-alive pings /health until you move to Starter."
     ;;
 
   web-vercel)
