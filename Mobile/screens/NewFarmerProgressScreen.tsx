@@ -110,7 +110,7 @@ export default function NewFarmerProgressScreen({ route, navigation }) {
           <Text style={styles.code}>Farmer ID: {farmer.farmer_code}</Text>
         ) : null}
         <Text style={styles.subtitle}>
-          Complete farms/fields next. Soil testing is optional on the first visit.
+          Complete farms next. Soil testing is optional, but needs a farm first.
         </Text>
 
         <SectionCard
@@ -122,10 +122,10 @@ export default function NewFarmerProgressScreen({ route, navigation }) {
           onPress={() => navigation.navigate("FarmerDetail", { farmerId })}
         />
         <SectionCard
-          title="2. Farms / fields"
-          status={fieldCount > 0 ? `${fieldCount} field(s)` : "Not started"}
+          title="2. Farms"
+          status={fieldCount > 0 ? `${fieldCount} farm(s)` : "Not started"}
           statusTone={fieldCount > 0 ? "ok" : "warn"}
-          actionLabel={fieldCount > 0 ? "Add another field" : "Add first field"}
+          actionLabel={fieldCount > 0 ? "Add another farm" : "Add first farm"}
           done={fieldCount > 0}
           onPress={() =>
             navigation.navigate("FieldForm", { farmerId, mode: "create" })
@@ -133,11 +133,21 @@ export default function NewFarmerProgressScreen({ route, navigation }) {
         />
         <SectionCard
           title="3. Soil testing"
-          status={soilCount > 0 ? `${soilCount} test(s)` : "Optional"}
-          statusTone={soilCount > 0 ? "ok" : "neutral"}
-          actionLabel="Add soil test"
+          status={
+            fieldCount === 0
+              ? "Needs a farm first"
+              : soilCount > 0
+                ? `${soilCount} test(s)`
+                : "Optional"
+          }
+          statusTone={soilCount > 0 ? "ok" : fieldCount === 0 ? "warn" : "neutral"}
+          actionLabel={fieldCount === 0 ? "Add a farm first" : "Add soil test"}
           done={soilCount > 0}
-          onPress={() => navigation.navigate("SoilTestForm", { farmerId })}
+          onPress={() =>
+            fieldCount === 0
+              ? navigation.navigate("FieldForm", { farmerId, mode: "create" })
+              : navigation.navigate("SoilTestForm", { farmerId })
+          }
         />
 
         <PrimaryButton

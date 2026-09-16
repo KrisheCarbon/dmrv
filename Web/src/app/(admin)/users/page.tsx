@@ -127,7 +127,9 @@ export default function UsersPage() {
       <p className="text-sm text-gray-500">
         Web portal access is for <strong>admins</strong>,{" "}
         <strong>managers</strong>, and <strong>supervisors</strong> only.
-        Climapreneurs use the mobile app.
+        Climapreneurs use the mobile app. Company and personal emails are both
+        allowed — for field users, set a password here instead of waiting on
+        invite email.
         {actorRole && getUserManagementHint(actorRole) ? (
           <> {getUserManagementHint(actorRole)}</>
         ) : null}

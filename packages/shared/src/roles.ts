@@ -160,3 +160,19 @@ export function assertCanEditUser(actorRole: string, targetUserRole: string): vo
     throw new Error("You do not have permission to edit this user.");
   }
 }
+
+/** Climapreneurs and site supervisors may operate kontikkis. */
+export function canOperateKontikkis(role: string): boolean {
+  return role === "climapreneur" || role === "supervisor";
+}
+
+/** Role swaps that have producer, operator, and soil-sample side effects. */
+export function isClimapreneurSupervisorSwap(
+  fromRole: string,
+  toRole: string,
+): boolean {
+  return (
+    (fromRole === "climapreneur" && toRole === "supervisor") ||
+    (fromRole === "supervisor" && toRole === "climapreneur")
+  );
+}

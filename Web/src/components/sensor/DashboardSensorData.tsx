@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import TemperatureTimeChart from "@/components/charts/TemperatureTimeChart";
-import { getKilnBatch, listKilnBatches } from "@/app/(admin)/network/sensor-data/actions";
+import { getKilnBatch, listKilnBatches } from "@/app/(admin)/biochar/sensor-data/actions";
 import type { KilnBatchDetail, KilnBatchSummary } from "@/types";
 
 export default function DashboardSensorData() {
@@ -47,7 +47,7 @@ export default function DashboardSensorData() {
           </p>
         </div>
         <Link
-          href="/network/sensor-data"
+          href="/biochar/sensor-data"
           className="inline-flex items-center justify-center rounded-lg border border-brand-dark/20 px-4 py-2 text-sm Smedium text-brand-dark hover:bg-brand-dark/5 transition"
         >
           View all sensor data

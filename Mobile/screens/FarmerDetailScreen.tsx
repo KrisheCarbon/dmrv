@@ -9,7 +9,7 @@ import {
   Pressable,
   Image,
 } from "react-native";
-import { soilTestStatusLabel } from "@krishecarbon/shared";
+import { isFarmerProfileComplete, soilTestStatusLabel, soilSampleToneFromStatuses } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import { farmerToFormData, getFarmerByIdLocal } from "../services/farmerService";
 import {
@@ -23,12 +23,13 @@ import {
 } from "../services/farmersNetworkService";
 import { isFarmerSyncing } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import ChecklistItem from "../components/ChecklistItem";
 
 const TABS = [
-  { key: "fields", label: "Fields" },
+  { key: "fields", label: "Farms" },
   { key: "samples", label: "Soil samples" },
   { key: "reports", label: "Soil reports" },
-  { key: "consent", label: "Consent" },
+  { key: "consent", label: "Farmer consent" },
 ] as const;
 
 function DetailRow({ label, value, highlight = false }) {
@@ -41,14 +42,6 @@ function DetailRow({ label, value, highlight = false }) {
         {value}
       </Text>
     </View>
-  );
-}
-
-function Check({ ok, label }: { ok: boolean; label: string }) {
-  return (
-    <Text style={[styles.check, ok && styles.checkOn]}>
-      {ok ? "✓" : "○"} {label}
-    </Text>
   );
 }
 
@@ -114,7 +107,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
 
   async function markInactive(id: string) {
     Alert.alert(
-      "Mark field inactive?",
+      "Mark farm inactive?",
       "Use when a lease ends or the plot changes.",
       [
         { text: "Cancel", style: "cancel" },
@@ -142,6 +135,8 @@ export default function FarmerDetailScreen({ route, navigation }) {
 
   if (!farmer) return null;
 
+  const sampleTone = soilSampleToneFromStatuses(soilTests.map((test) => test.status));
+
   return (
     <ScreenShell>
       <View style={styles.pageHeader}>
@@ -152,10 +147,24 @@ export default function FarmerDetailScreen({ route, navigation }) {
           {latestConsentLabel}
         </Text>
         <View style={styles.checkRow}>
-          <Check ok label="Farmer" />
-          <Check ok={fields.length > 0} label="Fields" />
-          <Check ok={soilTests.length > 0} label="Sample" />
-          <Check ok={soilReports.length > 0} label="Report" />
+          <ChecklistItem
+            tone={isFarmerProfileComplete(farmer) ? "ok" : "warn"}
+            label="Farmer"
+          />
+          <ChecklistItem done={fields.length > 0} label="Farms" />
+          <ChecklistItem
+            tone={
+              sampleTone === "accepted"
+                ? "ok"
+                : sampleTone === "rejected"
+                  ? "error"
+                  : sampleTone === "collected"
+                    ? "warn"
+                    : "none"
+            }
+            label="Sample"
+          />
+          <ChecklistItem done={soilReports.length > 0} label="Report" />
         </View>
       </View>
 
@@ -185,6 +194,12 @@ export default function FarmerDetailScreen({ route, navigation }) {
               <Text style={styles.link}>Edit</Text>
             </Pressable>
           </View>
+          {farmer.farmer_photo_uri || farmer.farmer_photo_url ? (
+            <Image
+              source={{ uri: farmer.farmer_photo_uri || farmer.farmer_photo_url }}
+              style={styles.farmerPhoto}
+            />
+          ) : null}
           <DetailRow label="Mobile" value={farmer.mobile_number || "Not added"} />
           <DetailRow label="Father / spouse" value={farmer.father_spouse_name} />
           <DetailRow label="Agri ID / Kisan Pehchan" value={farmer.agri_id} />
@@ -200,6 +215,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
               .filter(Boolean)
               .join(", ")}
           />
+          <DetailRow label="Cluster" value={farmer.cluster_name} />
           <DetailRow
             label="Cultivated land"
             value={`${farmer.total_land_size} acres`}
@@ -210,6 +226,18 @@ export default function FarmerDetailScreen({ route, navigation }) {
               farmer.owned_land_size || farmer.leased_land_size
                 ? `${farmer.owned_land_size || 0} / ${farmer.leased_land_size || 0} acres`
                 : null
+            }
+          />
+          <DetailRow
+            label="Interested in biochar"
+            value={farmer.interested_in_biochar ? "Yes" : "No"}
+          />
+          <DetailRow
+            label="Prior biochar experience"
+            value={
+              farmer.prior_biochar_exp
+                ? `Yes${farmer.prior_biochar_acreage ? ` · ${farmer.prior_biochar_acreage} acres` : ""}`
+                : "No"
             }
           />
           {farmer.crops?.length
@@ -226,13 +254,13 @@ export default function FarmerDetailScreen({ route, navigation }) {
         {tab === "fields" ? (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Fields / farm info</Text>
+              <Text style={styles.sectionTitle}>Farms</Text>
               <Pressable
                 onPress={() =>
                   navigation.navigate("FieldForm", { farmerId, mode: "create" })
                 }
               >
-                <Text style={styles.link}>Add field</Text>
+                <Text style={styles.link}>Add farm</Text>
               </Pressable>
             </View>
             {fields.length ? (
@@ -289,7 +317,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
                 </View>
               ))
             ) : (
-              <Text style={styles.emptyText}>No fields yet.</Text>
+              <Text style={styles.emptyText}>No farms yet.</Text>
             )}
           </View>
         ) : null}
@@ -299,7 +327,27 @@ export default function FarmerDetailScreen({ route, navigation }) {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Soil samples</Text>
               <Pressable
-                onPress={() => navigation.navigate("SoilTestForm", { farmerId })}
+                onPress={() => {
+                  if (!fields.length) {
+                    Alert.alert(
+                      "Farm needed",
+                      "Add a farm for this farmer before collecting a soil sample.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Add farm",
+                          onPress: () =>
+                            navigation.navigate("FieldForm", {
+                              farmerId,
+                              mode: "create",
+                            }),
+                        },
+                      ],
+                    );
+                    return;
+                  }
+                  navigation.navigate("SoilTestForm", { farmerId });
+                }}
               >
                 <Text style={styles.link}>Add sample</Text>
               </Pressable>
@@ -344,7 +392,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
               ))
             ) : (
               <Text style={styles.emptyText}>
-                Reports appear here after a supervisor uploads the lab PDF in the admin portal.
+                Reports appear here after a supervisor uploads the lab PDF or a photo of the results.
               </Text>
             )}
           </View>
@@ -353,11 +401,11 @@ export default function FarmerDetailScreen({ route, navigation }) {
         {tab === "consent" ? (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Consent / documents</Text>
+              <Text style={styles.sectionTitle}>Farmer consent</Text>
               <Pressable
                 onPress={() => navigation.navigate("ConsentForm", { farmerId })}
               >
-                <Text style={styles.link}>Add document</Text>
+                <Text style={styles.link}>Add consent</Text>
               </Pressable>
             </View>
             {consents.length ? (
@@ -365,7 +413,8 @@ export default function FarmerDetailScreen({ route, navigation }) {
                 <View key={c.id} style={styles.itemCard}>
                   <Text style={styles.itemTitle}>{c.agreementType}</Text>
                   <DetailRow label="Status" value={consentExpiryLabel(c)} />
-                  <DetailRow label="Deadline" value={c.validTo} />
+                  <DetailRow label="Signed date" value={c.consentDate} />
+                  <DetailRow label="Expiry date" value={c.validTo} />
                   {c.photos?.length ? (
                     <View style={styles.photoRow}>
                       {c.photos.map((uri) => (
@@ -376,7 +425,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
                 </View>
               ))
             ) : (
-              <Text style={styles.emptyText}>No documents on file.</Text>
+              <Text style={styles.emptyText}>No farmer consent on file.</Text>
             )}
           </View>
         ) : null}
@@ -413,14 +462,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
     marginTop: 10,
-  },
-  check: {
-    fontSize: 12,
-    fontFamily: fonts.medium,
-    color: colors.smoke,
-  },
-  checkOn: {
-    color: colors.brunswick,
   },
   tabs: {
     flexDirection: "row",
@@ -533,6 +574,13 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 8,
     marginTop: 6,
+    backgroundColor: colors.chalk,
+  },
+  farmerPhoto: {
+    width: "100%",
+    height: 220,
+    borderRadius: 8,
+    marginBottom: spacing.sm,
     backgroundColor: colors.chalk,
   },
   photoRow: {

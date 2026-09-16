@@ -117,7 +117,11 @@ function FarmCard({ farm }: { farm: NetworkFarm }) {
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{farm.farmer_name}</Text>
-      {farm.address ? (
+      {farm.village || farm.cluster_name ? (
+        <Text style={styles.cardMeta}>
+          {[farm.village, farm.cluster_name].filter(Boolean).join(" · ")}
+        </Text>
+      ) : farm.address ? (
         <Text style={styles.cardMeta}>{farm.address}</Text>
       ) : null}
       {farm.mobile_number ? (

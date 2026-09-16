@@ -11,7 +11,7 @@ import {
   getSoilTestById,
   saveSoilReportLocal,
 } from "./farmersNetworkService";
-import { uploadFarmerNetworkPhoto, uploadFarmerNetworkPhotos } from "../utils/farmerNetworkPhotoUpload";
+import { uploadFarmerNetworkPhoto, uploadFarmerNetworkPhotos, uploadSoilReportFile } from "../utils/farmerNetworkPhotoUpload";
 
 async function farmServerIdForFarmer(farmerId: string): Promise<string> {
   const farmer = await getFarmerByIdLocal(farmerId);
@@ -155,7 +155,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
   for (const fieldId of test.fieldIds) {
     const field = await getFieldById(fieldId);
     if (!field.serverId) {
-      throw new Error("Sync the selected fields first, then this sample will upload.");
+      throw new Error("Sync the selected farms first, then this sample will upload.");
     }
     fieldServerIds.push(field.serverId);
   }
@@ -168,50 +168,119 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
     );
   }
 
-  if (operation === "update" && test.serverId && test.status === "received") {
-    await backendFetch(`/soil-tests/${test.serverId}/receive`, { method: "PATCH" });
+  let receivePhotoUrl = test.receivePhotoUrl;
+  if (test.receivePhotoUri) {
+    receivePhotoUrl = await uploadFarmerNetworkPhoto(
+      test.receivePhotoUri,
+      `soil-samples/${test.serverId || test.id}/receive.jpg`,
+    );
+  }
+
+  if (!test.serverId || operation === "create") {
+    const remote = await backendFetch<SoilTestRecord>("/soil-tests", {
+      method: "POST",
+      body: JSON.stringify({
+        id: test.serverId || undefined,
+        farm_id: farmId,
+        field_ids: fieldServerIds,
+        sample_date: test.sampleDate,
+        sample_lat: test.sampleLat,
+        sample_lng: test.sampleLng,
+        sample_photo_url: samplePhotoUrl,
+        submitted_to_supervisor_id: test.submittedToSupervisorId,
+        status: test.status,
+      }),
+    });
+
     await db.runAsync(
-      "UPDATE soil_tests SET sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
-      ["synced", Date.now(), test.id],
+      `UPDATE soil_tests SET
+        server_id = ?,
+        sample_photo_url = ?,
+        status = ?,
+        received_at = ?,
+        received_by = ?,
+        sync_status = ?,
+        sync_error = NULL,
+        updated_at = ?
+       WHERE id = ?`,
+      [
+        remote.id,
+        samplePhotoUrl,
+        remote.status,
+        remote.received_at ?? test.receivedAt,
+        remote.received_by ?? test.receivedBy,
+        "synced",
+        Date.now(),
+        test.id,
+      ],
     );
     return;
   }
 
-  const remote = await backendFetch<SoilTestRecord>("/soil-tests", {
-    method: "POST",
-    body: JSON.stringify({
-      id: test.serverId || undefined,
-      farm_id: farmId,
-      field_ids: fieldServerIds,
-      sample_date: test.sampleDate,
-      sample_lat: test.sampleLat,
-      sample_lng: test.sampleLng,
-      sample_photo_url: samplePhotoUrl,
-      submitted_to_supervisor_id: test.submittedToSupervisorId,
-    }),
-  });
+  if (test.status === "submitted") {
+    await backendFetch(`/soil-tests/${test.serverId}/submit`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        submitted_to_supervisor_id: test.submittedToSupervisorId,
+      }),
+    });
+  } else if (
+    test.status === "accepted" ||
+    test.status === "rejected" ||
+    test.status === "stored" ||
+    test.status === "received"
+  ) {
+    const decision =
+      test.status === "rejected"
+        ? "reject"
+        : test.status === "stored"
+          ? "store"
+          : "accept";
+    await backendFetch(`/soil-tests/${test.serverId}/review`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        decision,
+        receive_photo_url: receivePhotoUrl,
+      }),
+    });
+  } else if (test.status === "reported") {
+    const report = await db.getFirstAsync<{
+      document_uri: string | null;
+      document_url: string | null;
+    }>(
+      "SELECT document_uri, document_url FROM soil_reports WHERE soil_test_id = ? ORDER BY created_at DESC LIMIT 1",
+      [test.id],
+    );
+    let documentUrl = report?.document_url || null;
+    if (report?.document_uri) {
+      const isPdf = report.document_uri.toLowerCase().includes(".pdf");
+      documentUrl = await uploadSoilReportFile(
+        report.document_uri,
+        `${test.serverId}/report.${isPdf ? "pdf" : "jpg"}`,
+        isPdf ? "application/pdf" : "image/jpeg",
+      );
+      await db.runAsync(
+        "UPDATE soil_reports SET document_url = ? WHERE soil_test_id = ?",
+        [documentUrl, test.id],
+      );
+    }
+    if (documentUrl) {
+      await backendFetch(`/soil-tests/${test.serverId}/report`, {
+        method: "PATCH",
+        body: JSON.stringify({ document_url: documentUrl, source: "Lab report" }),
+      });
+    }
+  }
 
   await db.runAsync(
     `UPDATE soil_tests SET
-      server_id = ?,
       sample_photo_url = ?,
-      status = ?,
-      received_at = ?,
-      received_by = ?,
+      receive_photo_url = ?,
       sync_status = ?,
       sync_error = NULL,
       updated_at = ?
      WHERE id = ?`,
-    [
-      remote.id,
-      samplePhotoUrl,
-      remote.status,
-      remote.received_at ?? test.receivedAt,
-      remote.received_by ?? test.receivedBy,
-      "synced",
-      Date.now(),
-      test.id,
-    ],
+    [samplePhotoUrl, receivePhotoUrl, "synced", Date.now(), test.id],
   );
 }
 
@@ -253,6 +322,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           received_at = ?,
           received_by = ?,
           sample_photo_url = ?,
+          receive_photo_url = ?,
           submitted_to_supervisor_id = ?,
           server_id = ?,
           field_ids_json = ?,
@@ -263,6 +333,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           test.received_at ?? null,
           test.received_by ?? null,
           test.sample_photo_url ?? null,
+          test.receive_photo_url ?? null,
           test.submitted_to_supervisor_id ?? null,
           test.id,
           JSON.stringify(fieldLocalIds),

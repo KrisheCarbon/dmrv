@@ -130,10 +130,10 @@ export default async function Home() {
                   Producers
                 </Link>
                 <Link
-                  href="/network/farms"
+                  href="/network/farmers"
                   className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/20 transition"
                 >
-                  Farms
+                  Farmers
                 </Link>
               </>
             ) : null}

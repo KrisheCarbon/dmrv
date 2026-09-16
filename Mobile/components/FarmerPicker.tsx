@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Text, View, StyleSheet, ActivityIndicator } from "react-native";
 import FormPicker, { type FormPickerOption } from "./FormPicker";
 import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
+import { listFarmerIdsWithActiveFields } from "../services/farmersNetworkService";
 import { getUserProfile } from "../services/userProfile";
 import { colors, fonts, spacing } from "../constants/theme";
 
@@ -10,16 +11,19 @@ type FarmerPickerProps = {
   value: string;
   onChange: (farmerId: string) => void;
   required?: boolean;
+  /** When true, only farmers with at least one active field are listed. */
+  requireFields?: boolean;
 };
 
 /**
- * Dropdown of all locally onboarded farmers (scoped to the signed-in user).
+ * Dropdown of locally onboarded farmers (scoped to the signed-in user).
  */
 export default function FarmerPicker({
   label = "Farmer *",
   value,
   onChange,
   required = true,
+  requireFields = false,
 }: FarmerPickerProps) {
   const [options, setOptions] = useState<FormPickerOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,16 +40,21 @@ export default function FarmerPicker({
         return;
       }
       const farmers = await getAllFarmersLocal(profile.id, profile.role);
-      const mapped = farmers.map((f) => {
-        const form = farmerToFormData(f);
-        const code = form.farmer_code ? ` · ${form.farmer_code}` : "";
-        const village = form.village ? ` · ${form.village}` : "";
-        const mobile = form.mobile_number ? ` · ${form.mobile_number}` : "";
-        return {
-          value: form.id!,
-          label: `${form.farmer_name}${code}${village}${mobile}`,
-        };
-      });
+      const withFields = requireFields
+        ? await listFarmerIdsWithActiveFields()
+        : null;
+      const mapped = farmers
+        .filter((f) => (withFields ? withFields.has(f.id) : true))
+        .map((f) => {
+          const form = farmerToFormData(f);
+          const code = form.farmer_code ? ` · ${form.farmer_code}` : "";
+          const village = form.village ? ` · ${form.village}` : "";
+          const mobile = form.mobile_number ? ` · ${form.mobile_number}` : "";
+          return {
+            value: form.id!,
+            label: `${form.farmer_name}${code}${village}${mobile}`,
+          };
+        });
       setOptions(mapped);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -53,17 +62,22 @@ export default function FarmerPicker({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [requireFields]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
+    if (loading || error) return;
+    if (value && !options.some((option) => option.value === value)) {
+      onChange("");
+      return;
+    }
     if (!value && options.length === 1) {
       onChange(options[0].value);
     }
-  }, [options, value, onChange]);
+  }, [loading, error, options, value, onChange]);
 
   if (loading) {
     return (
@@ -77,10 +91,16 @@ export default function FarmerPicker({
   if (options.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>No farmers onboarded yet</Text>
+        <Text style={styles.emptyTitle}>
+          {requireFields
+            ? "No farmers with farms yet"
+            : "No farmers onboarded yet"}
+        </Text>
         <Text style={styles.hint}>
           {error ||
-            "Add a farmer under New Farmer first, then come back to link fields, soil, or consent."}
+            (requireFields
+              ? "Add farm info under Farms onboarding first. A soil sample needs a farm."
+              : "Add a farmer under New Farmer first, then come back to link farms, soil, or consent.")}
         </Text>
       </View>
     );

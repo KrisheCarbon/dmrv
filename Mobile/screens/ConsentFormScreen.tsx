@@ -9,7 +9,6 @@ import {
   View,
 } from "react-native";
 import { ScreenShell } from "../components/ScreenHeader";
-import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
 import FormDateField from "../components/FormDateField";
 import PrimaryButton from "../components/PrimaryButton";
@@ -21,10 +20,10 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 
 const AGREEMENT_TYPES = [
   { value: "Farmer consent", label: "Farmer consent" },
-  { value: "Lease agreement", label: "Lease agreement" },
-  { value: "Program agreement", label: "Program agreement" },
-  { value: "Other document", label: "Other document" },
 ];
+
+const MIN_PHOTOS = 1;
+const MAX_PHOTOS = 2;
 
 function todayPlusYears(years: number): string {
   const d = new Date();
@@ -35,13 +34,12 @@ function todayPlusYears(years: number): string {
 export default function ConsentFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
   const [selectedFarmerId, setSelectedFarmerId] = useState(paramFarmerId);
-  const farmerId = selectedFarmerId || paramFarmerId;
+  const farmerId = selectedFarmerId;
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     agreement_type: "Farmer consent",
     consent_date: new Date().toISOString().slice(0, 10),
     valid_to: todayPlusYears(1),
-    agreement_reference: "",
     photos: [] as string[],
   });
 
@@ -51,11 +49,15 @@ export default function ConsentFormScreen({ route, navigation }) {
 
   async function addPhoto() {
     try {
+      if (form.photos.length >= MAX_PHOTOS) {
+        Alert.alert("Limit", "Maximum 2 document photos.");
+        return;
+      }
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
       setForm((prev) => {
-        if (prev.photos.length >= 8) {
-          Alert.alert("Limit", "Maximum 8 document photos.");
+        if (prev.photos.length >= MAX_PHOTOS) {
+          Alert.alert("Limit", "Maximum 2 document photos.");
           return prev;
         }
         return { ...prev, photos: [...prev.photos, captured.uri] };
@@ -65,31 +67,53 @@ export default function ConsentFormScreen({ route, navigation }) {
     }
   }
 
+  function removePhoto(uri: string) {
+    Alert.alert("Remove photo", "Remove this document photo?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () =>
+          setForm((prev) => ({
+            ...prev,
+            photos: prev.photos.filter((photo) => photo !== uri),
+          })),
+      },
+    ]);
+  }
+
   async function handleSave() {
     if (!farmerId) {
       Alert.alert("Required", "Select a farmer from the dropdown.");
       return;
     }
-    if (!form.valid_to.trim()) {
-      Alert.alert("Required", "Deadline is required.");
+    if (!form.consent_date.trim()) {
+      Alert.alert("Required", "Signed date is required.");
       return;
     }
-    if (form.photos.length === 0) {
+    if (!form.valid_to.trim()) {
+      Alert.alert("Required", "Document expiry date is required.");
+      return;
+    }
+    if (form.photos.length < MIN_PHOTOS) {
       Alert.alert("Required", "Upload at least one document photo.");
+      return;
+    }
+    if (form.photos.length > MAX_PHOTOS) {
+      Alert.alert("Limit", "Maximum 2 document photos.");
       return;
     }
     try {
       setLoading(true);
       await saveConsentLocal(farmerId, {
-        agreementType: form.agreement_type,
+        agreementType: "Farmer consent",
         consentDate: form.consent_date,
         validTo: form.valid_to,
-        agreementReference: form.agreement_reference,
         photos: form.photos,
         consentStatus: "active",
       });
       processSyncQueue();
-      Alert.alert("Saved", "Document recorded with deadline.", [
+      Alert.alert("Saved", "Farmer consent recorded.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
     } catch (err) {
@@ -105,9 +129,9 @@ export default function ConsentFormScreen({ route, navigation }) {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Consent / documents</Text>
+        <Text style={styles.title}>Farmer consent</Text>
         <Text style={styles.subtitle}>
-          Select the farmer, upload photos of the document, and set a deadline.
+          Record the signed date, expiry date, and photos of the signed consent.
         </Text>
 
         <FarmerPicker value={farmerId} onChange={setSelectedFarmerId} />
@@ -119,34 +143,33 @@ export default function ConsentFormScreen({ route, navigation }) {
           onValueChange={(v) => setForm((p) => ({ ...p, agreement_type: v }))}
         />
         <FormDateField
-          label="Document date"
+          label="Signed date *"
           value={form.consent_date}
           onChange={(t) => setForm((p) => ({ ...p, consent_date: t }))}
         />
         <FormDateField
-          label="Deadline *"
+          label="Document expiry date *"
           value={form.valid_to}
           onChange={(t) => setForm((p) => ({ ...p, valid_to: t }))}
         />
-        <FormInput
-          label="Reference (optional)"
-          value={form.agreement_reference}
-          onChangeText={(t) =>
-            setForm((p) => ({ ...p, agreement_reference: t }))
-          }
-        />
 
         <Text style={styles.section}>Document photos *</Text>
-        <Pressable style={styles.locBtn} onPress={addPhoto}>
-          <Text style={styles.locBtnText}>Upload / take photo</Text>
-        </Pressable>
+        {form.photos.length < MAX_PHOTOS ? (
+          <Pressable style={styles.locBtn} onPress={addPhoto}>
+            <Text style={styles.locBtnText}>Upload / take photo</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.hint}>Maximum of 2 photos added.</Text>
+        )}
         <View style={styles.photoRow}>
           {form.photos.map((uri) => (
-            <Image key={uri} source={{ uri }} style={styles.thumb} />
+            <Pressable key={uri} onPress={() => removePhoto(uri)}>
+              <Image source={{ uri }} style={styles.thumb} />
+            </Pressable>
           ))}
         </View>
 
-        <PrimaryButton title="Save document" onPress={handleSave} loading={loading} />
+        <PrimaryButton title="Save farmer consent" onPress={handleSave} loading={loading} />
       </ScrollView>
     </ScreenShell>
   );
@@ -175,6 +198,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.bold,
     color: colors.brunswick,
+  },
+  hint: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.smoke,
   },
   locBtn: {
     borderWidth: 1,

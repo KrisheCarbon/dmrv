@@ -47,7 +47,7 @@ export function getNavForRole(role: string): NavEntry[] {
       return {
         ...entry,
         children: entry.children.filter((link) =>
-          ["/network", "/network/farms", "/network/fields", "/network/soil-tests"].includes(
+          ["/network", "/network/farmers"].includes(
             link.href,
           ),
         ),

@@ -90,44 +90,45 @@ export interface KontikkiTableRow extends DbRow {
   status: string;
 }
 
-export interface Cluster extends DbRow {
+export interface ClusterPerson {
   id: string;
-  cluster_name?: string;
-}
-
-export interface ClusterTableRow extends DbRow {
-  id: string;
-  cluster_name: string;
-  villages: number;
-  farmers: number;
-  acres: number;
-  biochar: number;
-  created_by: string;
-}
-
-export interface ClusterVillageCrop extends DbRow {
-  crop_type?: string;
-  feedstock_type?: string;
-  biomass_use_case?: string;
-  acres?: number;
-  sowing_date?: string;
-  estimated_harvest_date?: string;
-  estimated_biochar_m3_per_year?: number;
+  full_name: string;
+  phone?: string | null;
+  email?: string | null;
+  role: string;
 }
 
 export interface ClusterVillage extends DbRow {
   id: string;
   village_name: string;
-  number_of_farmers?: number;
-  location?: VillageLocationValue | null;
-  clusters_villages_crops?: ClusterVillageCrop[];
+  mandal?: string | null;
+  district?: string | null;
+  state?: string | null;
 }
 
 export interface ClusterDetail extends DbRow {
   id: string;
   name: string;
-  created_by_name?: string;
-  clusters_villages?: ClusterVillage[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  villages: ClusterVillage[];
+  supervisors: ClusterPerson[];
+  climapreneurs: ClusterPerson[];
+}
+
+export interface ClusterFormOptions {
+  supervisors: ClusterPerson[];
+  climapreneurs: ClusterPerson[];
+}
+
+export interface ClusterTableRow extends DbRow {
+  id: string;
+  name: string;
+  villages: string;
+  villageCount: number;
+  supervisors: string;
+  climapreneurs: string;
 }
 
 export interface Farmer extends DbRow {
@@ -160,6 +161,9 @@ export interface FarmDetail extends DbRow {
   mandal?: string | null;
   district?: string | null;
   state?: string | null;
+  cluster_id?: string | null;
+  cluster_village_id?: string | null;
+  cluster?: { id: string; name: string } | null;
   total_land_size: number;
   owned_land_size?: number | null;
   leased_land_size?: number | null;
@@ -168,6 +172,7 @@ export interface FarmDetail extends DbRow {
   prior_biochar_exp: boolean;
   prior_biochar_acreage: number | null;
   estimated_biomass: number;
+  farmer_photo_url?: string | null;
   created_by: string;
   assigned_to: string;
   created_at?: string;
@@ -302,6 +307,8 @@ export interface TrainingTableRow extends DbRow {
 
 export type BiocharProducerClass = "artisan_pro" | "csink" | "not_registered";
 
+export type ProducerRegistry = "csi" | "rainbow" | "both";
+
 export type BiocharProducerStatus = "active" | "inactive";
 
 export type ProducerSiteModel = "hub" | "mobile" | "both";
@@ -334,6 +341,20 @@ export interface ProducerSupervisorAssignment extends DbRow {
   };
 }
 
+export interface ProducerClusterAssignment extends DbRow {
+  cluster_id: string;
+  clusters?:
+    | {
+        id: string;
+        name?: string;
+      }
+    | {
+        id: string;
+        name?: string;
+      }[]
+    | null;
+}
+
 export interface ProducerKontikkiRow extends DbRow {
   id: string;
   kontikki_code?: string;
@@ -345,6 +366,7 @@ export interface BiocharProducer extends DbRow {
   id: string;
   producer_code?: string;
   registry_producer_id?: string | null;
+  registry?: ProducerRegistry | null;
   name?: string;
   producer_class?: BiocharProducerClass;
   status?: BiocharProducerStatus;
@@ -369,6 +391,7 @@ export interface BiocharProducer extends DbRow {
 export interface BiocharProducerDetail extends BiocharProducer {
   producer_sites?: ProducerSite[];
   biochar_producer_supervisors?: ProducerSupervisorAssignment[];
+  biochar_producer_clusters?: ProducerClusterAssignment[];
   kontikkis?: ProducerKontikkiRow[];
 }
 

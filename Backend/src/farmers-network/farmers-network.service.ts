@@ -81,6 +81,7 @@ const SOIL_TEST_SELECT = `
   sample_lat,
   sample_lng,
   sample_photo_url,
+  receive_photo_url,
   submitted_to_supervisor_id,
   collected_by,
   collected_by_role,
@@ -138,6 +139,12 @@ export class FarmersNetworkService {
   private assertMobile(user: AuthenticatedUser) {
     if (!canAccessMobileApp(user.role)) {
       throw new ForbiddenException('Not allowed to manage farmers network records');
+    }
+  }
+
+  private assertAccess(user: AuthenticatedUser) {
+    if (!canAccessMobileApp(user.role) && !canAccessWebPortal(user.role)) {
+      throw new ForbiddenException('Not allowed to view farmers network records');
     }
   }
 
@@ -270,7 +277,7 @@ export class FarmersNetworkService {
     user: AuthenticatedUser,
     farmId?: string,
   ): Promise<FarmFieldRecord[]> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     const farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
     if (farmIds && farmIds.length === 0) return [];
 
@@ -288,7 +295,7 @@ export class FarmersNetworkService {
   }
 
   async getField(user: AuthenticatedUser, id: string): Promise<FarmFieldRecord> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     const { data, error } = await this.supabase
       .from('farm_fields')
       .select(FIELD_SELECT)
@@ -439,7 +446,7 @@ export class FarmersNetworkService {
     user: AuthenticatedUser,
     farmId?: string,
   ): Promise<FarmerConsentRecord[]> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     const farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
     if (farmIds && farmIds.length === 0) return [];
 
@@ -495,7 +502,7 @@ export class FarmersNetworkService {
   // ---------------------------------------------------------------------------
 
   async getSoilFormOptions(user: AuthenticatedUser): Promise<SoilTestFormOptions> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     const farmIds = await this.visibleFarmIds(user);
     const farmsQuery = this.supabase
       .from('farms')
@@ -604,7 +611,7 @@ export class FarmersNetworkService {
     user: AuthenticatedUser,
     options?: { farmId?: string; inbox?: boolean },
   ): Promise<SoilTestRecord[]> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     const farmIds = options?.farmId
       ? [options.farmId]
       : await this.visibleFarmIds(user);
@@ -635,7 +642,7 @@ export class FarmersNetworkService {
   }
 
   async getSoilTest(user: AuthenticatedUser, id: string): Promise<SoilTestRecord> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     const { data, error } = await this.supabase
       .from('soil_tests')
       .select(SOIL_TEST_SELECT)
@@ -660,10 +667,14 @@ export class FarmersNetworkService {
     }
 
     const isSupervisor = user.role === 'supervisor' || this.canViewAll(user);
+    const requestedStatus = payload.status?.trim();
+    const status =
+      requestedStatus || (isSupervisor ? 'accepted' : 'collected');
     const supervisorId = isSupervisor
-      ? user.id
-      : payload.submitted_to_supervisor_id;
-    if (!isSupervisor && !supervisorId) {
+      ? payload.submitted_to_supervisor_id || user.id
+      : payload.submitted_to_supervisor_id || null;
+
+    if (status === 'submitted' && !supervisorId) {
       throw new BadRequestException('Select the supervisor to submit this sample to.');
     }
 
@@ -674,12 +685,18 @@ export class FarmersNetworkService {
       sample_lat: payload.sample_lat ?? null,
       sample_lng: payload.sample_lng ?? null,
       sample_photo_url: payload.sample_photo_url || null,
-      submitted_to_supervisor_id: supervisorId || null,
+      submitted_to_supervisor_id: supervisorId,
       collected_by: user.id,
       collected_by_role: user.role,
-      status: isSupervisor ? 'received' : 'submitted',
-      received_at: isSupervisor ? new Date().toISOString() : null,
-      received_by: isSupervisor ? user.id : null,
+      status,
+      received_at:
+        status === 'accepted' || status === 'received' || status === 'stored'
+          ? new Date().toISOString()
+          : null,
+      received_by:
+        status === 'accepted' || status === 'received' || status === 'stored'
+          ? user.id
+          : null,
       created_by: user.id,
     };
 
@@ -703,11 +720,75 @@ export class FarmersNetworkService {
     return this.getSoilTest(user, data.id);
   }
 
+  async submitSoilTest(
+    user: AuthenticatedUser,
+    id: string,
+    supervisorId: string,
+  ): Promise<SoilTestRecord> {
+    this.assertMobile(user);
+    if (!supervisorId) {
+      throw new BadRequestException('Select the supervisor to submit this sample to.');
+    }
+
+    const existing = await this.getSoilTest(user, id);
+    if (existing.created_by && existing.created_by !== user.id && !this.canViewAll(user)) {
+      throw new ForbiddenException('Only the collector can submit this sample.');
+    }
+
+    const { error } = await this.supabase
+      .from('soil_tests')
+      .update({
+        submitted_to_supervisor_id: supervisorId,
+        status: 'submitted',
+      })
+      .eq('id', id);
+
+    if (error) throw new BadRequestException(error.message);
+    return this.getSoilTest(user, id);
+  }
+
+  async reviewSoilTest(
+    user: AuthenticatedUser,
+    id: string,
+    decision: 'accept' | 'reject' | 'store',
+    receivePhotoUrl?: string | null,
+  ): Promise<SoilTestRecord> {
+    this.assertAccess(user);
+    if (user.role !== 'supervisor' && !this.canViewAll(user)) {
+      throw new ForbiddenException('Only supervisors can review samples.');
+    }
+
+    const existing = await this.getSoilTest(user, id);
+    if (
+      existing.submitted_to_supervisor_id &&
+      existing.submitted_to_supervisor_id !== user.id &&
+      !this.canViewAll(user)
+    ) {
+      throw new ForbiddenException('This sample was submitted to another supervisor.');
+    }
+
+    const status =
+      decision === 'accept' ? 'accepted' : decision === 'reject' ? 'rejected' : 'stored';
+
+    const { error } = await this.supabase
+      .from('soil_tests')
+      .update({
+        status: existing.status === 'reported' ? existing.status : status,
+        received_at: new Date().toISOString(),
+        received_by: user.id,
+        receive_photo_url: receivePhotoUrl || existing.receive_photo_url || null,
+      })
+      .eq('id', id);
+
+    if (error) throw new BadRequestException(error.message);
+    return this.getSoilTest(user, id);
+  }
+
   async receiveSoilTest(
     user: AuthenticatedUser,
     id: string,
   ): Promise<SoilTestRecord> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     if (user.role !== 'supervisor' && !this.canViewAll(user)) {
       throw new ForbiddenException('Only supervisors can mark samples received.');
     }
@@ -724,7 +805,7 @@ export class FarmersNetworkService {
     const { error } = await this.supabase
       .from('soil_tests')
       .update({
-        status: existing.status === 'reported' ? existing.status : 'received',
+        status: existing.status === 'reported' ? existing.status : 'accepted',
         received_at: new Date().toISOString(),
         received_by: user.id,
       })
@@ -739,7 +820,7 @@ export class FarmersNetworkService {
     id: string,
     payload: SoilTestReportPayload,
   ): Promise<SoilTestRecord> {
-    this.assertMobile(user);
+    this.assertAccess(user);
     if (!canAccessWebPortal(user.role)) {
       throw new ForbiddenException('Soil reports are uploaded in the admin portal.');
     }

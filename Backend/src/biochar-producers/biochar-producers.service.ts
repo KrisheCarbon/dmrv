@@ -12,7 +12,20 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 
 export type ProducerSiteModel = 'hub' | 'mobile' | 'both';
 export type BiocharProducerClass = 'artisan_pro' | 'csink' | 'not_registered';
+export type ProducerRegistry = 'csi' | 'rainbow' | 'both';
 export type BiocharProducerStatus = 'active' | 'inactive';
+
+const PRODUCER_REGISTRIES: ProducerRegistry[] = ['csi', 'rainbow', 'both'];
+
+function normalizeRegistry(
+  value: string | null | undefined,
+): ProducerRegistry | null {
+  if (!value) return null;
+  if (PRODUCER_REGISTRIES.includes(value as ProducerRegistry)) {
+    return value as ProducerRegistry;
+  }
+  throw new BadRequestException('Registry must be CSI, Rainbow, or both.');
+}
 
 export interface AffiliationPayload {
   partner_organization_id?: string | null;
@@ -38,6 +51,7 @@ export interface ProducerSitePayload extends AffiliationPayload {
 
 export interface CreateProducerPayload {
   registry_producer_id?: string | null;
+  registry?: ProducerRegistry | null;
   name: string;
   producer_class?: BiocharProducerClass;
   status?: BiocharProducerStatus;
@@ -55,6 +69,7 @@ export interface CreateProducerPayload {
   other_document_urls?: string[] | null;
   sites?: ProducerSitePayload[];
   supervisor_ids?: string[];
+  cluster_ids?: string[];
 }
 
 export interface UpdateProducerPayload extends Partial<CreateProducerPayload> {
@@ -137,6 +152,7 @@ export class BiocharProducersService {
         id,
         producer_code,
         registry_producer_id,
+        registry,
         name,
         producer_class,
         status,
@@ -163,7 +179,14 @@ export class BiocharProducersService {
 
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Producer not found');
-    return this.attachSupervisors(data, id);
+    return this.attachAssignments(data, id);
+  }
+
+  private async attachAssignments<
+    T extends Record<string, unknown>,
+  >(producer: T, producerId: string): Promise<T> {
+    const withSupervisors = await this.attachSupervisors(producer, producerId);
+    return this.attachClusters(withSupervisors, producerId);
   }
 
   private async attachSupervisors<
@@ -201,6 +224,42 @@ export class BiocharProducersService {
     };
   }
 
+  private async attachClusters<
+    T extends Record<string, unknown>,
+  >(producer: T, producerId: string): Promise<T> {
+    const { data: links, error } = await this.supabase
+      .from('biochar_producer_clusters')
+      .select('cluster_id')
+      .eq('biochar_producer_id', producerId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    if (!links?.length) {
+      return { ...producer, biochar_producer_clusters: [] };
+    }
+
+    const clusterIds = links.map((row) => row.cluster_id as string);
+    const { data: clusters, error: clustersError } = await this.supabase
+      .from('clusters')
+      .select('id, name')
+      .in('id', clusterIds)
+      .order('name', { ascending: true });
+
+    if (clustersError) throw new BadRequestException(clustersError.message);
+
+    const clustersById = new Map(
+      (clusters ?? []).map((row) => [row.id as string, row]),
+    );
+
+    return {
+      ...producer,
+      biochar_producer_clusters: links.map((row) => ({
+        cluster_id: row.cluster_id,
+        clusters: clustersById.get(row.cluster_id as string) ?? null,
+      })),
+    };
+  }
+
   async create(user: AuthenticatedUser, payload: CreateProducerPayload) {
     this.assertCanManage(user);
 
@@ -209,6 +268,7 @@ export class BiocharProducersService {
       .insert({
         producer_code: this.generateProducerCode(),
         registry_producer_id: payload.registry_producer_id?.trim() || null,
+        registry: normalizeRegistry(payload.registry),
         name: payload.name.trim(),
         producer_class: payload.producer_class ?? 'artisan_pro',
         status: payload.status ?? 'active',
@@ -238,6 +298,9 @@ export class BiocharProducersService {
       if (payload.supervisor_ids !== undefined) {
         await this.syncSupervisorRows(id, payload.supervisor_ids);
       }
+      if (payload.cluster_ids !== undefined) {
+        await this.syncClusterRows(id, payload.cluster_ids);
+      }
 
       return this.findById(user, id);
     } catch (err) {
@@ -264,6 +327,9 @@ export class BiocharProducersService {
     if (payload.registry_producer_id !== undefined) {
       updates.registry_producer_id =
         payload.registry_producer_id?.trim() || null;
+    }
+    if (payload.registry !== undefined) {
+      updates.registry = normalizeRegistry(payload.registry);
     }
     if (payload.name !== undefined) updates.name = payload.name.trim();
     if (payload.producer_class !== undefined) {
@@ -323,6 +389,9 @@ export class BiocharProducersService {
 
     if (payload.supervisor_ids !== undefined) {
       await this.syncSupervisorRows(id, payload.supervisor_ids);
+    }
+    if (payload.cluster_ids !== undefined) {
+      await this.syncClusterRows(id, payload.cluster_ids);
     }
 
     return this.findById(user, id);
@@ -409,6 +478,48 @@ export class BiocharProducersService {
           supervisorIds.map((supervisor_id) => ({
             biochar_producer_id: producerId,
             supervisor_id,
+          })),
+        );
+
+      if (insertError) throw new BadRequestException(insertError.message);
+    }
+  }
+
+  private async syncClusterRows(
+    producerId: string,
+    clusterIds: string[],
+  ): Promise<void> {
+    const uniqueIds = [
+      ...new Set(clusterIds.map((id) => id.trim()).filter(Boolean)),
+    ];
+
+    if (uniqueIds.length > 0) {
+      const { data, error } = await this.supabase
+        .from('clusters')
+        .select('id')
+        .in('id', uniqueIds);
+      if (error) throw new BadRequestException(error.message);
+      if ((data ?? []).length !== uniqueIds.length) {
+        throw new BadRequestException(
+          'One or more selected clusters were not found.',
+        );
+      }
+    }
+
+    const { error: deleteError } = await this.supabase
+      .from('biochar_producer_clusters')
+      .delete()
+      .eq('biochar_producer_id', producerId);
+
+    if (deleteError) throw new BadRequestException(deleteError.message);
+
+    if (uniqueIds.length > 0) {
+      const { error: insertError } = await this.supabase
+        .from('biochar_producer_clusters')
+        .insert(
+          uniqueIds.map((cluster_id) => ({
+            biochar_producer_id: producerId,
+            cluster_id,
           })),
         );
 

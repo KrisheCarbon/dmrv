@@ -14,6 +14,7 @@ import {
   type BiocharProducerDocType,
 } from "@/lib/uploadBiocharProducerDocs";
 import { createProducer, updateProducer } from "./actions";
+import { listClusters } from "../clusters/actions";
 import {
   affiliationFromProducer,
   affiliationToSelectValue,
@@ -21,6 +22,7 @@ import {
   createEmptySiteDraft,
   EMPTY_AFFILIATION,
   extractSupervisorIds,
+  extractClusterIds,
   formatSiteModel,
   isSiteComplete,
   producerRequiresSites,
@@ -38,6 +40,7 @@ import type {
   BiocharProducerDetail,
   BiocharProducerStatus,
   LocationValue,
+  ProducerRegistry,
   ProducerSiteDraft,
   ProducerSiteModel,
 } from "@/types";
@@ -215,6 +218,9 @@ export default function BiocharProducerForm({
   const [registryProducerId, setRegistryProducerId] = useState(
     data?.registry_producer_id ?? "",
   );
+  const [registry, setRegistry] = useState<ProducerRegistry | "">(
+    data?.registry ?? "",
+  );
   const [name, setName] = useState(data?.name ?? "");
   const [producerClass, setProducerClass] = useState<BiocharProducerClass>(
     (data?.producer_class as BiocharProducerClass) ?? "artisan_pro",
@@ -239,6 +245,9 @@ export default function BiocharProducerForm({
   const [draftSites, setDraftSites] = useState<ProducerSiteDraft[]>([]);
   const [supervisorIds, setSupervisorIds] = useState<string[]>(() =>
     extractSupervisorIds(data?.biochar_producer_supervisors),
+  );
+  const [clusterIds, setClusterIds] = useState<string[]>(() =>
+    extractClusterIds(data?.biochar_producer_clusters),
   );
   const [contractDoc, setContractDoc] = useState(() =>
     createDocState(data?.contract_url),
@@ -310,6 +319,13 @@ export default function BiocharProducerForm({
     setSaving(true);
     setError(null);
 
+    if (!registry) {
+      setError("Select a registry: CSI, Rainbow, or Both.");
+      setSaving(false);
+      saveInFlight.current = false;
+      return;
+    }
+
     if (!producerLocation || !operationModel) {
       setError("Producer location and operating model are required.");
       setSaving(false);
@@ -325,6 +341,7 @@ export default function BiocharProducerForm({
       producerLocation,
       affiliation,
       operationModel,
+      registry,
     });
     if (coreError) {
       setError(coreError);
@@ -346,6 +363,7 @@ export default function BiocharProducerForm({
     try {
       const payload = buildProducerSavePayload({
         registryProducerId,
+        registry,
         name,
         producerClass,
         status,
@@ -357,6 +375,7 @@ export default function BiocharProducerForm({
         operationModel,
         confirmedSites: sitesRequired ? confirmedSites : [],
         supervisorIds,
+        clusterIds,
         contractUrl: data?.contract_url,
         trainingCertUrl: data?.training_cert_url,
         otherDocumentUrls: normalizeOtherDocumentPaths(data ?? {}),
@@ -435,6 +454,21 @@ export default function BiocharProducerForm({
         )}
 
         <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1">
+            <label className={labelClass}>Registry *</label>
+            <select
+              className={inputClass}
+              value={registry}
+              onChange={(e) =>
+                setRegistry(e.target.value as ProducerRegistry | "")
+              }
+            >
+              <option value="">Select registry</option>
+              <option value="csi">CSI</option>
+              <option value="rainbow">Rainbow</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
           <input
             placeholder="Registry producer ID (optional)"
             className={inputClass}
@@ -623,6 +657,8 @@ export default function BiocharProducerForm({
           ) : null}
         </section>
       ) : null}
+
+      <ClusterSection ids={clusterIds} onChange={setClusterIds} />
 
       <SupervisorSection ids={supervisorIds} onChange={setSupervisorIds} />
 
@@ -971,6 +1007,117 @@ function DocumentUpload({
   );
 }
 
+function ClusterSection({
+  ids,
+  onChange,
+}: {
+  ids: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [clusters, setClusters] = useState<Array<{ id: string; name: string }>>(
+    [],
+  );
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchClusters() {
+      setLoading(true);
+      try {
+        const data = await listClusters();
+        setClusters(
+          data.map((cluster) => ({
+            id: cluster.id,
+            name: cluster.name.trim() || "Unnamed cluster",
+          })),
+        );
+      } catch {
+        setClusters([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchClusters();
+  }, []);
+
+  const selected = clusters.filter((cluster) => ids.includes(cluster.id));
+  const available = clusters.filter((cluster) => !ids.includes(cluster.id));
+
+  return (
+    <section className={sectionClass}>
+      <div className="space-y-2">
+        <div>
+          <p className={sectionEyebrowClass}>Farmers</p>
+          <h3 className="mt-1 text-lg font-semibold text-neutral-950">
+            Clusters
+          </h3>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Select one or more clusters. Farmers from these clusters appear when
+            this producer&apos;s team records mixing.
+          </p>
+        </div>
+
+        <select
+          className={inputClass}
+          value=""
+          disabled={loading || available.length === 0}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value && !ids.includes(value)) onChange([...ids, value]);
+            e.target.value = "";
+          }}
+        >
+          <option value="">
+            {loading
+              ? "Loading clusters..."
+              : available.length === 0
+                ? selected.length > 0
+                  ? "All clusters selected"
+                  : "No clusters available"
+                : "Add cluster..."}
+          </option>
+          {available.map((cluster) => (
+            <option key={cluster.id} value={cluster.id}>
+              {cluster.name}
+            </option>
+          ))}
+        </select>
+
+        {selected.length > 0 ? (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {selected.map((cluster) => (
+              <span
+                key={cluster.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm text-neutral-800"
+              >
+                {cluster.name}
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange(ids.filter((id) => id !== cluster.id))
+                  }
+                  className="ml-0.5 rounded-full px-1 text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-700"
+                  aria-label={`Remove ${cluster.name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-neutral-500">No clusters selected yet.</p>
+        )}
+
+        {!loading && clusters.length === 0 ? (
+          <p className="text-xs text-amber-700">
+            No clusters found. Create clusters under Network first.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function SupervisorSection({
   ids,
   onChange,
@@ -1031,7 +1178,8 @@ function SupervisorSection({
             Supervisors
           </h3>
           <p className="mt-0.5 text-xs text-neutral-500">
-            Select one or more supervisors for this producer.
+            Select one or more supervisors for this producer. They can also
+            operate any kontikki at this site.
           </p>
         </div>
 

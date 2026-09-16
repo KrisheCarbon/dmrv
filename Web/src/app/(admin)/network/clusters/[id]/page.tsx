@@ -1,182 +1,170 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { useParams } from "next/navigation";
-import type { ClusterDetail } from "@/types";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { deleteCluster, getCluster } from "../actions";
+import type { ClusterDetail, ClusterPerson } from "@/types";
 
-export default function ViewCluster() {
-  const { id } = useParams<{ id: string }>();
-  const [cluster, setCluster] = useState<ClusterDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchCluster() {
-      if (!id) return;
-
-      setLoading(true);
-
-      const { data, error } = await supabase
-        .from("clusters")
-        .select(`
-      id,
-      name,
-      created_by_name,
-      clusters_villages (
-        id,
-        village_name,
-        number_of_farmers,
-        location,
-        clusters_villages_crops (
-          crop_type,
-          feedstock_type,
-          biomass_use_case,
-          acres,
-          sowing_date,
-          estimated_harvest_date,
-          estimated_biochar_m3_per_year
-        )
-      )
-    `)
-        .eq("id", id)
-        .single();
-
-      if (error) {
-        console.error("Supabase error:", error);
-        setCluster(null);
-      } else {
-        setCluster(data);
-      }
-
-      setLoading(false);
-    }
-
-    if (id) fetchCluster();
-  }, [id]);
-
-async function handleDelete() {
-  const confirmed = window.confirm(
-    "This action is irreversible.\n\nDeleting this cluster will permanently remove:\n- The cluster\n- All villages\n- All crops\n\nDo you want to continue?"
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-1 border-b border-neutral-100 py-3 last:border-b-0 sm:grid-cols-[180px_1fr] sm:gap-8">
+      <dt className="text-sm text-neutral-500">{label}</dt>
+      <dd className="text-sm text-neutral-900">{children}</dd>
+    </div>
   );
-
-  if (!confirmed) return;
-
-  const { error } = await supabase.rpc("delete_cluster", {
-    cluster_id: id,
-  });
-
-  if (error) {
-    alert(error.message || "Failed to delete cluster");
-    return;
-  }
-
-  alert("Cluster deleted successfully");
-
-  // Redirect back to cluster list
-  window.location.href = "/network/clusters";
 }
 
-
-  if (loading) return <p>Loading...</p>;
-  if (!cluster) return <p>Cluster not found</p>;
-
+function PeopleList({ people }: { people: ClusterPerson[] }) {
+  if (people.length === 0) return "—";
   return (
-    <div className="space-y-6">
-      {/* Cluster Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{cluster.name}</h1>
-          <p className="text-sm text-gray-600">
-            Created by: {cluster.created_by_name}
-          </p>
-        </div>
+    <div className="space-y-1">
+      {people.map((person) => (
+        <p key={person.id}>
+          {person.full_name}
+          {person.phone ? ` · ${person.phone}` : ""}
+        </p>
+      ))}
+    </div>
+  );
+}
 
+export default function ClusterDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const [data, setData] = useState<ClusterDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadCluster = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await getCluster(id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load cluster");
+      setData(null);
+    }
+    setLoading(false);
+  }, [id]);
+
+  useEffect(() => {
+    loadCluster();
+  }, [loadCluster]);
+
+  async function handleDelete() {
+    if (!data?.id) return;
+    const confirmed = window.confirm(
+      "This will permanently delete this cluster, its villages, and staff assignments.\n\nContinue?",
+    );
+    if (!confirmed) return;
+    setDeleting(true);
+    try {
+      await deleteCluster(data.id);
+      router.push("/network/clusters");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete cluster");
+      setDeleting(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-neutral-500">Loading...</p>;
+  }
+
+  if (error && !data) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-red-600">Could not load cluster: {error}</p>
         <button
-          onClick={handleDelete}
-          className="text-sm text-red-600 border border-red-200 px-3 py-1 rounded hover:bg-red-50"
+          type="button"
+          onClick={() => router.push("/network/clusters")}
+          className="text-sm text-brand-dark hover:underline"
         >
-          Delete Cluster
+          Back to clusters
         </button>
       </div>
+    );
+  }
 
+  if (!data) {
+    return <p className="text-sm text-red-600">Cluster not found.</p>;
+  }
 
-      {/* Villages */}
-      {cluster.clusters_villages?.map((village) => (
-        <div key={village.id} className="border rounded p-4 space-y-3">
-          <div>
-            <h3 className="font-medium text-lg">
-              {village.village_name}
-            </h3>
-            <p className="text-sm text-gray-600">
-              Farmers: {village.number_of_farmers}
-            </p>
-            {village.location && (
-                <div className="text-sm text-gray-500 space-y-1">
-                  <p>
-                    Location: {village.location.place_name || village.village_name}
-                  </p>
-                  {village.location.lat && village.location.lng && (
-                    <p>
-                      GPS: Lattitude:{village.location.lat}, Longitude:{village.location.lng}
-                    </p>
-                  )}
-                </div>
-              )}
+  return (
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div>
+        <button
+          type="button"
+          onClick={() => router.push("/network/clusters")}
+          className="text-sm font-medium text-neutral-500 transition hover:text-neutral-950"
+        >
+          ← Back to clusters
+        </button>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
+          {data.name}
+        </h1>
+        <p className="mt-1 text-sm text-neutral-500">
+          {data.villages.length} village{data.villages.length === 1 ? "" : "s"}
+        </p>
+      </div>
 
-          </div>
-
-          {/* Crops table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="border px-2 py-1 text-left">Crop</th>
-                  <th className="border px-2 py-1 text-left">Feedstock</th>
-                  <th className="border px-2 py-1 text-right">Acres</th>
-                  <th className="border px-2 py-1 text-right">
-                    Biochar (m³/year)
-                  </th>
-                  <th className="border px-2 py-1 text-right">
-                    Biochar Use Case
-                  </th>
-                  <th className="border px-2 py-1">Sowing</th>
-                  <th className="border px-2 py-1">Harvest</th>
-                </tr>
-              </thead>
-              <tbody>
-                {village.clusters_villages_crops?.map((crop, ci) => (
-                  <tr key={ci}>
-                    <td className="border px-2 py-1">
-                      {crop.crop_type}
-                    </td>
-                    <td className="border px-2 py-1">
-                      {crop.feedstock_type || "-"}
-                    </td>
-                    <td className="border px-2 py-1 text-right">
-                      {crop.acres}
-                    </td>
-                    <td className="border px-2 py-1 text-right">
-                      {crop.estimated_biochar_m3_per_year ?? 0}
-                    </td>
-                    <td className="border px-2 py-1">
-                      {crop.biomass_use_case || "-"}
-                    </td>
-                    <td className="border px-2 py-1">
-                      {crop.sowing_date || "-"}
-                    </td>
-                    <td className="border px-2 py-1">
-                      {crop.estimated_harvest_date || "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Map placeholder */}
-          {/* Mapbox / Google Maps render can go here */}
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
-      ))}
+      ) : null}
+
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-4">
+          <h2 className="text-lg font-semibold text-neutral-900">Cluster</h2>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/network/clusters/${data.id}/edit`}
+              className="inline-flex min-h-[38px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+            >
+              Edit
+            </Link>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+        <dl className="px-6 py-2">
+          <DetailRow label="Cluster name">{data.name}</DetailRow>
+          <DetailRow label="Villages">
+            {data.villages.length === 0 ? (
+              "—"
+            ) : (
+              <div className="space-y-2">
+                {data.villages.map((village) => (
+                  <div key={village.id}>
+                    <p>{village.village_name}</p>
+                    <p className="text-xs text-neutral-500">
+                      {[village.mandal, village.district, village.state]
+                        .filter(Boolean)
+                        .join(" · ") || "Location not recorded"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </DetailRow>
+          <DetailRow label="Supervisors">
+            <PeopleList people={data.supervisors} />
+          </DetailRow>
+          <DetailRow label="Climapreneurs">
+            <PeopleList people={data.climapreneurs} />
+          </DetailRow>
+        </dl>
+      </section>
     </div>
   );
 }

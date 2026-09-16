@@ -24,6 +24,8 @@ import {
   syncSoilTest,
   pullSoilNetworkFromServer,
 } from "./farmerNetworkSync";
+import { pullClusterVillages } from "./clusterVillageService";
+import { uploadFarmerNetworkPhoto } from "../utils/farmerNetworkPhotoUpload";
 
 const MAX_RETRIES = 5;
 const SYNC_POLL_MS = 20000;
@@ -239,6 +241,9 @@ async function runSyncQueue() {
     }
 
     await reconcileFarmersWithServer(userId);
+    await pullClusterVillages().catch((err) => {
+      console.warn("[sync] cluster villages pull failed:", syncErrorMessage(err));
+    });
     await pullSoilNetworkFromServer().catch((err) => {
       console.warn("[sync] farmers network pull failed:", syncErrorMessage(err));
     });
@@ -605,9 +610,38 @@ function farmerToApiPayload(farmer: Farmer): FarmUpsertPayload {
     mandal: farmer.mandal,
     district: farmer.district,
     state: farmer.state,
+    cluster_id: farmer.clusterId,
+    cluster_village_id: farmer.clusterVillageId,
     owned_land_size: farmer.ownedLandSize,
     leased_land_size: farmer.leasedLandSize,
+    farmer_photo_url: farmer.farmerPhotoUrl,
   };
+}
+
+function photoExt(uri: string): string {
+  return uri.split(".").pop()?.split("?")[0] || "jpg";
+}
+
+async function resolveFarmerPhotoUrl(farmer: Farmer): Promise<string | null> {
+  const localUri = farmer.farmerPhotoUri?.trim() || "";
+  if (localUri.startsWith("http://") || localUri.startsWith("https://")) {
+    return localUri;
+  }
+  if (localUri) {
+    const folderId = farmer.serverId || farmer.id;
+    const photoUrl = await uploadFarmerNetworkPhoto(
+      localUri,
+      `farmers/${folderId}/profile.${photoExt(localUri)}`,
+    );
+    const db = await getDb();
+    await db.runAsync(
+      "UPDATE farmers SET farmer_photo_url = ? WHERE id = ?",
+      [photoUrl, farmer.id],
+    );
+    farmer.farmerPhotoUrl = photoUrl;
+    return photoUrl;
+  }
+  return farmer.farmerPhotoUrl ?? null;
 }
 
 function remoteFarmerToRow(remote: FarmerRow): Record<string, unknown> {
@@ -625,6 +659,9 @@ function remoteFarmerToRow(remote: FarmerRow): Record<string, unknown> {
     mandal: remote.mandal ?? null,
     district: remote.district ?? null,
     state: remote.state ?? null,
+    clusterId: remote.cluster_id ?? remote.cluster?.id ?? null,
+    clusterVillageId: remote.cluster_village_id ?? null,
+    clusterName: remote.cluster?.name ?? null,
     totalLandSize: Number(remote.total_land_size),
     ownedLandSize: remote.owned_land_size ?? null,
     leasedLandSize: remote.leased_land_size ?? null,
@@ -633,6 +670,8 @@ function remoteFarmerToRow(remote: FarmerRow): Record<string, unknown> {
     priorBiocharExp: remote.prior_biochar_exp,
     priorBiocharAcreage: remote.prior_biochar_acreage,
     estimatedBiomass: Number(remote.estimated_biomass),
+    farmerPhotoUri: remote.farmer_photo_url ?? null,
+    farmerPhotoUrl: remote.farmer_photo_url ?? null,
     createdBy: remote.created_by,
     assignedTo: remote.assigned_to,
     uploadStatus: "synced",
@@ -649,7 +688,8 @@ async function syncCreateFarmer(
 ) {
   onProgress?.(30);
 
-  const payload = farmerToApiPayload(farmer);
+  const farmerPhotoUrl = await resolveFarmerPhotoUrl(farmer);
+  const payload = farmerToApiPayload({ ...farmer, farmerPhotoUrl });
 
   const data = await backendFetch<FarmerRow>("/farms", {
     method: "POST",
@@ -679,7 +719,8 @@ async function syncUpdateFarmer(
 
   onProgress?.(30);
 
-  const payload = farmerToApiPayload(farmer);
+  const farmerPhotoUrl = await resolveFarmerPhotoUrl(farmer);
+  const payload = farmerToApiPayload({ ...farmer, farmerPhotoUrl });
 
   await backendFetch<FarmerRow>(`/farms/${farmer.serverId}`, {
     method: "PATCH",
@@ -818,6 +859,9 @@ async function reconcileFarmersWithServer(userId: string) {
         row.mandal = pendingMatch.mandal;
         row.district = pendingMatch.district;
         row.state = pendingMatch.state;
+        row.cluster_id = pendingMatch.clusterId;
+        row.cluster_village_id = pendingMatch.clusterVillageId;
+        row.cluster_name = pendingMatch.clusterName;
         row.owned_land_size = pendingMatch.ownedLandSize;
         row.leased_land_size = pendingMatch.leasedLandSize;
         const { sql, args } = buildUpdate("farmers", row, "id = ?", [pendingMatch.id]);

@@ -79,6 +79,7 @@ export default function MixingEntryScreen({ navigation, route }) {
       farms.map((farm) => ({
         value: farm.id,
         label: farm.farmer_name,
+        hint: [farm.village, farm.cluster_name].filter(Boolean).join(" · "),
       })),
     [farms],
   );

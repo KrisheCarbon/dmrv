@@ -77,6 +77,6 @@ export function networkOverviewStats(
     Partners: counts.partners,
     Supervisors: counts.supervisors,
     Climapreneurs: counts.climapreneurs,
-    Farms: counts.farms,
+    Farmers: counts.farms,
   };
 }

@@ -18,6 +18,8 @@ export interface UserProfile {
   full_name?: string | null;
 }
 
+export type UserOnboardingMethod = "invite" | "password";
+
 export interface UserFormData {
   email: string;
   phone: string;
@@ -26,6 +28,10 @@ export interface UserFormData {
   middle_name?: string;
   last_name: string;
   status?: string;
+  onboardingMethod?: UserOnboardingMethod;
+  password?: string;
+  newPassword?: string;
+  activateNow?: boolean;
 }
 
 export interface RoiIntent {
@@ -59,6 +65,12 @@ export interface DataTableColumn<T = Record<string, unknown>> {
   key: string;
   label: string;
   render?: (value: unknown, row: T) => ReactNode;
+  sortable?: boolean;
+  filterable?: boolean;
+  filterOptions?: Array<{ value: string; label: string }>;
+  filterPlaceholder?: string;
+  filterValue?: (row: T) => string;
+  sortValue?: (row: T) => string | number;
 }
 
 export interface AccordionItem {
@@ -84,6 +96,8 @@ export interface CreateUserResult {
   email: string;
   signupUrl: string;
   emailSent: boolean;
+  activated: boolean;
+  onboardingMethod: UserOnboardingMethod;
 }
 
 export interface FetchIntentsResult {
@@ -113,7 +127,10 @@ export type {
   BiocharProducerDetail,
   BiocharProducerTableRow,
   ClusterDetail,
+  ClusterFormOptions,
+  ClusterPerson,
   ClusterTableRow,
+  ClusterVillage,
   Climapreneur,
   ClimapreneurBankAccount,
   ClimapreneurTableRow,
@@ -134,9 +151,11 @@ export type {
   KontikkiTableRow,
   PartnerOrg,
   ProducerKontikkiRow,
+  ProducerRegistry,
   ProducerSite,
   ProducerSiteDraft,
   ProducerSiteModel,
+  ProducerClusterAssignment,
   ProducerSupervisorAssignment,
   Supervisor,
   UserTableRow,

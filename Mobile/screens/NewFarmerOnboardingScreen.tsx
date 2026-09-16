@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -15,18 +15,66 @@ import PrimaryButton from "../components/PrimaryButton";
 import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
+import VillagePicker from "../components/VillagePicker";
 import { getStoredAuthUser } from "../services/auth";
-import { saveFarmerLocal } from "../services/farmerService";
-import { processSyncQueue } from "../services/syncService";
+import {
+  farmerToFormData,
+  getFarmerByIdLocal,
+  saveFarmerLocal,
+} from "../services/farmerService";
+import { loadClusterVillages } from "../services/clusterVillageService";
+import { isFarmerSyncing, processSyncQueue } from "../services/syncService";
 import { getCurrentFarmLocation } from "../utils/location";
 import { startLocationCache } from "../services/locationCache";
 import { CROP_OPTIONS } from "../constants/crops";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import FarmerPhotoField from "../components/FarmerPhotoField";
+import type { ClusterVillageRecord, FarmerCrop } from "@krishecarbon/shared";
 
-export default function NewFarmerOnboardingScreen({ navigation }) {
+function ToggleRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <View style={styles.toggleSection}>
+      <Text style={styles.toggleLabel}>{label}</Text>
+      <View style={styles.toggleRow}>
+        <Pressable
+          style={[styles.toggleButton, value && styles.toggleOn]}
+          onPress={() => onChange(true)}
+        >
+          <Text style={[styles.toggleText, value && styles.toggleTextOn]}>
+            Yes
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.toggleButton, !value && styles.toggleOn]}
+          onPress={() => onChange(false)}
+        >
+          <Text style={[styles.toggleText, !value && styles.toggleTextOn]}>
+            No
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+export default function NewFarmerOnboardingScreen({ navigation, route }) {
+  const farmerId = route?.params?.farmerId as string | undefined;
+  const isEdit = Boolean(farmerId);
   const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(isEdit);
   const [locating, setLocating] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [villages, setVillages] = useState<ClusterVillageRecord[]>([]);
+  const [villagesLoading, setVillagesLoading] = useState(true);
+  const [existingCrops, setExistingCrops] = useState<FarmerCrop[]>([]);
   const [form, setForm] = useState({
     farmer_name: "",
     father_spouse_name: "",
@@ -37,8 +85,13 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
     mandal: "",
     district: "",
     state: "",
+    cluster_id: "",
+    cluster_village_id: "",
+    cluster_name: "",
     latitude: null as number | null,
     longitude: null as number | null,
+    farmer_photo_uri: null as string | null,
+    farmer_photo_url: null as string | null,
     total_land_size: "",
     owned_land_size: "",
     leased_land_size: "",
@@ -46,11 +99,99 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
     crop_area: "",
     sowing_date: "",
     harvest_date: "",
+    interested_in_biochar: false,
+    prior_biochar_exp: false,
+    prior_biochar_acreage: "",
   });
 
-  function setField(key: string, value: string | number | null) {
+  function setField(key: string, value: string | number | boolean | null) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    loadClusterVillages()
+      .then((options) => {
+        if (!cancelled) setVillages(options);
+      })
+      .catch(() => {
+        if (!cancelled) setVillages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setVillagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!farmerId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        if (await isFarmerSyncing(farmerId)) {
+          Alert.alert(
+            "Sync in progress",
+            "This farmer is currently syncing. You can edit after sync completes.",
+            [{ text: "OK", onPress: () => navigation.goBack() }],
+          );
+          return;
+        }
+        const farmer = farmerToFormData(await getFarmerByIdLocal(farmerId));
+        if (cancelled) return;
+        const crops = Array.isArray(farmer.crops) ? farmer.crops : [];
+        setExistingCrops(crops);
+        const first = crops[0];
+        setForm((prev) => ({
+          ...prev,
+          farmer_name: farmer.farmer_name ?? "",
+          father_spouse_name: farmer.father_spouse_name ?? "",
+          agri_id: farmer.agri_id ?? "",
+          mobile_number: farmer.mobile_number ?? "",
+          address: farmer.address ?? "",
+          village: farmer.village ?? "",
+          mandal: farmer.mandal ?? "",
+          district: farmer.district ?? "",
+          state: farmer.state ?? "",
+          cluster_id: farmer.cluster_id ?? "",
+          cluster_village_id: farmer.cluster_village_id ?? "",
+          cluster_name: farmer.cluster_name ?? "",
+          latitude: farmer.latitude != null ? Number(farmer.latitude) : null,
+          longitude: farmer.longitude != null ? Number(farmer.longitude) : null,
+          farmer_photo_uri: farmer.farmer_photo_uri ?? null,
+          farmer_photo_url: farmer.farmer_photo_url ?? null,
+          total_land_size: farmer.total_land_size
+            ? String(farmer.total_land_size)
+            : "",
+          owned_land_size: farmer.owned_land_size
+            ? String(farmer.owned_land_size)
+            : "",
+          leased_land_size: farmer.leased_land_size
+            ? String(farmer.leased_land_size)
+            : "",
+          crop_name: first?.crop_name || prev.crop_name,
+          crop_area: first?.crop_area ? String(first.crop_area) : "",
+          sowing_date: first?.sowing_date || "",
+          harvest_date: first?.harvest_date || "",
+          interested_in_biochar: Boolean(farmer.interested_in_biochar),
+          prior_biochar_exp: Boolean(farmer.prior_biochar_exp),
+          prior_biochar_acreage: farmer.prior_biochar_acreage
+            ? String(farmer.prior_biochar_acreage)
+            : "",
+        }));
+      } catch (err) {
+        Alert.alert("Error", err instanceof Error ? err.message : String(err), [
+          { text: "OK", onPress: () => navigation.goBack() },
+        ]);
+      } finally {
+        if (!cancelled) setFetching(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [farmerId, navigation]);
 
   async function captureGps() {
     try {
@@ -87,9 +228,23 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
       Alert.alert("Required", "Postal address is required.");
       return;
     }
-    if (!form.village.trim() || !form.district.trim() || !form.state.trim()) {
-      Alert.alert("Required", "Village, district and state are required.");
+    if (!form.cluster_village_id.trim() || !form.village.trim()) {
+      Alert.alert("Required", "Select a village from your cluster.");
       return;
+    }
+    if (!isEdit && !form.farmer_photo_uri && !form.farmer_photo_url) {
+      Alert.alert("Required", "Take a farmer photo.");
+      return;
+    }
+    if (form.prior_biochar_exp) {
+      const acres = Number(form.prior_biochar_acreage);
+      if (!form.prior_biochar_acreage.trim() || !Number.isFinite(acres) || acres <= 0) {
+        Alert.alert(
+          "Required",
+          "Enter prior biochar area in acres when experience is Yes.",
+        );
+        return;
+      }
     }
 
     try {
@@ -112,19 +267,19 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
         return;
       }
 
-      const crops =
+      const majorCrop: FarmerCrop | null =
         form.crop_name && cropArea > 0
-          ? [
-              {
-                crop_name: form.crop_name,
-                crop_area: cropArea,
-                sowing_date: form.sowing_date,
-                harvest_date: form.harvest_date,
-              },
-            ]
-          : [];
+          ? {
+              crop_name: form.crop_name,
+              crop_area: cropArea,
+              sowing_date: form.sowing_date,
+              harvest_date: form.harvest_date,
+            }
+          : null;
+      const extraCrops = existingCrops.slice(1);
+      const crops = majorCrop ? [majorCrop, ...extraCrops] : extraCrops;
 
-      const farmerId = await saveFarmerLocal(
+      const savedId = await saveFarmerLocal(
         {
           farmer_name: form.farmer_name,
           father_spouse_name: form.father_spouse_name,
@@ -135,48 +290,63 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
           mandal: form.mandal,
           district: form.district,
           state: form.state,
+          cluster_id: form.cluster_id,
+          cluster_village_id: form.cluster_village_id,
+          cluster_name: form.cluster_name,
           latitude: form.latitude ?? 0,
           longitude: form.longitude ?? 0,
+          farmer_photo_uri: form.farmer_photo_uri,
+          farmer_photo_url: form.farmer_photo_url,
           total_land_size: total,
           owned_land_size: form.owned_land_size,
           leased_land_size: form.leased_land_size,
           crops,
-          interested_in_biochar: false,
-          prior_biochar_exp: false,
-          prior_biochar_acreage: "",
+          interested_in_biochar: form.interested_in_biochar,
+          prior_biochar_exp: form.prior_biochar_exp,
+          prior_biochar_acreage: form.prior_biochar_acreage,
         },
         user.id,
+        farmerId ?? null,
       );
 
       processSyncQueue();
 
       Alert.alert(
-        "Farmer saved",
-        "Use Farms onboarding, Soil testing, or Consent next — pick this farmer from the dropdown.",
-        [
-          {
-            text: "All Farmers",
-            onPress: () =>
-              navigation.navigate("FarmerDashboard", {
-                listMode: "all",
-                title: "All Farmers",
-              }),
-          },
-          {
-            text: "Done",
-            onPress: () => navigation.navigate("FarmersNetwork"),
-          },
-          {
-            text: "View",
-            onPress: () => navigation.navigate("FarmerDetail", { farmerId }),
-          },
-        ],
+        isEdit ? "Farmer updated" : "Farmer saved",
+        isEdit
+          ? "Changes saved. Will sync when online."
+          : "Use Farms onboarding, Soil testing, or Consent next — pick this farmer from the dropdown.",
+        isEdit
+          ? [{ text: "OK", onPress: () => navigation.goBack() }]
+          : [
+              {
+                text: "All Farmers",
+                onPress: () =>
+                  navigation.navigate("FarmerDashboard", {
+                    listMode: "all",
+                    title: "All Farmers",
+                  }),
+              },
+              {
+                text: "Done",
+                onPress: () => navigation.navigate("FarmersNetwork"),
+              },
+              {
+                text: "View",
+                onPress: () =>
+                  navigation.navigate("FarmerDetail", { farmerId: savedId }),
+              },
+            ],
       );
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
+  }
+
+  if (fetching) {
+    return <ScreenShell />;
   }
 
   return (
@@ -186,9 +356,10 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>New Farmer</Text>
+        <Text style={styles.title}>{isEdit ? "Edit Farmer" : "New Farmer"}</Text>
         <Text style={styles.subtitle}>
-          Farmer info only (no Aadhaar). Add cultivated land and the major crop here. Fields, soil and consent are separate modules.
+          Farmer info only (no Aadhaar). Add cultivated land, the major crop, and
+          biochar interest here. Farms, soil and consent are separate modules.
         </Text>
 
         <Text style={styles.section}>Farmer profile</Text>
@@ -196,6 +367,11 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
           label="Full name *"
           value={form.farmer_name}
           onChangeText={(t) => setField("farmer_name", t)}
+        />
+        <FarmerPhotoField
+          required={!isEdit}
+          uri={form.farmer_photo_uri || form.farmer_photo_url}
+          onChange={(uri) => setField("farmer_photo_uri", uri)}
         />
         <FormInput
           label="Father's / spouse's name"
@@ -220,25 +396,23 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
           onChangeText={(t) => setField("address", t)}
           multiline
         />
-        <FormInput
-          label="Village *"
-          value={form.village}
-          onChangeText={(t) => setField("village", t)}
-        />
-        <FormInput
-          label="Mandal / block"
-          value={form.mandal}
-          onChangeText={(t) => setField("mandal", t)}
-        />
-        <FormInput
-          label="District *"
-          value={form.district}
-          onChangeText={(t) => setField("district", t)}
-        />
-        <FormInput
-          label="State *"
-          value={form.state}
-          onChangeText={(t) => setField("state", t)}
+        <VillagePicker
+          villages={villages}
+          valueId={form.cluster_village_id}
+          loading={villagesLoading}
+          emptyText="No cluster villages assigned yet. Ask an admin to add you to a cluster."
+          onChange={(village) => {
+            setForm((prev) => ({
+              ...prev,
+              cluster_village_id: village.id,
+              cluster_id: village.cluster_id,
+              cluster_name: village.cluster_name,
+              village: village.village_name,
+              mandal: village.mandal ?? "",
+              district: village.district ?? "",
+              state: village.state ?? "",
+            }));
+          }}
         />
 
         <Text style={styles.section}>Land summary</Text>
@@ -285,6 +459,33 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
           onChange={(t) => setField("harvest_date", t)}
         />
 
+        <Text style={styles.section}>Biochar</Text>
+        <ToggleRow
+          label="Farmer interested in biochar *"
+          value={form.interested_in_biochar}
+          onChange={(value) => setField("interested_in_biochar", value)}
+        />
+        <ToggleRow
+          label="Prior biochar experience *"
+          value={form.prior_biochar_exp}
+          onChange={(value) => {
+            setForm((prev) => ({
+              ...prev,
+              prior_biochar_exp: value,
+              prior_biochar_acreage: value ? prev.prior_biochar_acreage : "",
+            }));
+          }}
+        />
+        {form.prior_biochar_exp ? (
+          <FormInput
+            label="Prior biochar area (acres) *"
+            value={form.prior_biochar_acreage}
+            onChangeText={(t) => setField("prior_biochar_acreage", t)}
+            keyboardType="decimal-pad"
+            placeholder="How many acres"
+          />
+        ) : null}
+
         <Text style={styles.section}>Location</Text>
         <View style={styles.locRow}>
           <Pressable style={styles.locBtn} onPress={captureGps}>
@@ -312,11 +513,13 @@ export default function NewFarmerOnboardingScreen({ navigation }) {
             {Number(form.latitude).toFixed(6)}, {Number(form.longitude).toFixed(6)}
           </Text>
         ) : (
-          <Text style={styles.hint}>GPS optional for profile; capture it on fields when needed.</Text>
+          <Text style={styles.hint}>
+            GPS optional for profile; capture it on farms when needed.
+          </Text>
         )}
 
         <PrimaryButton
-          title="Save farmer"
+          title={isEdit ? "Save changes" : "Save farmer"}
           onPress={handleSave}
           loading={loading}
         />
@@ -393,5 +596,37 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.smoke,
     fontSize: 12,
+  },
+  toggleSection: {
+    marginBottom: spacing.sm,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    marginBottom: 8,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: radius.sm,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  toggleOn: {
+    backgroundColor: colors.brunswick,
+  },
+  toggleText: {
+    color: colors.brunswick,
+    fontFamily: fonts.medium,
+  },
+  toggleTextOn: {
+    color: colors.white,
   },
 });

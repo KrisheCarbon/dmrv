@@ -1,6 +1,7 @@
 import NetInfo from "@react-native-community/netinfo";
 import {
   FARMER_NETWORK_PHOTOS_BUCKET,
+  SOIL_REPORTS_BUCKET,
 } from "@krishecarbon/shared";
 import { supabase } from "../services/supabase";
 
@@ -38,6 +39,38 @@ export async function uploadFarmerNetworkPhoto(
 
   const { data } = supabase.storage
     .from(FARMER_NETWORK_PHOTOS_BUCKET)
+    .getPublicUrl(storagePath);
+  return data.publicUrl;
+}
+
+export async function uploadSoilReportFile(
+  localUri: string,
+  storagePath: string,
+  contentType: string,
+): Promise<string> {
+  if (localUri.startsWith("http://") || localUri.startsWith("https://")) {
+    return localUri;
+  }
+
+  const net = await NetInfo.fetch();
+  if (net.isConnected !== true) {
+    throw new Error(
+      "Internet required to upload the soil report. Connect to Wi‑Fi or mobile data.",
+    );
+  }
+
+  const response = await fetch(localUri);
+  const arrayBuffer = await response.arrayBuffer();
+  const { error } = await supabase.storage
+    .from(SOIL_REPORTS_BUCKET)
+    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
+
+  if (error) {
+    throw new Error(error.message || "Soil report upload failed.");
+  }
+
+  const { data } = supabase.storage
+    .from(SOIL_REPORTS_BUCKET)
     .getPublicUrl(storagePath);
   return data.publicUrl;
 }

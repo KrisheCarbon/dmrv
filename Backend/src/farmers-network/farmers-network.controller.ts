@@ -12,6 +12,8 @@ import type {
   FarmFieldUpsertPayload,
   FarmerConsentUpsertPayload,
   SoilTestReportPayload,
+  SoilTestReviewPayload,
+  SoilTestSubmitPayload,
   SoilTestUpsertPayload,
 } from '@krishecarbon/shared';
 import { AuthUser } from '../auth/auth-user.decorator';
@@ -110,6 +112,33 @@ export class SoilTestsController {
     @Body() body: SoilTestUpsertPayload,
   ) {
     return this.farmersNetwork.createSoilTest(user, body);
+  }
+
+  @Patch(':id/submit')
+  submit(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: SoilTestSubmitPayload,
+  ) {
+    return this.farmersNetwork.submitSoilTest(
+      user,
+      id,
+      body.submitted_to_supervisor_id,
+    );
+  }
+
+  @Patch(':id/review')
+  review(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: SoilTestReviewPayload,
+  ) {
+    return this.farmersNetwork.reviewSoilTest(
+      user,
+      id,
+      body.decision,
+      body.receive_photo_url,
+    );
   }
 
   @Patch(':id/receive')

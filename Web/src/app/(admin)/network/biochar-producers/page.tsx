@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
 import { listProducers } from "./actions";
-import { formatProducerClass, formatSiteModel } from "./producerLib";
+import { formatProducerClass, formatProducerRegistry, formatSiteModel } from "./producerLib";
 
 interface ProducerRow extends Record<string, unknown> {
   id: string;
   name: string;
   contact: string;
   producerClass: string;
+  registry: string;
   model: string;
   sites: number;
   status: string;
@@ -35,6 +36,7 @@ export default function BiocharProducersPage() {
           name: p.name ?? "—",
           contact: p.contact_name ?? "—",
           producerClass: formatProducerClass(p.producer_class),
+          registry: formatProducerRegistry(p.registry),
           model: p.operation_model ? formatSiteModel(p.operation_model) : "—",
           sites: p.producer_sites?.length ?? 0,
           status:
@@ -88,6 +90,7 @@ export default function BiocharProducersPage() {
           { key: "name", label: "Name" },
           { key: "contact", label: "Contact" },
           { key: "producerClass", label: "Class" },
+          { key: "registry", label: "Registry" },
           { key: "model", label: "Model" },
           { key: "sites", label: "Sites" },
           { key: "status", label: "Status" },

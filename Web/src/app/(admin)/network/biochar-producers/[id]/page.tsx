@@ -9,6 +9,7 @@ import { deleteProducer, getProducer } from "../actions";
 import {
   affiliationFromProducer,
   formatProducerClass,
+  formatProducerRegistry,
   formatSiteModel,
   resolveAffiliationLabel,
   resolveKontikkiOperators,
@@ -120,6 +121,14 @@ export default function BiocharProducerViewPage() {
       return user?.full_name?.trim() || "Unnamed supervisor";
     }) ?? [];
 
+  const clusters =
+    data.biochar_producer_clusters?.map((assignment) => {
+      const cluster = Array.isArray(assignment.clusters)
+        ? assignment.clusters[0]
+        : assignment.clusters;
+      return cluster?.name?.trim() || "Unnamed cluster";
+    }) ?? [];
+
   const kontikkiRows: KontikkiRow[] = kontikkis.map((kontikki) => ({
     id: kontikki.id,
     code: kontikki.kontikki_code ?? "—",
@@ -148,8 +157,11 @@ export default function BiocharProducerViewPage() {
         {data.producer_code ? (
           <p className="mt-1 text-sm text-neutral-500">
             Producer ID: {data.producer_code}
+            {data.registry
+              ? ` · ${formatProducerRegistry(data.registry)}`
+              : ""}
             {data.registry_producer_id
-              ? ` · Registry: ${data.registry_producer_id}`
+              ? ` · Registry ID: ${data.registry_producer_id}`
               : ""}
           </p>
         ) : (
@@ -186,6 +198,10 @@ export default function BiocharProducerViewPage() {
 
         <dl className="px-6 py-2">
           <DetailRow label="Name">{data.name}</DetailRow>
+
+          <DetailRow label="Registry">
+            {formatProducerRegistry(data.registry)}
+          </DetailRow>
 
           <DetailRow label="Registry producer ID">
             {data.registry_producer_id ? (
@@ -233,6 +249,23 @@ export default function BiocharProducerViewPage() {
               (producerLocation
                 ? `${producerLocation.lat}, ${producerLocation.lng}`
                 : "—")}
+          </DetailRow>
+
+          <DetailRow label="Clusters">
+            {clusters.length ? (
+              <ul className="space-y-2">
+                {clusters.map((name, index) => (
+                  <li key={`${name}-${index}`} className="flex items-center gap-2">
+                    <span className="text-neutral-400" aria-hidden>
+                      &#9679;
+                    </span>
+                    <span>{name}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              "—"
+            )}
           </DetailRow>
 
           <DetailRow label="Supervisors">

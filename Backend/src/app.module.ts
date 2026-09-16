@@ -18,6 +18,7 @@ import { ApplicationEntriesModule } from './application-entries/application-entr
 import { KilnBatchesModule } from './kiln-batches/kiln-batches.module';
 import { TrainingsModule } from './trainings/trainings.module';
 import { FarmersNetworkModule } from './farmers-network/farmers-network.module';
+import { ClustersModule } from './clusters/clusters.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { FarmersNetworkModule } from './farmers-network/farmers-network.module';
     KilnBatchesModule,
     TrainingsModule,
     FarmersNetworkModule,
+    ClustersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -29,6 +29,8 @@ export {
   getUserManagementHint,
   assertCanAssignRole,
   assertCanEditUser,
+  canOperateKontikkis,
+  isClimapreneurSupervisorSwap,
 } from "./roles";
 export type { UserRole } from "./roles";
 
@@ -69,6 +71,14 @@ export interface FarmerForm {
   prior_biochar_exp?: boolean;
   prior_biochar_acreage?: number | string;
   estimated_biomass?: number;
+  farmer_photo_uri?: string | null;
+  farmer_photo_url?: string | null;
+  village?: string;
+  mandal?: string;
+  district?: string;
+  state?: string;
+  cluster_id?: string | null;
+  cluster_village_id?: string | null;
   sync_status?: string;
 }
 
@@ -95,6 +105,9 @@ export interface Farmer extends DbRow {
   mandal?: string | null;
   district?: string | null;
   state?: string | null;
+  cluster_id?: string | null;
+  cluster_village_id?: string | null;
+  cluster?: { id: string; name: string } | null;
   total_land_size?: number;
   owned_land_size?: number | null;
   leased_land_size?: number | null;
@@ -103,6 +116,7 @@ export interface Farmer extends DbRow {
   prior_biochar_exp?: boolean;
   prior_biochar_acreage?: number | null;
   estimated_biomass?: number;
+  farmer_photo_url?: string | null;
   created_by?: string;
   assigned_to?: string;
   created_at?: string;
@@ -138,8 +152,11 @@ export interface FarmUpsertPayload {
   mandal?: string | null;
   district?: string | null;
   state?: string | null;
+  cluster_id?: string | null;
+  cluster_village_id?: string | null;
   owned_land_size?: number | null;
   leased_land_size?: number | null;
+  farmer_photo_url?: string | null;
 }
 
 /** Resolves the tonnes/acre rate for a crop, preferring any rate stored on the crop itself. */
@@ -194,6 +211,10 @@ export function validateFarmerForm(form: FarmerForm): string[] {
 
   if (!form.address?.trim()) {
     errors.push("Address could not be resolved. Refresh location.");
+  }
+
+  if (!form.cluster_village_id?.trim() && !form.village?.trim()) {
+    errors.push("Select a village from your cluster.");
   }
 
   const landSize = Number(form.total_land_size);
@@ -412,6 +433,8 @@ export {
   FIELD_WATER_SOURCES,
   SOIL_TEST_STATUS_VALUES,
   soilTestStatusLabel,
+  soilSampleToneFromStatuses,
+  isFarmerProfileComplete,
   parseBoundaryGeojson,
   boundaryPointsToGeojson,
   FARMER_NETWORK_PHOTOS_BUCKET,
@@ -422,6 +445,7 @@ export type {
   FieldStatusValue,
   FieldSeason,
   SoilTestStatus,
+  SoilSampleTone,
   GeoPoint,
   FarmFieldRecord,
   FarmFieldUpsertPayload,
@@ -430,9 +454,17 @@ export type {
   SoilReportRecord,
   SoilTestRecord,
   SoilTestUpsertPayload,
+  SoilTestReviewPayload,
+  SoilTestSubmitPayload,
   SoilTestReportPayload,
   SoilTestFormOptions,
 } from "./farmersNetwork";
+export {
+  villagePlaceLine,
+  villageSearchText,
+  matchClusterVillage,
+} from "./clusters";
+export type { ClusterVillageInput, ClusterVillageRecord } from "./clusters";
 export type {
   ApplicationEntryReviewStatus,
   ApplicationEntryReviewDecision,

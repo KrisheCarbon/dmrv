@@ -1,35 +1,33 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   RefreshControl,
-  Alert,
   Pressable,
+  Image,
 } from "react-native";
 import { soilTestStatusLabel } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
-import {
-  listIncomingSoilSamples,
-  markSoilSampleReceivedLocal,
-} from "../services/farmersNetworkService";
+import { listIncomingSoilSamples } from "../services/farmersNetworkService";
 import { getFarmerByIdLocal } from "../services/farmerService";
-import { getUserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
 import { pullSoilNetworkFromServer } from "../services/farmerNetworkSync";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
+type Row = {
+  id: string;
+  farmerName: string;
+  village: string;
+  sampleDate: string;
+  status: string;
+  collector: string;
+  photoUri: string | null;
+};
+
 export default function SoilSamplesInboxScreen({ navigation }) {
-  const [rows, setRows] = useState<
-    Array<{
-      id: string;
-      farmerName: string;
-      sampleDate: string;
-      status: string;
-      supervisor: string;
-    }>
-  >([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
@@ -41,9 +39,11 @@ export default function SoilSamplesInboxScreen({ navigation }) {
         return {
           id: test.id,
           farmerName: farmer?.farmerName || "Farmer",
+          village: farmer?.village?.trim() || "Unspecified site",
           sampleDate: test.sampleDate,
           status: test.status || "submitted",
-          supervisor: test.submittedToSupervisorName || "Supervisor",
+          collector: test.collectedByRole || "climapreneur",
+          photoUri: test.samplePhotoUri || test.samplePhotoUrl,
         };
       }),
     );
@@ -58,23 +58,17 @@ export default function SoilSamplesInboxScreen({ navigation }) {
     return unsubscribe;
   }, [navigation, load]);
 
-  async function markReceived(id: string) {
-    try {
-      const profile = await getUserProfile();
-      if (!profile) {
-        Alert.alert("Error", "You must be signed in.");
-        return;
-      }
-      await markSoilSampleReceivedLocal(id, {
-        id: profile.id,
-        name: profile.full_name,
-      });
-      processSyncQueue();
-      await load();
-    } catch (err) {
-      Alert.alert("Error", err instanceof Error ? err.message : String(err));
+  const sections = useMemo(() => {
+    const grouped = new Map<string, Row[]>();
+    for (const row of rows) {
+      const list = grouped.get(row.village) ?? [];
+      list.push(row);
+      grouped.set(row.village, list);
     }
-  }
+    return Array.from(grouped.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([title, data]) => ({ title, data }));
+  }, [rows]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -86,13 +80,14 @@ export default function SoilSamplesInboxScreen({ navigation }) {
   return (
     <ScreenShell>
       <View style={styles.header}>
-        <Text style={styles.title}>Incoming samples</Text>
+        <Text style={styles.title}>Sample receiving</Text>
         <Text style={styles.subtitle}>
-          Climapreneur samples waiting to be marked received.
+          Climapreneur samples, grouped by site. Open a sample to photograph it
+          and accept, reject, or store it.
         </Text>
       </View>
-      <FlatList
-        data={rows}
+      <SectionList
+        sections={sections}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         refreshControl={
@@ -105,16 +100,26 @@ export default function SoilSamplesInboxScreen({ navigation }) {
         ListEmptyComponent={
           <Text style={styles.empty}>No samples waiting.</Text>
         }
+        renderSectionHeader={({ section }) => (
+          <Text style={styles.section}>{section.title}</Text>
+        )}
         renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.name}>{item.farmerName}</Text>
-            <Text style={styles.meta}>
-              {item.sampleDate} · {soilTestStatusLabel(item.status)}
-            </Text>
-            <Pressable onPress={() => markReceived(item.id)}>
-              <Text style={styles.link}>Mark received</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+            onPress={() =>
+              navigation.navigate("SoilSampleReceive", { sampleId: item.id })
+            }
+          >
+            <View style={styles.cardBody}>
+              <Text style={styles.name}>{item.farmerName}</Text>
+              <Text style={styles.meta}>
+                {item.sampleDate} · {soilTestStatusLabel(item.status)}
+              </Text>
+            </View>
+            {item.photoUri ? (
+              <Image source={{ uri: item.photoUri }} style={styles.thumb} />
+            ) : null}
+          </Pressable>
         )}
       />
     </ScreenShell>
@@ -137,11 +142,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.regular,
     color: colors.smoke,
+    lineHeight: 20,
   },
   list: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xxl,
-    gap: spacing.sm,
+  },
+  section: {
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    fontSize: 13,
+    fontFamily: fonts.bold,
+    color: colors.brunswick,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   card: {
     backgroundColor: colors.white,
@@ -149,7 +163,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    gap: 4,
+    marginBottom: spacing.sm,
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  cardPressed: {
+    backgroundColor: colors.chalk,
+  },
+  cardBody: {
+    flex: 1,
   },
   name: {
     fontFamily: fonts.bold,
@@ -157,15 +180,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   meta: {
+    marginTop: 2,
     fontFamily: fonts.regular,
     color: colors.smoke,
     fontSize: 13,
   },
-  link: {
-    marginTop: 8,
-    fontFamily: fonts.medium,
-    color: colors.brunswick,
-    fontSize: 14,
+  thumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: colors.chalk,
   },
   empty: {
     paddingTop: 48,

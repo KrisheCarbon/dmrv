@@ -156,7 +156,7 @@ export default function PolygonMapperModal({
           >
             <Text style={styles.closeText}>Close</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Clip field on map</Text>
+          <Text style={styles.headerTitle}>Clip farm on map</Text>
           <View style={styles.headerSpacer} />
         </View>
 

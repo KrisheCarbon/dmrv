@@ -52,7 +52,7 @@ export default function ApplicationEntryDetailView({
           <DetailRow label="Farm">
             {data.farm_id && data.farm_name ? (
               <Link
-                href={`/network/farms/${data.farm_id}`}
+                href={`/network/farmers/${data.farm_id}`}
                 className="font-medium text-brand-dark hover:underline"
               >
                 {data.farm_name}

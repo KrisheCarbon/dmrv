@@ -42,10 +42,7 @@ export const MAIN_NAV: NavEntry[] = [
       { href: "/network/partners", label: "Partners" },
       { href: "/network/supervisors", label: "Supervisors" },
       { href: "/network/climapreneurs", label: "Climapreneurs" },
-      { href: "/network/farms", label: "Farms" },
-      { href: "/network/fields", label: "Fields" },
-      { href: "/network/soil-tests", label: "Soil tests" },
-      { href: "/network/sensor-data", label: "Sensor data" },
+      { href: "/network/farmers", label: "Farmers" },
     ],
   },
   {
@@ -59,8 +56,8 @@ export const MAIN_NAV: NavEntry[] = [
       { href: "/biochar/mixing", label: "Mixing" },
       { href: "/biochar/application", label: "Application" },
       { href: "/biochar/fuel", label: "Fuel" },
-      { href: "/biochar/farms", label: "Farms" },
       { href: "/biochar/feedstock", label: "Feedstock" },
+      { href: "/biochar/sensor-data", label: "Sensor data" },
     ],
   },
   {
@@ -96,7 +93,7 @@ export const DASHBOARD_SECTIONS = [
   {
     key: "network",
     title: "Network",
-    description: "Producers, partners, clusters, farms, and field teams.",
+    description: "Producers, partners, clusters, farmers, and field teams.",
     href: "/network",
     links: MAIN_NAV.find(
       (n): n is NavGroupConfig => n.type === "group" && n.label === "Network",
@@ -105,7 +102,7 @@ export const DASHBOARD_SECTIONS = [
   {
     key: "biochar",
     title: "Biochar",
-    description: "Production runs, mixing, application, and feedstock.",
+    description: "Production runs, mixing, application, feedstock, and sensor data.",
     href: "/biochar",
     links: MAIN_NAV.find(
       (n): n is NavGroupConfig => n.type === "group" && n.label === "Biochar",

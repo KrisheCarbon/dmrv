@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { formatRoleLabel } from "@/lib/roles";
 
 export interface ProducerOption {
   id: string;
@@ -9,9 +10,10 @@ export interface ProducerOption {
   producer_code?: string | null;
 }
 
-export interface ClimapreneurOption {
+export interface OperatorOption {
   id: string;
   full_name: string;
+  role: string;
 }
 
 interface KontikkiProducerOperatorFieldsProps {
@@ -26,6 +28,12 @@ interface KontikkiProducerOperatorFieldsProps {
 const inputClass =
   "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/20";
 
+function operatorLabel(operator: OperatorOption) {
+  const name = operator.full_name.trim() || "Unnamed";
+  if (operator.role === "climapreneur") return name;
+  return `${name} (${formatRoleLabel(operator.role)})`;
+}
+
 export default function KontikkiProducerOperatorFields({
   producerId,
   operatorIds,
@@ -35,8 +43,8 @@ export default function KontikkiProducerOperatorFields({
   onOperatorIdsChange,
 }: KontikkiProducerOperatorFieldsProps) {
   const [producers, setProducers] = useState<ProducerOption[]>([]);
-  const [climapreneurs, setClimapreneurs] = useState<ClimapreneurOption[]>([]);
-  const [loadingClimapreneurs, setLoadingClimapreneurs] = useState(true);
+  const [operators, setOperators] = useState<OperatorOption[]>([]);
+  const [loadingOperators, setLoadingOperators] = useState(true);
 
   useEffect(() => {
     async function fetchProducers() {
@@ -52,33 +60,82 @@ export default function KontikkiProducerOperatorFields({
   }, []);
 
   useEffect(() => {
-    async function fetchClimapreneurs() {
-      setLoadingClimapreneurs(true);
+    async function fetchOperators() {
+      const showLoading = operators.length === 0;
+      if (showLoading) setLoadingOperators(true);
 
-      const { data } = await supabase
+      const climapreneursQuery = supabase
         .from("users")
-        .select("id, full_name")
+        .select("id, full_name, role")
         .eq("role", "climapreneur")
         .order("full_name");
 
-      setClimapreneurs(
-        (data ?? []).map((user) => ({
-          id: user.id,
-          full_name: user.full_name?.trim() || "Unnamed climapreneur",
-        })),
-      );
+      const assignedQuery =
+        operatorIds.length > 0
+          ? supabase
+              .from("users")
+              .select("id, full_name, role")
+              .in("id", operatorIds)
+          : Promise.resolve({ data: [] as OperatorOption[] });
 
-      setLoadingClimapreneurs(false);
+      const supervisorLinksQuery = producerId
+        ? supabase
+            .from("biochar_producer_supervisors")
+            .select("supervisor_id")
+            .eq("biochar_producer_id", producerId)
+        : Promise.resolve({ data: [] as Array<{ supervisor_id: string }> });
+
+      const [climapreneursRes, assignedRes, supervisorLinksRes] =
+        await Promise.all([
+          climapreneursQuery,
+          assignedQuery,
+          supervisorLinksQuery,
+        ]);
+
+      const supervisorIds = (supervisorLinksRes.data ?? []).map(
+        (row) => row.supervisor_id as string,
+      );
+      const supervisorsRes =
+        supervisorIds.length > 0
+          ? await supabase
+              .from("users")
+              .select("id, full_name, role")
+              .in("id", supervisorIds)
+              .order("full_name")
+          : { data: [] as OperatorOption[] };
+
+      const byId = new Map<string, OperatorOption>();
+      for (const row of [
+        ...(climapreneursRes.data ?? []),
+        ...(supervisorsRes.data ?? []),
+        ...(assignedRes.data ?? []),
+      ]) {
+        byId.set(row.id, {
+          id: row.id,
+          full_name: row.full_name?.trim() || "Unnamed",
+          role: row.role ?? "climapreneur",
+        });
+      }
+
+      setOperators(
+        [...byId.values()].sort((a, b) =>
+          a.full_name.localeCompare(b.full_name),
+        ),
+      );
+      setLoadingOperators(false);
     }
 
-    fetchClimapreneurs();
-  }, []);
+    fetchOperators();
+    // operatorIds joined: refetch when the assigned set changes, not on array identity.
+  }, [producerId, operatorIds.join(",")]);
 
-  const selectedOperators = climapreneurs.filter((c) =>
-    operatorIds.includes(c.id),
+  const selectedOperators = useMemo(
+    () => operators.filter((operator) => operatorIds.includes(operator.id)),
+    [operators, operatorIds],
   );
-  const availableOperators = climapreneurs.filter(
-    (c) => !operatorIds.includes(c.id),
+  const availableOperators = useMemo(
+    () => operators.filter((operator) => !operatorIds.includes(operator.id)),
+    [operators, operatorIds],
   );
 
   function addOperator(operatorId: string) {
@@ -126,31 +183,32 @@ export default function KontikkiProducerOperatorFields({
             Operators *
           </label>
           <p className="mt-0.5 text-xs text-neutral-500">
-            Select one or more climapreneurs to operate this kontikki.
+            Climapreneurs, plus supervisors assigned to this producer, can operate
+            this kontikki.
           </p>
         </div>
 
         <select
           className={inputClass}
           value=""
-          disabled={loadingClimapreneurs || availableOperators.length === 0}
+          disabled={loadingOperators || availableOperators.length === 0}
           onChange={(e) => {
             addOperator(e.target.value);
             e.target.value = "";
           }}
         >
           <option value="">
-            {loadingClimapreneurs
-              ? "Loading climapreneurs..."
+            {loadingOperators
+              ? "Loading operators..."
               : availableOperators.length === 0
                 ? selectedOperators.length > 0
-                  ? "All climapreneurs selected"
-                  : "No climapreneurs available"
+                  ? "All eligible operators selected"
+                  : "No operators available"
                 : "Add operator..."}
           </option>
-          {availableOperators.map((climapreneur) => (
-            <option key={climapreneur.id} value={climapreneur.id}>
-              {climapreneur.full_name}
+          {availableOperators.map((operator) => (
+            <option key={operator.id} value={operator.id}>
+              {operatorLabel(operator)}
             </option>
           ))}
         </select>
@@ -165,7 +223,7 @@ export default function KontikkiProducerOperatorFields({
                 <span className="text-neutral-500" aria-hidden>
                   &#9679;
                 </span>
-                {operator.full_name}
+                {operatorLabel(operator)}
                 <button
                   type="button"
                   onClick={() => removeOperator(operator.id)}
@@ -181,9 +239,10 @@ export default function KontikkiProducerOperatorFields({
           <p className="text-xs text-neutral-500">No operators selected yet.</p>
         )}
 
-        {!loadingClimapreneurs && climapreneurs.length === 0 ? (
+        {!loadingOperators && operators.length === 0 ? (
           <p className="text-xs text-amber-700">
-            No climapreneur accounts found. Add climapreneurs under Users first.
+            No eligible operators found. Add climapreneurs under Users, or assign
+            a supervisor to this producer.
           </p>
         ) : null}
       </div>

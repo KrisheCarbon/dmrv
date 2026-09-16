@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { DataTableColumn } from "@/types";
 import type { DbRow } from "@/types/entities";
 
@@ -15,6 +15,24 @@ interface DataTableProps<T extends DbRow = DbRow> {
   getRowId?: (row: T) => string;
 }
 
+type SortDir = "asc" | "desc";
+
+function cellText<T extends DbRow>(col: DataTableColumn<T>, row: T): string {
+  if (col.filterValue) return col.filterValue(row);
+  const value = row[col.key];
+  if (value == null) return "";
+  return String(value);
+}
+
+function sortKeyValue<T extends DbRow>(col: DataTableColumn<T>, row: T): string | number {
+  if (col.sortValue) return col.sortValue(row);
+  const text = cellText(col, row);
+  const numeric = Number(text);
+  return Number.isFinite(numeric) && text.trim() !== "" && text !== "—" && text !== "None"
+    ? numeric
+    : text.toLowerCase();
+}
+
 export default function DataTable<T extends DbRow = DbRow>({
   columns,
   rows,
@@ -25,6 +43,44 @@ export default function DataTable<T extends DbRow = DbRow>({
   selectedRowId = null,
   getRowId = (row) => String(row.id ?? ""),
 }: DataTableProps<T>) {
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function toggleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  }
+
+  const visibleRows = useMemo(() => {
+    const filtered = rows.filter((row) =>
+      columns.every((col) => {
+        if (!col.filterable) return true;
+        const query = (filters[col.key] ?? "").trim().toLowerCase();
+        if (!query) return true;
+        const text = cellText(col, row).toLowerCase();
+        if (col.filterOptions) return text === query;
+        return text.includes(query);
+      }),
+    );
+
+    if (!sortKey) return filtered;
+    const col = columns.find((item) => item.key === sortKey);
+    if (!col) return filtered;
+
+    return [...filtered].sort((a, b) => {
+      const left = sortKeyValue(col, a);
+      const right = sortKeyValue(col, b);
+      if (left < right) return sortDir === "asc" ? -1 : 1;
+      if (left > right) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [columns, filters, rows, sortDir, sortKey]);
+
   if (loading) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
@@ -39,14 +95,66 @@ export default function DataTable<T extends DbRow = DbRow>({
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className="px-4 pt-2 pb-3 text-left text-[11px] uppercase tracking-wide text-gray-600 font-medium"
-                >
-                  {col.label}
-                </th>
-              ))}
+              {columns.map((col) => {
+                const sortable = col.sortable ?? Boolean(col.filterable);
+                const active = sortKey === col.key;
+                return (
+                  <th
+                    key={col.key}
+                    className="px-4 pt-2 pb-3 text-left text-[11px] uppercase tracking-wide text-gray-600 font-medium align-bottom"
+                  >
+                    <div className="flex min-w-[9rem] flex-col gap-1.5">
+                      {sortable ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(col.key)}
+                          className="inline-flex items-center gap-1 text-left uppercase tracking-wide hover:text-neutral-950"
+                        >
+                          {col.label}
+                          <span className="text-[10px] text-neutral-400">
+                            {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+                          </span>
+                        </button>
+                      ) : (
+                        <span>{col.label}</span>
+                      )}
+                      {col.filterable ? (
+                        col.filterOptions ? (
+                          <select
+                            value={filters[col.key] ?? ""}
+                            onChange={(event) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                [col.key]: event.target.value,
+                              }))
+                            }
+                            className="w-full rounded-lg border border-neutral-200 bg-white px-2 py-1 text-[12px] font-normal normal-case tracking-normal text-neutral-700"
+                          >
+                            <option value="">All</option>
+                            {col.filterOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            value={filters[col.key] ?? ""}
+                            onChange={(event) =>
+                              setFilters((prev) => ({
+                                ...prev,
+                                [col.key]: event.target.value,
+                              }))
+                            }
+                            placeholder={col.filterPlaceholder || "Search"}
+                            className="w-full rounded-lg border border-neutral-200 bg-white px-2 py-1 text-[12px] font-normal normal-case tracking-normal text-neutral-700"
+                          />
+                        )
+                      ) : null}
+                    </div>
+                  </th>
+                );
+              })}
 
               {actions && (
                 <th className="px-4 pt-2 pb-3 text-right text-[11px] uppercase tracking-wide text-gray-600 font-medium">
@@ -57,7 +165,7 @@ export default function DataTable<T extends DbRow = DbRow>({
           </thead>
 
           <tbody className="divide-y divide-gray-100">
-            {rows.length === 0 && (
+            {visibleRows.length === 0 && (
               <tr>
                 <td
                   colSpan={columns.length + (actions ? 1 : 0)}
@@ -68,7 +176,7 @@ export default function DataTable<T extends DbRow = DbRow>({
               </tr>
             )}
 
-            {rows.map((row, idx) => {
+            {visibleRows.map((row, idx) => {
               const rowId = getRowId(row);
               const isSelected = selectedRowId != null && rowId === selectedRowId;
 

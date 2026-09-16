@@ -8,10 +8,8 @@ import {
   Image,
   View,
 } from "react-native";
-import { soilTestStatusLabel } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import FormDateField from "../components/FormDateField";
-import FormPicker from "../components/FormPicker";
 import FormMultiSelectDropdown from "../components/FormMultiSelectDropdown";
 import PrimaryButton from "../components/PrimaryButton";
 import FarmerPicker from "../components/FarmerPicker";
@@ -20,7 +18,6 @@ import {
   saveSoilTestLocal,
 } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
-import { fetchMobileNetworkOverview } from "../services/backendApi";
 import { getUserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
@@ -28,19 +25,17 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 export default function SoilTestFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
   const [selectedFarmerId, setSelectedFarmerId] = useState(paramFarmerId);
-  const farmerId = selectedFarmerId || paramFarmerId;
+  const farmerId = selectedFarmerId;
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState("");
   const [userId, setUserId] = useState("");
   const [fields, setFields] = useState<{ value: string; label: string }[]>([]);
-  const [supervisors, setSupervisors] = useState<{ value: string; label: string }[]>([]);
   const [form, setForm] = useState({
     fieldIds: [] as string[],
     sampleDate: new Date().toISOString().slice(0, 10),
     sampleLat: null as number | null,
     sampleLng: null as number | null,
     samplePhotoUri: "" as string,
-    supervisorId: "",
   });
 
   useEffect(() => {
@@ -83,26 +78,6 @@ export default function SoilTestFormScreen({ route, navigation }) {
     loadFields().catch(() => {});
   }, [loadFields]);
 
-  useEffect(() => {
-    if (isSupervisor) return;
-    fetchMobileNetworkOverview()
-      .then((overview) => {
-        const options = (overview.supervisors ?? []).map((person) => ({
-          value: person.id,
-          label: person.full_name,
-        }));
-        setSupervisors(options);
-        setForm((p) => ({
-          ...p,
-          supervisorId:
-            options.some((o) => o.value === p.supervisorId) && p.supervisorId
-              ? p.supervisorId
-              : options[0]?.value || "",
-        }));
-      })
-      .catch(() => setSupervisors([]));
-  }, [isSupervisor]);
-
   async function captureSamplePhoto() {
     try {
       const captured = await captureAndSaveFieldPhoto();
@@ -124,38 +99,34 @@ export default function SoilTestFormScreen({ route, navigation }) {
       return;
     }
     if (form.fieldIds.length === 0) {
-      Alert.alert("Required", "Select one or more fields for this soil sample.");
+      Alert.alert("Required", "Select one or more farms for this soil sample.");
       return;
     }
     if (!form.samplePhotoUri) {
       Alert.alert("Required", "Take a GPS-tagged sample photo.");
       return;
     }
-    if (!isSupervisor && !form.supervisorId) {
-      Alert.alert("Required", "Select the supervisor to submit this sample to.");
-      return;
-    }
 
     try {
       setLoading(true);
-      const supervisor = supervisors.find((item) => item.value === form.supervisorId);
       await saveSoilTestLocal(farmerId, {
         fieldIds: form.fieldIds,
         sampleDate: form.sampleDate,
         sampleLat: form.sampleLat,
         sampleLng: form.sampleLng,
         samplePhotoUri: form.samplePhotoUri,
-        submittedToSupervisorId: isSupervisor ? userId : form.supervisorId,
-        submittedToSupervisorName: isSupervisor ? "Self" : supervisor?.label,
+        submittedToSupervisorId: isSupervisor ? userId : null,
+        submittedToSupervisorName: isSupervisor ? "Self" : null,
         collectedBy: userId,
         collectedByRole: role || "climapreneur",
+        status: isSupervisor ? "accepted" : "collected",
       });
       processSyncQueue();
       Alert.alert(
         "Saved",
         isSupervisor
           ? "Sample recorded as collected."
-          : `Sample submitted. Status: ${soilTestStatusLabel("submitted")}.`,
+          : "Sample collected. Submit it to a supervisor from Submit samples.",
         [{ text: "OK", onPress: () => navigation.goBack() }],
       );
     } catch (err) {
@@ -173,23 +144,28 @@ export default function SoilTestFormScreen({ route, navigation }) {
       >
         <Text style={styles.title}>Soil testing</Text>
         <Text style={styles.subtitle}>
-          Pick a farmer first — only that farmer's fields appear. You can merge multiple fields into one sample.
+          Only farmers with at least one farm are listed. Pick a farmer, then
+          the farm(s) to sample.
         </Text>
 
-        <FarmerPicker value={farmerId} onChange={setSelectedFarmerId} />
+        <FarmerPicker
+          value={farmerId}
+          onChange={setSelectedFarmerId}
+          requireFields
+        />
 
         {farmerId && fields.length === 0 ? (
           <Text style={styles.hint}>
-            No fields for this farmer yet. Add fields in Farms onboarding before soil testing.
+            No farms for this farmer yet. Add farms in Farms onboarding before soil testing.
           </Text>
         ) : farmerId ? (
           <FormMultiSelectDropdown
-            label="Fields *"
-            placeholder="Select one or more fields…"
+            label="Farms *"
+            placeholder="Select one or more farms…"
             values={form.fieldIds}
             options={fields}
             onChange={(values) => setForm((p) => ({ ...p, fieldIds: values }))}
-            emptyText="No fields for this farmer."
+            emptyText="No farms for this farmer."
           />
         ) : null}
 
@@ -219,24 +195,13 @@ export default function SoilTestFormScreen({ route, navigation }) {
 
         {isSupervisor ? (
           <Text style={styles.hint}>
-            You are collecting this sample yourself. It will be marked received immediately.
+            You are collecting this sample yourself. It will be marked accepted.
           </Text>
         ) : (
-          <FormPicker
-            label="Submit sample to supervisor *"
-            value={form.supervisorId}
-            options={supervisors}
-            onValueChange={(v) => setForm((p) => ({ ...p, supervisorId: v }))}
-            placeholder="Select assigned supervisor…"
-            enabled={supervisors.length > 0}
-          />
-        )}
-
-        {!isSupervisor && supervisors.length === 0 ? (
           <Text style={styles.hint}>
-            No assigned supervisor found. Ask your supervisor to be linked to your producer first.
+            This saves the sample as collected. Submit it to a supervisor from Submit samples.
           </Text>
-        ) : null}
+        )}
 
         <PrimaryButton title="Save soil sample" onPress={handleSave} loading={loading} />
       </ScrollView>

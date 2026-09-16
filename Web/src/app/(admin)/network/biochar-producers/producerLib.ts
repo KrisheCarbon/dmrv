@@ -3,6 +3,7 @@ import type {
   BiocharProducerClass,
   BiocharProducerStatus,
   LocationValue,
+  ProducerRegistry,
   ProducerSite,
   ProducerSiteDraft,
   ProducerSiteModel,
@@ -165,11 +166,13 @@ export function validateProducerCore(input: {
   producerLocation: LocationValue | null;
   affiliation: AffiliationFields;
   operationModel: ProducerSiteModel | "";
+  registry: ProducerRegistry | "";
 }): string | null {
   if (!input.name.trim()) return "Producer name is required.";
   if (!input.contactName.trim()) return "Contact name is required.";
   if (!input.email.trim()) return "Email is required.";
   if (!input.mobileNumber.trim()) return "Mobile number is required.";
+  if (!input.registry) return "Select a registry: CSI, Rainbow, or Both.";
   if (!isLocationComplete(input.producerLocation)) {
     return "Producer location is required.";
   }
@@ -199,6 +202,13 @@ export function formatProducerClass(value?: string) {
   if (value === "artisan_pro") return "Artisan Pro";
   if (value === "csink") return "CSink";
   if (value === "not_registered") return "Not Registered";
+  return value ?? "—";
+}
+
+export function formatProducerRegistry(value?: string | null) {
+  if (value === "csi") return "CSI";
+  if (value === "rainbow") return "Rainbow";
+  if (value === "both") return "CSI + Rainbow";
   return value ?? "—";
 }
 
@@ -264,6 +274,25 @@ export function extractSupervisorIds(
     .filter((id): id is string => Boolean(id));
 }
 
+export function extractClusterIds(
+  assignments:
+    | Array<{
+        cluster_id?: string;
+        clusters?: { id?: string } | { id?: string }[] | null;
+      }>
+    | null
+    | undefined,
+): string[] {
+  if (!assignments?.length) return [];
+  return assignments
+    .map((row) => {
+      if (row.cluster_id) return row.cluster_id;
+      const cluster = Array.isArray(row.clusters) ? row.clusters[0] : row.clusters;
+      return cluster?.id;
+    })
+    .filter((id): id is string => Boolean(id));
+}
+
 // --- API payload ---
 
 export interface ProducerSitePayload {
@@ -279,6 +308,7 @@ export interface ProducerSitePayload {
 
 export interface ProducerSavePayload {
   registry_producer_id?: string | null;
+  registry: ProducerRegistry;
   name: string;
   producer_class: string;
   status: BiocharProducerStatus;
@@ -296,6 +326,7 @@ export interface ProducerSavePayload {
   other_document_urls?: string[] | null;
   sites?: ProducerSitePayload[];
   supervisor_ids?: string[];
+  cluster_ids?: string[];
 }
 
 function siteDraftToPayload(site: ProducerSiteDraft): ProducerSitePayload {
@@ -316,6 +347,7 @@ function siteDraftToPayload(site: ProducerSiteDraft): ProducerSitePayload {
 
 export function buildProducerSavePayload(input: {
   registryProducerId: string;
+  registry: ProducerRegistry;
   name: string;
   producerClass: BiocharProducerClass;
   status: BiocharProducerStatus;
@@ -327,6 +359,7 @@ export function buildProducerSavePayload(input: {
   operationModel: ProducerSiteModel;
   confirmedSites: ProducerSiteDraft[];
   supervisorIds: string[];
+  clusterIds: string[];
   contractUrl?: string | null;
   trainingCertUrl?: string | null;
   otherDocumentUrl?: string | null;
@@ -334,6 +367,7 @@ export function buildProducerSavePayload(input: {
 }): ProducerSavePayload {
   const payload: ProducerSavePayload = {
     registry_producer_id: input.registryProducerId.trim() || null,
+    registry: input.registry,
     name: input.name.trim(),
     producer_class: input.producerClass,
     status: input.status,
@@ -343,6 +377,7 @@ export function buildProducerSavePayload(input: {
     mobile_number: input.mobileNumber.trim(),
     operation_model: input.operationModel,
     supervisor_ids: input.supervisorIds,
+    cluster_ids: input.clusterIds,
     ...affiliationToDb(input.affiliation),
   };
 

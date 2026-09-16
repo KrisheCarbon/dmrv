@@ -24,9 +24,14 @@ export interface Farmer {
   mandal: string | null;
   district: string | null;
   state: string | null;
+  clusterId: string | null;
+  clusterVillageId: string | null;
+  clusterName: string | null;
   totalLandSize: number;
   ownedLandSize: number | null;
   leasedLandSize: number | null;
+  farmerPhotoUri: string | null;
+  farmerPhotoUrl: string | null;
   crops: FarmerCrop[];
   interestedInBiochar: boolean;
   priorBiocharExp: boolean;
@@ -55,9 +60,14 @@ interface FarmerRowRaw {
   mandal?: string | null;
   district?: string | null;
   state?: string | null;
+  cluster_id?: string | null;
+  cluster_village_id?: string | null;
+  cluster_name?: string | null;
   total_land_size: number;
   owned_land_size?: number | null;
   leased_land_size?: number | null;
+  farmer_photo_uri?: string | null;
+  farmer_photo_url?: string | null;
   crops: string;
   interested_in_biochar: number;
   prior_biochar_exp: number;
@@ -95,9 +105,14 @@ export function rowToFarmer(row: FarmerRowRaw): Farmer {
     mandal: row.mandal ?? null,
     district: row.district ?? null,
     state: row.state ?? null,
+    clusterId: row.cluster_id ?? null,
+    clusterVillageId: row.cluster_village_id ?? null,
+    clusterName: row.cluster_name ?? null,
     totalLandSize: row.total_land_size,
     ownedLandSize: row.owned_land_size ?? null,
     leasedLandSize: row.leased_land_size ?? null,
+    farmerPhotoUri: row.farmer_photo_uri ?? null,
+    farmerPhotoUrl: row.farmer_photo_url ?? null,
     crops,
     interestedInBiochar: fromSqliteBool(row.interested_in_biochar),
     priorBiocharExp: fromSqliteBool(row.prior_biochar_exp),
@@ -128,9 +143,14 @@ export function farmerToRow(farmer: Omit<Farmer, "id">): Record<string, unknown>
     mandal: farmer.mandal,
     district: farmer.district,
     state: farmer.state,
+    cluster_id: farmer.clusterId,
+    cluster_village_id: farmer.clusterVillageId,
+    cluster_name: farmer.clusterName,
     total_land_size: farmer.totalLandSize,
     owned_land_size: farmer.ownedLandSize,
     leased_land_size: farmer.leasedLandSize,
+    farmer_photo_uri: farmer.farmerPhotoUri,
+    farmer_photo_url: farmer.farmerPhotoUrl,
     crops: JSON.stringify(farmer.crops ?? []),
     interested_in_biochar: toSqliteBool(farmer.interestedInBiochar),
     prior_biochar_exp: toSqliteBool(farmer.priorBiocharExp),
@@ -441,6 +461,8 @@ export interface SoilTest {
   sampleLocation: string | null;
   samplePhotoUri: string | null;
   samplePhotoUrl: string | null;
+  receivePhotoUri: string | null;
+  receivePhotoUrl: string | null;
   labSource: string | null;
   parametersJson: string | null;
   resultsJson: string | null;
@@ -472,6 +494,8 @@ interface SoilTestRowRaw {
   sample_location: string | null;
   sample_photo_uri?: string | null;
   sample_photo_url?: string | null;
+  receive_photo_uri?: string | null;
+  receive_photo_url?: string | null;
   lab_source: string | null;
   parameters_json: string | null;
   results_json: string | null;
@@ -507,6 +531,8 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
     sampleLocation: row.sample_location,
     samplePhotoUri: row.sample_photo_uri ?? null,
     samplePhotoUrl: row.sample_photo_url ?? null,
+    receivePhotoUri: row.receive_photo_uri ?? null,
+    receivePhotoUrl: row.receive_photo_url ?? null,
     labSource: row.lab_source,
     parametersJson: row.parameters_json,
     resultsJson: row.results_json,
@@ -539,6 +565,8 @@ export function soilTestToRow(test: Omit<SoilTest, "id">): Record<string, unknow
     sample_location: test.sampleLocation,
     sample_photo_uri: test.samplePhotoUri,
     sample_photo_url: test.samplePhotoUrl,
+    receive_photo_uri: test.receivePhotoUri,
+    receive_photo_url: test.receivePhotoUrl,
     lab_source: test.labSource,
     parameters_json: test.parametersJson,
     results_json: test.resultsJson,

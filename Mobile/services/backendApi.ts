@@ -244,6 +244,8 @@ export interface NetworkFarm {
   farmer_name: string;
   address?: string | null;
   mobile_number?: string | null;
+  village?: string | null;
+  cluster_name?: string | null;
 }
 
 export interface MobileNetworkOverview {

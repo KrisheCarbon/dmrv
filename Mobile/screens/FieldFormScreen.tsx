@@ -84,13 +84,13 @@ export default function FieldFormScreen({ route, navigation }) {
   const [boundaryPoints, setBoundaryPoints] = useState<GeoPoint[]>([]);
   const [polygonMapVisible, setPolygonMapVisible] = useState(false);
 
-  const farmerId = selectedFarmerId || paramFarmerId;
+  const farmerId = selectedFarmerId;
   const areaNum = Number(field.calculatedArea) || 0;
   const showPolygon = isOverOneHectare(areaNum);
 
   const remainingLabel = useMemo(() => {
     if (!land.cap) return "Set cultivated land on the farmer profile first.";
-    return `${land.remaining.toFixed(2)} of ${land.cap} acres remaining for new fields.`;
+    return `${land.remaining.toFixed(2)} of ${land.cap} acres remaining for new farms.`;
   }, [land]);
 
   useEffect(() => {
@@ -166,7 +166,7 @@ export default function FieldFormScreen({ route, navigation }) {
     const canOpen = await openMapPickerIfOnline(() => {
       Alert.alert(
         "Map unavailable",
-        "Polygon mapping needs internet and a Mapbox token so you can clip the field on the map.",
+        "Polygon mapping needs internet and a Mapbox token so you can clip the farm on the map.",
       );
     });
     if (canOpen) setPolygonMapVisible(true);
@@ -179,7 +179,7 @@ export default function FieldFormScreen({ route, navigation }) {
       if (target === "field") {
         setField((prev) => {
           if (prev.photos.length >= 5) {
-            Alert.alert("Limit", "Maximum 5 field photographs.");
+            Alert.alert("Limit", "Maximum 5 farm photographs.");
             return prev;
           }
           return { ...prev, photos: [...prev.photos, captured.uri] };
@@ -208,7 +208,7 @@ export default function FieldFormScreen({ route, navigation }) {
       return;
     }
     if (field.ownershipType === "Leased" && !field.leaseEnd) {
-      Alert.alert("Required", "Lease end date is needed for leased fields.");
+      Alert.alert("Required", "Lease end date is needed for leased farms.");
       return;
     }
 
@@ -266,11 +266,11 @@ export default function FieldFormScreen({ route, navigation }) {
         }));
         setBoundaryPoints([]);
         await loadFarmerContext();
-        Alert.alert("Field saved", "Add the next field for this farmer.");
+        Alert.alert("Farm saved", "Add the next farm for this farmer.");
         return;
       }
 
-      Alert.alert("Saved", "Field saved.", [
+      Alert.alert("Saved", "Farm saved.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
     } catch (err) {
@@ -287,10 +287,10 @@ export default function FieldFormScreen({ route, navigation }) {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.title}>
-          {fieldId ? "Edit field" : "Farms onboarding"}
+          {fieldId ? "Edit farm" : "Farms onboarding"}
         </Text>
         <Text style={styles.subtitle}>
-          Select a farmer, then add fields. Total field area cannot exceed the farmer's cultivated land.
+          Select a farmer, then add farms. Total farm area cannot exceed the farmer's cultivated land.
         </Text>
 
         <FarmerPicker
@@ -307,7 +307,7 @@ export default function FieldFormScreen({ route, navigation }) {
 
         {existingFields.length > 0 && !fieldId ? (
           <View style={styles.existing}>
-            <Text style={styles.section}>Fields already added</Text>
+            <Text style={styles.section}>Farms already added</Text>
             {existingFields.map((item) => (
               <Pressable
                 key={item.id}
@@ -328,7 +328,7 @@ export default function FieldFormScreen({ route, navigation }) {
           </View>
         ) : null}
 
-        <Text style={styles.section}>Field</Text>
+        <Text style={styles.section}>Farm</Text>
         <FormPicker
           label="Ownership *"
           value={field.ownershipType}
@@ -389,13 +389,13 @@ export default function FieldFormScreen({ route, navigation }) {
           <View style={styles.polygonBox}>
             <Text style={styles.section}>Polygon mapping</Text>
             <Text style={styles.hint}>
-              This plot is more than 1 hectare. Clip the field boundary on the satellite map — do not walk GPS corners.
+              This plot is more than 1 hectare. Clip the farm boundary on the satellite map — do not walk GPS corners.
             </Text>
             <Pressable style={styles.locBtn} onPress={openPolygonMapper}>
               <Text style={styles.locBtnText}>
                 {boundaryPoints.length >= 3
-                  ? "Edit field polygon on map"
-                  : "Clip field on map"}
+                  ? "Edit farm polygon on map"
+                  : "Clip farm on map"}
               </Text>
             </Pressable>
             {boundaryPoints.length >= 3 ? (
@@ -418,9 +418,9 @@ export default function FieldFormScreen({ route, navigation }) {
           onValueChange={(v) => setField((p) => ({ ...p, waterSource: v }))}
         />
 
-        <Text style={styles.section}>Field photographs (up to 5)</Text>
+        <Text style={styles.section}>Farm photographs (up to 5)</Text>
         <Pressable style={styles.locBtn} onPress={() => addPhoto("field")}>
-          <Text style={styles.locBtnText}>Take field photo</Text>
+          <Text style={styles.locBtnText}>Take farm photo</Text>
         </Pressable>
         <View style={styles.photoRow}>
           {field.photos.map((uri) => (
@@ -428,7 +428,7 @@ export default function FieldFormScreen({ route, navigation }) {
           ))}
         </View>
 
-        <Text style={styles.section}>Crop on this field</Text>
+        <Text style={styles.section}>Crop on this farm</Text>
         <FormPicker
           label="Crop"
           value={field.cropName}
@@ -461,10 +461,10 @@ export default function FieldFormScreen({ route, navigation }) {
           ))}
         </View>
 
-        <PrimaryButton title="Save field" onPress={() => handleSave(false)} loading={loading} />
+        <PrimaryButton title="Save farm" onPress={() => handleSave(false)} loading={loading} />
         {!fieldId ? (
           <PrimaryButton
-            title="Save and add another field"
+            title="Save and add another farm"
             onPress={() => handleSave(true)}
             loading={loading}
             variant="outline"

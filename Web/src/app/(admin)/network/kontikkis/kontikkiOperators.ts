@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 
-/** Replace all operator (climapreneur) assignments for a kontikki. */
+/** Replace all operator assignments for a kontikki. */
 export async function syncKontikkiOperators(
   kontikkiId: string,
   operatorIds: string[],

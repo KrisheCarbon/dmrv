@@ -1,6 +1,6 @@
 // Plain SQLite DDL replacing the WatermelonDB schema/migrations. Fresh start:
 // this creates the final (v11-equivalent) shape directly, no historical replay.
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS farmers (
@@ -18,9 +18,14 @@ export const SCHEMA_STATEMENTS: string[] = [
     mandal TEXT,
     district TEXT,
     state TEXT,
+    cluster_id TEXT,
+    cluster_village_id TEXT,
+    cluster_name TEXT,
     total_land_size REAL NOT NULL,
     owned_land_size REAL,
     leased_land_size REAL,
+    farmer_photo_uri TEXT,
+    farmer_photo_url TEXT,
     crops TEXT NOT NULL,
     interested_in_biochar INTEGER NOT NULL,
     prior_biochar_exp INTEGER NOT NULL,
@@ -33,6 +38,18 @@ export const SCHEMA_STATEMENTS: string[] = [
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );`,
+
+  `CREATE TABLE IF NOT EXISTS cluster_villages (
+    id TEXT PRIMARY KEY NOT NULL,
+    cluster_id TEXT NOT NULL,
+    cluster_name TEXT NOT NULL,
+    village_name TEXT NOT NULL,
+    mandal TEXT,
+    district TEXT,
+    state TEXT,
+    updated_at INTEGER NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_cluster_villages_cluster_id ON cluster_villages(cluster_id);`,
 
   `CREATE TABLE IF NOT EXISTS farm_fields (
     id TEXT PRIMARY KEY NOT NULL,
@@ -115,6 +132,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     sample_location TEXT,
     sample_photo_uri TEXT,
     sample_photo_url TEXT,
+    receive_photo_uri TEXT,
+    receive_photo_url TEXT,
     lab_source TEXT,
     parameters_json TEXT,
     results_json TEXT,

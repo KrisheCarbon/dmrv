@@ -16,8 +16,13 @@ export type ExtendedFarmerForm = FarmerForm & {
   mandal?: string;
   district?: string;
   state?: string;
+  cluster_id?: string | null;
+  cluster_village_id?: string | null;
+  cluster_name?: string | null;
   owned_land_size?: string | number;
   leased_land_size?: string | number;
+  farmer_photo_uri?: string | null;
+  farmer_photo_url?: string | null;
 };
 
 export function canSeeAllFarms(role?: string | null) {
@@ -42,9 +47,14 @@ export function farmerToFormData(
     mandal: farmer.mandal ?? "",
     district: farmer.district ?? "",
     state: farmer.state ?? "",
+    cluster_id: farmer.clusterId ?? "",
+    cluster_village_id: farmer.clusterVillageId ?? "",
+    cluster_name: farmer.clusterName ?? "",
     total_land_size: String(farmer.totalLandSize),
     owned_land_size: farmer.ownedLandSize != null ? String(farmer.ownedLandSize) : "",
     leased_land_size: farmer.leasedLandSize != null ? String(farmer.leasedLandSize) : "",
+    farmer_photo_uri: farmer.farmerPhotoUri,
+    farmer_photo_url: farmer.farmerPhotoUrl,
     crops: farmer.crops,
     interested_in_biochar: farmer.interestedInBiochar,
     prior_biochar_exp: farmer.priorBiocharExp,
@@ -131,9 +141,14 @@ export async function saveFarmerLocal(
       mandal: form.mandal?.trim() || null,
       district: form.district?.trim() || null,
       state: form.state?.trim() || null,
+      cluster_id: form.cluster_id?.trim() || null,
+      cluster_village_id: form.cluster_village_id?.trim() || null,
+      cluster_name: form.cluster_name?.trim() || null,
       total_land_size: totalLand,
       owned_land_size: owned,
       leased_land_size: leased,
+      farmer_photo_uri: form.farmer_photo_uri?.trim() || null,
+      farmer_photo_url: form.farmer_photo_url?.trim() || null,
       crops: JSON.stringify(crops),
       interested_in_biochar: form.interested_in_biochar ? 1 : 0,
       prior_biochar_exp: form.prior_biochar_exp ? 1 : 0,
@@ -166,9 +181,14 @@ export async function saveFarmerLocal(
       mandal: form.mandal?.trim() || null,
       district: form.district?.trim() || null,
       state: form.state?.trim() || null,
+      clusterId: form.cluster_id?.trim() || null,
+      clusterVillageId: form.cluster_village_id?.trim() || null,
+      clusterName: form.cluster_name?.trim() || null,
       totalLandSize: totalLand,
       ownedLandSize: owned,
       leasedLandSize: leased,
+      farmerPhotoUri: form.farmer_photo_uri?.trim() || null,
+      farmerPhotoUrl: form.farmer_photo_url?.trim() || null,
       crops,
       interestedInBiochar: !!form.interested_in_biochar,
       priorBiocharExp: !!form.prior_biochar_exp,

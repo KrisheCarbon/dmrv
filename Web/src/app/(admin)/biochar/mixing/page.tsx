@@ -197,7 +197,7 @@ export default function MixingPage() {
             render: (_value, row) =>
               row.farm_id && row.farm_name !== "—" ? (
                 <Link
-                  href={`/network/farms/${row.farm_id}`}
+                  href={`/network/farmers/${row.farm_id}`}
                   className="font-medium text-brand-dark hover:underline"
                   onClick={(event) => event.stopPropagation()}
                 >

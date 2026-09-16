@@ -1,6 +1,8 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import { isFarmerProfileComplete } from "@krishecarbon/shared";
+import ChecklistItem from "./ChecklistItem";
 
 function getSyncMeta(status) {
   switch (status) {
@@ -19,6 +21,7 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklis
   const { label, color, bg } = getSyncMeta(farmer.sync_status);
   const isSyncing = farmer.sync_status === "syncing";
   const progress = Math.min(100, Math.max(0, syncProgress));
+  const profileComplete = isFarmerProfileComplete(farmer);
 
   return (
     <TouchableOpacity
@@ -28,6 +31,12 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklis
     >
       <View style={styles.body}>
         <View style={styles.titleRow}>
+          {farmer.farmer_photo_uri || farmer.farmer_photo_url ? (
+            <Image
+              source={{ uri: farmer.farmer_photo_uri || farmer.farmer_photo_url }}
+              style={styles.avatar}
+            />
+          ) : null}
           <Text style={styles.name} numberOfLines={1}>
             {farmer.farmer_name}
           </Text>
@@ -49,18 +58,24 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklis
 
         {checklist ? (
           <View style={styles.checks}>
-            <Text style={[styles.check, checklist.hasProfile && styles.checkOn]}>
-              {checklist.hasProfile ? "✓" : "○"} Farmer
-            </Text>
-            <Text style={[styles.check, checklist.hasFields && styles.checkOn]}>
-              {checklist.hasFields ? "✓" : "○"} Fields
-            </Text>
-            <Text style={[styles.check, checklist.hasSoilSample && styles.checkOn]}>
-              {checklist.hasSoilSample ? "✓" : "○"} Sample
-            </Text>
-            <Text style={[styles.check, checklist.hasSoilReport && styles.checkOn]}>
-              {checklist.hasSoilReport ? "✓" : "○"} Report
-            </Text>
+            <ChecklistItem
+              tone={profileComplete ? "ok" : "warn"}
+              label="Farmer"
+            />
+            <ChecklistItem done={checklist.hasFields} label="Farms" />
+            <ChecklistItem
+              tone={
+                checklist.soilSampleTone === "accepted"
+                  ? "ok"
+                  : checklist.soilSampleTone === "rejected"
+                    ? "error"
+                    : checklist.soilSampleTone === "collected"
+                      ? "warn"
+                      : "none"
+              }
+              label="Sample"
+            />
+            <ChecklistItem done={checklist.hasSoilReport} label="Report" />
           </View>
         ) : null}
 
@@ -106,6 +121,12 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 4
   },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.chalk,
+  },
   name: {
     fontSize: 16,
     fontFamily: fonts.medium,
@@ -140,16 +161,8 @@ const styles = StyleSheet.create({
   checks: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
     marginTop: 8,
-  },
-  check: {
-    fontSize: 11,
-    fontFamily: fonts.medium,
-    color: colors.smoke,
-  },
-  checkOn: {
-    color: colors.brunswick,
   },
   errorText: {
     fontSize: 12,

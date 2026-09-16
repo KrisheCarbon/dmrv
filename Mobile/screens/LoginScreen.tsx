@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../services/supabase";
+import { assertActiveAccount } from "../services/auth";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
 import PrimaryButton from "../components/PrimaryButton";
 
@@ -57,13 +58,23 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password
     });
     setLoading(false);
 
-    if (error) Alert.alert("Login failed", error.message);
+    if (error) {
+      Alert.alert("Login failed", error.message);
+      return;
+    }
+
+    if (data.user && !(await assertActiveAccount(data.user.id))) {
+      Alert.alert(
+        "Account not active",
+        "Ask your admin to activate this account from the Users page."
+      );
+    }
   }
 
   async function handleSendOtp() {
@@ -74,7 +85,8 @@ export default function LoginScreen() {
 
     setLoading(true);
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim()
+      email: email.trim(),
+      options: { shouldCreateUser: false }
     });
     setLoading(false);
 
@@ -94,14 +106,24 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.verifyOtp({
+    const { data, error } = await supabase.auth.verifyOtp({
       email: email.trim(),
       token: otp,
       type: "email"
     });
     setLoading(false);
 
-    if (error) Alert.alert("Invalid code", error.message);
+    if (error) {
+      Alert.alert("Invalid code", error.message);
+      return;
+    }
+
+    if (data.user && !(await assertActiveAccount(data.user.id))) {
+      Alert.alert(
+        "Account not active",
+        "Ask your admin to activate this account from the Users page."
+      );
+    }
   }
 
   function handleSubmit() {

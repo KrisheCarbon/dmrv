@@ -158,6 +158,11 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "farmers", "state", "TEXT");
   await addColumnIfMissing(db, "farmers", "owned_land_size", "REAL");
   await addColumnIfMissing(db, "farmers", "leased_land_size", "REAL");
+  await addColumnIfMissing(db, "farmers", "farmer_photo_uri", "TEXT");
+  await addColumnIfMissing(db, "farmers", "farmer_photo_url", "TEXT");
+  await addColumnIfMissing(db, "farmers", "cluster_id", "TEXT");
+  await addColumnIfMissing(db, "farmers", "cluster_village_id", "TEXT");
+  await addColumnIfMissing(db, "farmers", "cluster_name", "TEXT");
 
   await addColumnIfMissing(db, "farm_fields", "crop_name", "TEXT");
   await addColumnIfMissing(db, "farm_fields", "season", "TEXT");
@@ -176,6 +181,8 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "soil_tests", "field_ids_json", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "sample_photo_uri", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "sample_photo_url", "TEXT");
+  await addColumnIfMissing(db, "soil_tests", "receive_photo_uri", "TEXT");
+  await addColumnIfMissing(db, "soil_tests", "receive_photo_url", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "submitted_to_supervisor_id", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "submitted_to_supervisor_name", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "collected_by", "TEXT");

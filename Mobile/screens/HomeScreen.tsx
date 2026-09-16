@@ -68,7 +68,7 @@ const BASE_MODULES = [
   {
     id: "farms",
     title: "Farmers Network",
-    desc: "Farmers, fields, soil samples, reports and consent",
+    desc: "Onboard and manage farmers",
     active: true,
     screen: "FarmersNetwork",
     showSyncStatus: true
@@ -84,14 +84,6 @@ const BASE_MODULES = [
     title: "Inspections",
     desc: "Field inspections & verification visits",
     active: false
-  },
-  {
-    id: "my-network",
-    title: "My Network",
-    desc: "Producers, kontikkis & team",
-    active: true,
-    screen: "MyNetwork",
-    roles: ["admin", "manager", "supervisor", "climapreneur"]
   }
 ];
 
@@ -123,7 +115,12 @@ function StatusPill({ tone, label }) {
   return (
     <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
       <View style={[styles.statusDot, { backgroundColor: palette.dot }]} />
-      <Text style={[styles.statusText, { color: palette.text }]}>{label}</Text>
+        <Text
+          style={[styles.statusText, { color: palette.text }]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
     </View>
   );
 }
@@ -480,12 +477,10 @@ export default function HomeScreen({ navigation }) {
                     ) : null}
                   </View>
                   <Text style={styles.moduleDesc}>{module.desc}</Text>
-                  {syncStatus ? (
-                    <View style={styles.moduleStatusRow}>
-                      <StatusPill tone={syncStatus.tone} label={syncStatus.label} />
-                    </View>
-                  ) : null}
                 </View>
+                {syncStatus ? (
+                  <StatusPill tone={syncStatus.tone} label={syncStatus.label} />
+                ) : null}
                 {module.active ? (
                   <Text style={styles.chevron}>›</Text>
                 ) : null}
@@ -530,6 +525,21 @@ export default function HomeScreen({ navigation }) {
             >
               <Text style={styles.menuItemText}>Profile</Text>
             </TouchableOpacity>
+
+            {userRole?.role &&
+            ["admin", "manager", "supervisor", "climapreneur"].includes(
+              userRole.role
+            ) ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenuVisible(false);
+                  navigation.navigate("MyNetwork");
+                }}
+              >
+                <Text style={styles.menuItemText}>My Network</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               style={[styles.menuItem, styles.menuItemDangerSection]}
@@ -750,7 +760,8 @@ const styles = StyleSheet.create({
   moduleTitle: {
     fontSize: 16,
     fontFamily: fonts.medium,
-    color: colors.brunswick
+    color: colors.brunswick,
+    flexShrink: 1
   },
   moduleTitleDisabled: {
     color: colors.smoke
@@ -772,19 +783,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 18
-  },
-  moduleStatusRow: {
-    marginTop: spacing.sm
+    lineHeight: 18,
+    paddingRight: spacing.sm
   },
   statusPill: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: radius.pill,
-    gap: 6
+    gap: 5,
+    marginLeft: spacing.sm,
+    maxWidth: 118
   },
   statusDot: {
     width: 7,
@@ -792,8 +802,9 @@ const styles = StyleSheet.create({
     borderRadius: 4
   },
   statusText: {
-    fontSize: 11,
-    fontFamily: fonts.medium
+    fontSize: 10,
+    fontFamily: fonts.medium,
+    flexShrink: 1
   },
   chevron: {
     fontSize: 24,

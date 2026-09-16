@@ -19,6 +19,8 @@ import {
   canAssignRole,
   canEditUser,
   getUserManagementHint,
+  canOperateKontikkis,
+  isClimapreneurSupervisorSwap,
   type UserRole,
 } from "@krishecarbon/shared";
 
@@ -43,5 +45,7 @@ export {
   canAssignRole,
   canEditUser,
   getUserManagementHint,
+  canOperateKontikkis,
+  isClimapreneurSupervisorSwap,
   type UserRole,
 };

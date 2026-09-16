@@ -52,7 +52,7 @@ export default function PyrolysisBatchMixingSection({
                   <td className="py-2.5 pr-4">
                     {entry.farm_id && entry.farm_name ? (
                       <Link
-                        href={`/network/farms/${entry.farm_id}`}
+                        href={`/network/farmers/${entry.farm_id}`}
                         className="font-medium text-brand-dark hover:underline"
                       >
                         {entry.farm_name}

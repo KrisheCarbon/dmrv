@@ -41,17 +41,50 @@ export const FIELD_WATER_SOURCES = [
 ] as const;
 
 export const SOIL_TEST_STATUS_VALUES = [
+  "collected",
   "submitted",
+  "stored",
+  "accepted",
+  "rejected",
   "received",
   "reported",
 ] as const;
 export type SoilTestStatus = (typeof SOIL_TEST_STATUS_VALUES)[number];
 
+export type SoilSampleTone = "none" | "collected" | "rejected" | "accepted";
+
 export function soilTestStatusLabel(status: string | null | undefined): string {
   if (status === "reported") return "Report ready";
-  if (status === "received") return "Received by supervisor";
+  if (status === "accepted" || status === "received") return "Accepted";
+  if (status === "rejected") return "Rejected";
+  if (status === "stored") return "Stored";
   if (status === "submitted") return "Submitted to supervisor";
+  if (status === "collected") return "Collected";
   return "Not started";
+}
+
+/** Farmers-list color: yellow = collected/pending, red = rejected, green = accepted. */
+export function soilSampleToneFromStatuses(
+  statuses: Array<string | null | undefined>,
+): SoilSampleTone {
+  const list = statuses.filter((status): status is string => Boolean(status));
+  if (list.length === 0) return "none";
+  if (list.includes("rejected")) return "rejected";
+  if (list.some((status) => status === "collected")) return "collected";
+  if (list.some((status) => status === "submitted" || status === "stored")) {
+    return "collected";
+  }
+  if (
+    list.some(
+      (status) =>
+        status === "accepted" ||
+        status === "received" ||
+        status === "reported",
+    )
+  ) {
+    return "accepted";
+  }
+  return "none";
 }
 
 export interface GeoPoint {
@@ -212,6 +245,7 @@ export interface SoilTestRecord {
   sample_lat?: number | null;
   sample_lng?: number | null;
   sample_photo_url?: string | null;
+  receive_photo_url?: string | null;
   submitted_to_supervisor_id?: string | null;
   collected_by?: string | null;
   collected_by_role?: string | null;
@@ -255,6 +289,16 @@ export interface SoilTestUpsertPayload {
   sample_lng?: number | null;
   sample_photo_url?: string | null;
   submitted_to_supervisor_id?: string | null;
+  status?: string;
+}
+
+export interface SoilTestReviewPayload {
+  decision: "accept" | "reject" | "store";
+  receive_photo_url?: string | null;
+}
+
+export interface SoilTestSubmitPayload {
+  submitted_to_supervisor_id: string;
 }
 
 export interface SoilTestReportPayload {
@@ -278,3 +322,22 @@ export interface SoilTestFormOptions {
 
 export const FARMER_NETWORK_PHOTOS_BUCKET = "farmer-network-photos";
 export const SOIL_REPORTS_BUCKET = "soil-reports";
+
+/** New-format profile: name, mobile, and a cluster village. */
+export function isFarmerProfileComplete(farmer: {
+  farmer_name?: string | null;
+  farmerName?: string | null;
+  mobile_number?: string | null;
+  mobileNumber?: string | null;
+  address?: string | null;
+  village?: string | null;
+  cluster_village_id?: string | null;
+  clusterVillageId?: string | null;
+}): boolean {
+  const name = (farmer.farmer_name ?? farmer.farmerName ?? "").trim();
+  const mobile = String(farmer.mobile_number ?? farmer.mobileNumber ?? "").trim();
+  const clusterVillage = String(
+    farmer.cluster_village_id ?? farmer.clusterVillageId ?? "",
+  ).trim();
+  return Boolean(name && mobile && clusterVillage);
+}

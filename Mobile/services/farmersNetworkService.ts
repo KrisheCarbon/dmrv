@@ -1,5 +1,10 @@
-import type { FarmerCrop } from "@krishecarbon/shared";
-import { calculateEstimatedBiomass } from "@krishecarbon/shared";
+import {
+  calculateEstimatedBiomass,
+  isFarmerProfileComplete,
+  soilSampleToneFromStatuses,
+  type FarmerCrop,
+  type SoilSampleTone,
+} from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import {
@@ -107,6 +112,14 @@ export async function listFieldsForFarmer(farmerId: string): Promise<FarmField[]
   return rows.map(rowToFarmField);
 }
 
+export async function listFarmerIdsWithActiveFields(): Promise<Set<string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ farmer_id: string }>(
+    "SELECT DISTINCT farmer_id FROM farm_fields WHERE status = 'active'",
+  );
+  return new Set(rows.map((row) => row.farmer_id));
+}
+
 export async function getFieldById(fieldId: string): Promise<FarmField> {
   const db = await getDb();
   const row = await db.getFirstAsync<any>("SELECT * FROM farm_fields WHERE id = ?", [
@@ -157,7 +170,7 @@ export async function saveFieldLocal(
   const { cap, remaining } = await remainingCultivatedAcres(farmerId, existingId);
   if (cap > 0 && area > remaining + 0.0001) {
     throw new Error(
-      `Field area cannot exceed cultivated land (${cap} acres). ${remaining.toFixed(2)} acres remaining.`,
+      `Farm area cannot exceed cultivated land (${cap} acres). ${remaining.toFixed(2)} acres remaining.`,
     );
   }
 
@@ -430,7 +443,14 @@ export async function saveConsentLocal(
   form: ConsentFormInput,
 ): Promise<string> {
   if (!form.validTo?.trim()) {
-    throw new Error("Document deadline is required.");
+    throw new Error("Document expiry date is required.");
+  }
+  const photoCount = form.photos?.length ?? 0;
+  if (photoCount < 1) {
+    throw new Error("Upload at least one document photo.");
+  }
+  if (photoCount > 2) {
+    throw new Error("Maximum 2 document photos.");
   }
   const db = await getDb();
   const now = Date.now();
@@ -495,8 +515,26 @@ export async function listSoilTestsForFarmer(farmerId: string): Promise<SoilTest
 export async function listIncomingSoilSamples(): Promise<SoilTest[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<any>(
+    "SELECT * FROM soil_tests WHERE status IN (?, ?) ORDER BY sample_date DESC, created_at DESC",
+    ["submitted", "stored"],
+  );
+  return rows.map(rowToSoilTest);
+}
+
+export async function listCollectedSoilSamples(): Promise<SoilTest[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
     "SELECT * FROM soil_tests WHERE status = ? ORDER BY sample_date DESC, created_at DESC",
-    ["submitted"],
+    ["collected"],
+  );
+  return rows.map(rowToSoilTest);
+}
+
+export async function listReportableSoilSamples(): Promise<SoilTest[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM soil_tests WHERE status IN (?, ?, ?, ?) ORDER BY sample_date DESC, created_at DESC",
+    ["accepted", "received", "stored", "reported"],
   );
   return rows.map(rowToSoilTest);
 }
@@ -532,7 +570,8 @@ export async function saveSoilTestLocal(
     form.collectedByRole === "supervisor" ||
     form.collectedByRole === "admin" ||
     form.collectedByRole === "manager";
-  const status = form.status || (isSupervisor ? "received" : "submitted");
+  const status =
+    form.status || (isSupervisor ? "accepted" : "collected");
   const row = soilTestToRow({
     farmerId,
     fieldId: fieldIds[0] ?? null,
@@ -544,6 +583,8 @@ export async function saveSoilTestLocal(
     sampleLocation: form.sampleLocation?.trim() || null,
     samplePhotoUri: form.samplePhotoUri ?? null,
     samplePhotoUrl: null,
+    receivePhotoUri: null,
+    receivePhotoUrl: null,
     labSource: form.labSource?.trim() || null,
     parametersJson: form.parametersText?.trim()
       ? JSON.stringify({ notes: form.parametersText.trim() })
@@ -557,9 +598,18 @@ export async function saveSoilTestLocal(
     collectedBy: form.collectedBy ?? null,
     collectedByRole: form.collectedByRole ?? null,
     status,
-    receivedAt: isSupervisor ? new Date().toISOString() : null,
-    receivedBy: isSupervisor ? form.collectedBy ?? null : null,
-    receivedByName: isSupervisor ? form.submittedToSupervisorName ?? null : null,
+    receivedAt:
+      status === "accepted" || status === "received" || status === "stored"
+        ? new Date().toISOString()
+        : null,
+    receivedBy:
+      status === "accepted" || status === "received" || status === "stored"
+        ? form.collectedBy ?? null
+        : null,
+    receivedByName:
+      status === "accepted" || status === "received" || status === "stored"
+        ? form.submittedToSupervisorName ?? null
+        : null,
     serverId: null,
     uploadStatus: "pending",
     syncError: null,
@@ -572,26 +622,49 @@ export async function saveSoilTestLocal(
   return id;
 }
 
-export async function markSoilSampleReceivedLocal(
+export async function submitSoilSampleLocal(
   testId: string,
-  receiver: { id: string; name: string },
+  supervisor: { id: string; name: string },
 ): Promise<void> {
   const db = await getDb();
-  const existing = await getSoilTestById(testId);
+  await db.runAsync(
+    `UPDATE soil_tests SET
+      submitted_to_supervisor_id = ?,
+      submitted_to_supervisor_name = ?,
+      status = ?,
+      sync_status = ?,
+      updated_at = ?
+     WHERE id = ?`,
+    [supervisor.id, supervisor.name, "submitted", "pending", Date.now(), testId],
+  );
+  await enqueueNetworkSync("soil_test", testId, "update");
+}
+
+export async function reviewSoilSampleLocal(
+  testId: string,
+  decision: "accept" | "reject" | "store",
+  receiver: { id: string; name: string },
+  receivePhotoUri?: string | null,
+): Promise<void> {
+  const status =
+    decision === "accept" ? "accepted" : decision === "reject" ? "rejected" : "stored";
+  const db = await getDb();
   await db.runAsync(
     `UPDATE soil_tests SET
       status = ?,
       received_at = ?,
       received_by = ?,
       received_by_name = ?,
+      receive_photo_uri = COALESCE(?, receive_photo_uri),
       sync_status = ?,
       updated_at = ?
      WHERE id = ?`,
     [
-      existing.status === "reported" ? "reported" : "received",
+      status,
       new Date().toISOString(),
       receiver.id,
       receiver.name,
+      receivePhotoUri ?? null,
       "pending",
       Date.now(),
       testId,
@@ -644,6 +717,13 @@ export async function saveSoilReportLocal(
   });
   const { sql, args } = buildInsert("soil_reports", { id, ...row });
   await db.runAsync(sql, args);
+  if (form.soilTestId) {
+    await db.runAsync(
+      "UPDATE soil_tests SET status = ?, sync_status = ?, updated_at = ? WHERE id = ?",
+      ["reported", "pending", Date.now(), form.soilTestId],
+    );
+    await enqueueNetworkSync("soil_test", form.soilTestId, "update");
+  }
   return id;
 }
 
@@ -652,6 +732,7 @@ export type FarmerChecklist = {
   hasProfile: boolean;
   hasFields: boolean;
   hasSoilSample: boolean;
+  soilSampleTone: SoilSampleTone;
   hasSoilReport: boolean;
   hasConsent: boolean;
 };
@@ -666,6 +747,7 @@ export async function getFarmersChecklist(
       hasProfile: true,
       hasFields: false,
       hasSoilSample: false,
+      soilSampleTone: "none",
       hasSoilReport: false,
       hasConsent: false,
     };
@@ -674,13 +756,25 @@ export async function getFarmersChecklist(
 
   const db = await getDb();
   const placeholders = farmerIds.map(() => "?").join(",");
-  const [fields, tests, reports, consents] = await Promise.all([
+  const [profiles, fields, tests, reports, consents] = await Promise.all([
+    db.getAllAsync<{
+      id: string;
+      farmer_name: string | null;
+      mobile_number: string | null;
+      address: string | null;
+      village: string | null;
+      cluster_village_id: string | null;
+    }>(
+      `SELECT id, farmer_name, mobile_number, address, village, cluster_village_id
+       FROM farmers WHERE id IN (${placeholders})`,
+      farmerIds,
+    ),
     db.getAllAsync<{ farmer_id: string }>(
       `SELECT DISTINCT farmer_id FROM farm_fields WHERE farmer_id IN (${placeholders})`,
       farmerIds,
     ),
-    db.getAllAsync<{ farmer_id: string }>(
-      `SELECT DISTINCT farmer_id FROM soil_tests WHERE farmer_id IN (${placeholders})`,
+    db.getAllAsync<{ farmer_id: string; status: string | null }>(
+      `SELECT farmer_id, status FROM soil_tests WHERE farmer_id IN (${placeholders})`,
       farmerIds,
     ),
     db.getAllAsync<{ farmer_id: string }>(
@@ -693,11 +787,23 @@ export async function getFarmersChecklist(
     ),
   ]);
 
+  for (const row of profiles) {
+    if (result[row.id]) {
+      result[row.id].hasProfile = isFarmerProfileComplete(row);
+    }
+  }
+  const statusesByFarmer: Record<string, string[]> = {};
   for (const row of fields) {
     if (result[row.farmer_id]) result[row.farmer_id].hasFields = true;
   }
   for (const row of tests) {
-    if (result[row.farmer_id]) result[row.farmer_id].hasSoilSample = true;
+    if (!result[row.farmer_id]) continue;
+    result[row.farmer_id].hasSoilSample = true;
+    if (!statusesByFarmer[row.farmer_id]) statusesByFarmer[row.farmer_id] = [];
+    if (row.status) statusesByFarmer[row.farmer_id].push(row.status);
+  }
+  for (const [farmerId, statuses] of Object.entries(statusesByFarmer)) {
+    result[farmerId].soilSampleTone = soilSampleToneFromStatuses(statuses);
   }
   for (const row of reports) {
     if (result[row.farmer_id]) result[row.farmer_id].hasSoilReport = true;

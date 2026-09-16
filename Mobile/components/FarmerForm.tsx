@@ -23,16 +23,35 @@ import { calculateEstimatedBiomass } from "../utils/biomass";
 import { getCurrentFarmLocation } from "../utils/location";
 import { startLocationCache } from "../services/locationCache";
 import { validateFarmerForm } from "../utils/validation";
+import FarmerPhotoField from "./FarmerPhotoField";
+import VillagePicker from "./VillagePicker";
+import { loadClusterVillages } from "../services/clusterVillageService";
+import {
+  matchClusterVillage,
+  type ClusterVillageRecord,
+} from "@krishecarbon/shared";
 
 const OTHER_CROP = "Other";
 
 const EMPTY_FORM = {
   farmer_name: "",
+  father_spouse_name: "",
+  agri_id: "",
   mobile_number: "",
   latitude: null,
   longitude: null,
   address: "",
+  village: "",
+  mandal: "",
+  district: "",
+  state: "",
+  cluster_id: "",
+  cluster_village_id: "",
+  cluster_name: "",
+  farmer_photo_uri: null,
   total_land_size: "",
+  owned_land_size: "",
+  leased_land_size: "",
   crops: [],
   interested_in_biochar: false,
   prior_biochar_exp: false,
@@ -109,6 +128,8 @@ export default function FarmerForm({
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initialData });
   const [locationLoading, setLocationLoading] = useState(false);
   const [mapVisible, setMapVisible] = useState(false);
+  const [villages, setVillages] = useState<ClusterVillageRecord[]>([]);
+  const [villagesLoading, setVillagesLoading] = useState(true);
 
   const [cropPicker, setCropPicker] = useState<string>(CROP_OPTIONS[0]);
   const [cropOtherName, setCropOtherName] = useState("");
@@ -127,6 +148,39 @@ export default function FarmerForm({
       setForm({ ...EMPTY_FORM, ...initialData });
     }
   }, [mode, initialData?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadClusterVillages()
+      .then((options) => {
+        if (cancelled) return;
+        setVillages(options);
+        setForm((prev) => {
+          if (prev.cluster_village_id) return prev;
+          const match = matchClusterVillage(options, prev);
+          if (!match) return prev;
+          return {
+            ...prev,
+            cluster_village_id: match.id,
+            cluster_id: match.cluster_id,
+            cluster_name: match.cluster_name,
+            village: match.village_name,
+            mandal: match.mandal ?? "",
+            district: match.district ?? "",
+            state: match.state ?? "",
+          };
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setVillages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setVillagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function captureLocation() {
     try {
@@ -249,6 +303,9 @@ export default function FarmerForm({
 
   function handleSubmit() {
     const errors = validateFarmerForm(form);
+    if (mode === "create" && !form.farmer_photo_uri) {
+      errors.push("Take a farmer photo.");
+    }
     if (errors.length) {
       Alert.alert("Missing fields", errors.join("\n"));
       return;
@@ -287,6 +344,30 @@ export default function FarmerForm({
         value={form.farmer_name}
         onChangeText={(text) =>
           setForm((prev) => ({ ...prev, farmer_name: text }))
+        }
+      />
+
+      <FarmerPhotoField
+        required={mode === "create"}
+        uri={form.farmer_photo_uri || form.farmer_photo_url}
+        onChange={(uri) =>
+          setForm((prev) => ({ ...prev, farmer_photo_uri: uri }))
+        }
+      />
+
+      <FormInput
+        label="Father's / spouse's name"
+        value={form.father_spouse_name}
+        onChangeText={(text) =>
+          setForm((prev) => ({ ...prev, father_spouse_name: text }))
+        }
+      />
+      <FormInput
+        label="Kisan Pehchan / Government Farmer ID (Agri ID)"
+        placeholder="Optional"
+        value={form.agri_id}
+        onChangeText={(text) =>
+          setForm((prev) => ({ ...prev, agri_id: text }))
         }
       />
 
@@ -342,12 +423,49 @@ export default function FarmerForm({
         </Text>
       )}
 
+      <VillagePicker
+        villages={villages}
+        valueId={form.cluster_village_id}
+        loading={villagesLoading}
+        emptyText="No cluster villages assigned yet. Ask an admin to add you to a cluster."
+        onChange={(village) => {
+          setForm((prev) => ({
+            ...prev,
+            cluster_village_id: village.id,
+            cluster_id: village.cluster_id,
+            cluster_name: village.cluster_name,
+            village: village.village_name,
+            mandal: village.mandal ?? "",
+            district: village.district ?? "",
+            state: village.state ?? "",
+          }));
+        }}
+      />
+
       <FormInput
         label="Total Land Size (Acres) *"
         placeholder="Total land in acres"
         value={form.total_land_size}
         onChangeText={(text) =>
           setForm((prev) => ({ ...prev, total_land_size: text }))
+        }
+        keyboardType="numeric"
+      />
+      <FormInput
+        label="Owned (acres)"
+        placeholder="Owned land"
+        value={form.owned_land_size}
+        onChangeText={(text) =>
+          setForm((prev) => ({ ...prev, owned_land_size: text }))
+        }
+        keyboardType="numeric"
+      />
+      <FormInput
+        label="Leased (acres)"
+        placeholder="Leased land"
+        value={form.leased_land_size}
+        onChangeText={(text) =>
+          setForm((prev) => ({ ...prev, leased_land_size: text }))
         }
         keyboardType="numeric"
       />

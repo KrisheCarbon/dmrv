@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { Session } from "@supabase/supabase-js";
 import { colors } from "./constants/theme";
 import { supabase } from "./services/supabase";
+import { assertActiveAccount } from "./services/auth";
 import { getDb } from "./database/db";
 import { initISTClock } from "./services/trustedtime";
 import { startSyncListener,
@@ -22,7 +23,10 @@ import NewFarmerProgressScreen from "./screens/NewFarmerProgressScreen";
 import FieldFormScreen from "./screens/FieldFormScreen";
 import ConsentFormScreen from "./screens/ConsentFormScreen";
 import SoilTestFormScreen from "./screens/SoilTestFormScreen";
+import SoilSampleSubmitScreen from "./screens/SoilSampleSubmitScreen";
 import SoilSamplesInboxScreen from "./screens/SoilSamplesInboxScreen";
+import SoilSampleReceiveScreen from "./screens/SoilSampleReceiveScreen";
+import SoilReportUploadScreen from "./screens/SoilReportUploadScreen";
 import FarmerDashboardScreen from "./screens/FarmerDashboardScreen";
 import AddFarmerScreen from "./screens/AddFarmerScreen";
 import EditFarmerScreen from "./screens/EditFarmerScreen";
@@ -76,8 +80,20 @@ function MainStack() {
       <Stack.Screen name="ConsentForm" component={screen(ConsentFormScreen)} />
       <Stack.Screen name="SoilTestForm" component={screen(SoilTestFormScreen)} />
       <Stack.Screen
+        name="SoilSampleSubmit"
+        component={screen(SoilSampleSubmitScreen)}
+      />
+      <Stack.Screen
         name="SoilSamplesInbox"
         component={screen(SoilSamplesInboxScreen)}
+      />
+      <Stack.Screen
+        name="SoilSampleReceive"
+        component={screen(SoilSampleReceiveScreen)}
+      />
+      <Stack.Screen
+        name="SoilReportUpload"
+        component={screen(SoilReportUploadScreen)}
       />
       <Stack.Screen
         name="FarmerDashboard"
@@ -142,9 +158,16 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
+      const nextSession = data.session;
+      if (nextSession && !(await assertActiveAccount(nextSession.user.id))) {
+        setSession(null);
+        setLoading(false);
+        return;
+      }
 
-      if (data.session) {
+      setSession(nextSession);
+
+      if (nextSession) {
         initISTClock();
         void startLocationCache();
         startSyncListener();
@@ -157,6 +180,13 @@ export default function App() {
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (newSession && !(await assertActiveAccount(newSession.user.id))) {
+        setSession(null);
+        stopSyncListener();
+        stopLocationCache();
+        return;
+      }
+
       setSession(newSession);
 
       if (newSession) {

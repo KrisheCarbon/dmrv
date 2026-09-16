@@ -55,6 +55,8 @@ export interface MobileNetworkFarm {
   farmer_name: string;
   address?: string | null;
   mobile_number?: string | null;
+  village?: string | null;
+  cluster_name?: string | null;
 }
 
 export interface MobileNetworkOverview {
@@ -178,7 +180,7 @@ export class MobileNetworkService {
     const supervisors = await this.fetchSupervisorsForProducers(producerIds);
     const [feedstock, farms] = await Promise.all([
       this.fetchFeedstock(producerIds),
-      this.fetchAllFarms(),
+      this.fetchFarmsForProducers(producerIds),
     ]);
 
     return {
@@ -205,7 +207,7 @@ export class MobileNetworkService {
     const supervisors = await this.fetchSupervisorsForProducers(producerIds);
     const [feedstock, farms] = await Promise.all([
       this.fetchFeedstock(producerIds),
-      this.fetchAllFarms(),
+      this.fetchFarmsForProducers(producerIds),
     ]);
 
     return {
@@ -354,6 +356,7 @@ export class MobileNetworkService {
     const byId = new Map<string, MobileNetworkPerson>();
     for (const kontikki of kontikkis) {
       for (const operator of kontikki.operators ?? []) {
+        if (operator.role === 'supervisor') continue;
         byId.set(operator.id, operator);
       }
     }
@@ -420,21 +423,65 @@ export class MobileNetworkService {
     }));
   }
 
-  private async fetchAllFarms(): Promise<MobileNetworkFarm[]> {
-    const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
-      this.supabase
-        .from('farms')
-        .select('id, farmer_name, address, mobile_number')
-        .order('farmer_name', { ascending: true })
-        .range(from, to),
-    );
+  private async fetchFarmsForProducers(
+    producerIds: string[],
+  ): Promise<MobileNetworkFarm[]> {
+    if (producerIds.length === 0) return [];
 
-    return rows.map((row) => ({
-      id: row.id as string,
-      farmer_name: (row.farmer_name as string | null)?.trim() || 'Unnamed farm',
-      address: (row.address as string | null) ?? null,
-      mobile_number: (row.mobile_number as string | null) ?? null,
-    }));
+    const { data, error } = await this.supabase
+      .from('biochar_producer_clusters')
+      .select('cluster_id')
+      .in('biochar_producer_id', producerIds);
+
+    if (error) throw new BadRequestException(error.message);
+
+    const clusterIds = this.uniqueIds(
+      (data ?? []).map((row) => row.cluster_id as string | null),
+    );
+    if (clusterIds.length === 0) return [];
+
+    return this.fetchFarms(clusterIds);
+  }
+
+  private async fetchAllFarms(): Promise<MobileNetworkFarm[]> {
+    return this.fetchFarms();
+  }
+
+  private async fetchFarms(clusterIds?: string[]): Promise<MobileNetworkFarm[]> {
+    if (clusterIds && clusterIds.length === 0) return [];
+
+    const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
+      let query = this.supabase
+        .from('farms')
+        .select(
+          'id, farmer_name, address, mobile_number, village, cluster_id, cluster:clusters(id, name)',
+        )
+        .order('farmer_name', { ascending: true })
+        .range(from, to);
+
+      if (clusterIds) {
+        query = query.in('cluster_id', clusterIds);
+      }
+
+      return query;
+    });
+
+    return rows.map((row) => {
+      const clusterRaw = row.cluster as
+        | { id?: string; name?: string | null }
+        | Array<{ id?: string; name?: string | null }>
+        | null
+        | undefined;
+      const cluster = Array.isArray(clusterRaw) ? clusterRaw[0] : clusterRaw;
+      return {
+        id: row.id as string,
+        farmer_name: (row.farmer_name as string | null)?.trim() || 'Unnamed farm',
+        address: (row.address as string | null) ?? null,
+        mobile_number: (row.mobile_number as string | null) ?? null,
+        village: (row.village as string | null) ?? null,
+        cluster_name: cluster?.name?.trim() || null,
+      };
+    });
   }
 
   private async fetchFeedstock(

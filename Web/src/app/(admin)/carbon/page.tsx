@@ -61,8 +61,8 @@ export default function CarbonPage() {
           Biochar production
         </Link>{" "}
         and{" "}
-        <Link href="/network/farms" className="text-brand-dark font-medium hover:underline">
-          farms
+        <Link href="/network/farmers" className="text-brand-dark font-medium hover:underline">
+          farmers
         </Link>{" "}
         will feed into this section.
       </div>
