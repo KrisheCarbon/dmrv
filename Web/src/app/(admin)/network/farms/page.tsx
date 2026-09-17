@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
+import { unwrapQuery } from "@/lib/queryResult";
 import { listFarms } from "./actions";
 import type { FarmerTableRow } from "@/types";
 
@@ -18,7 +19,7 @@ export default function FarmsPage() {
     setError(null);
 
     try {
-      const data = await listFarms();
+      const data = unwrapQuery(await listFarms(), "Failed to load farms");
       setRows(
         data.map((f) => ({
           id: f.id,

@@ -1,11 +1,11 @@
 "use server";
 
-import { backendFetch } from "@/lib/backendApi";
+import { backendFetch, backendQuery } from "@/lib/backendApi";
 import type { FarmFieldRecord, FarmFieldUpsertPayload } from "@krishecarbon/shared";
 
-export async function listFarmFields(farmId?: string): Promise<FarmFieldRecord[]> {
+export async function listFarmFields(farmId?: string) {
   const query = farmId ? `?farmId=${encodeURIComponent(farmId)}` : "";
-  return backendFetch<FarmFieldRecord[]>(`/farm-fields${query}`);
+  return backendQuery<FarmFieldRecord[]>(`/farm-fields${query}`);
 }
 
 export async function createFarmField(

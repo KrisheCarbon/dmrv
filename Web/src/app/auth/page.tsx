@@ -3,8 +3,13 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import {
+  OTP_EMAIL_REQUIRED_ERROR,
+  isKrishecarbonEmail,
+} from "@krishecarbon/shared";
 import { supabase } from "@/lib/supabase";
 import { establishSessionFromUrl } from "@/lib/parseAuthHash";
+import { resolvePasswordLoginEmail } from "@/lib/loginIdentifier";
 import { useRouter } from "next/navigation";
 
 function AuthForm() {
@@ -92,19 +97,25 @@ function AuthForm() {
     setLoading(true);
     setError("");
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const loginEmail = await resolvePasswordLoginEmail(supabase, email);
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password,
+      });
 
-    if (signInError) {
-      setError(signInError.message);
+      if (signInError) {
+        setError(signInError.message);
+        setLoading(false);
+        return;
+      }
+
+      await supabase.auth.getSession();
+      router.replace("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign in");
       setLoading(false);
-      return;
     }
-
-    await supabase.auth.getSession();
-    router.replace("/");
   }
 
   async function sendOtp() {
@@ -113,11 +124,16 @@ function AuthForm() {
       return;
     }
 
+    if (!isKrishecarbonEmail(email)) {
+      setError(OTP_EMAIL_REQUIRED_ERROR);
+      return;
+    }
+
     setOtpLoading(true);
     setError("");
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
-      email,
+      email: email.trim().toLowerCase(),
       options: { shouldCreateUser: false },
     });
 
@@ -136,7 +152,7 @@ function AuthForm() {
     setError("");
 
     const { error: verifyError } = await supabase.auth.verifyOtp({
-      email,
+      email: email.trim().toLowerCase(),
       token: otp,
       type: "email",
     });
@@ -192,13 +208,14 @@ function AuthForm() {
             <>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-gray-700">
-                  Email
+                  Email or mobile number
                 </label>
                 <input
-                  type="email"
-                  placeholder="you@email.com"
+                  type="text"
+                  placeholder="you@email.com or 10-digit mobile"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="username"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                 />
               </div>
@@ -238,8 +255,12 @@ function AuthForm() {
                 disabled={otpLoading || !email}
                 className="w-full border border-gray-300 text-gray-700 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 transition disabled:opacity-60"
               >
-                {otpLoading ? "Sending OTP…" : "Send OTP to email"}
+                {otpLoading ? "Sending OTP…" : "Send OTP to @krishecarbon.com email"}
               </button>
+              <p className="text-xs text-gray-400 text-center">
+                Password login works with email or mobile. Email codes are only
+                sent to @krishecarbon.com.
+              </p>
             </>
           ) : (
             <>

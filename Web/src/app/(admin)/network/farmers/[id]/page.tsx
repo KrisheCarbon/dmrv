@@ -39,6 +39,7 @@ import {
   parseBoundaryGeojson,
   soilTestStatusLabel,
 } from "@krishecarbon/shared";
+import { unwrapQuery } from "@/lib/queryResult";
 
 const TABS = [
   { key: "info", label: "Farmer info" },
@@ -143,21 +144,19 @@ export default function FarmerDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const farm = await getFarm(id);
+      const farm = unwrapQuery(await getFarm(id), "Failed to load farmer");
       setData(farm);
-      const [fieldResult, soilResult, consentResult] = await Promise.allSettled([
+      const [fieldResult, soilResult, consentResult] = await Promise.all([
         listFarmFields(id),
         listSoilTests(id),
         listFarmerConsents(id),
       ]);
-      setFields(fieldResult.status === "fulfilled" ? fieldResult.value : []);
-      setSoilTests(soilResult.status === "fulfilled" ? soilResult.value : []);
-      setConsents(
-        consentResult.status === "fulfilled" ? consentResult.value : [],
-      );
+      setFields(fieldResult.data ?? []);
+      setSoilTests(soilResult.data ?? []);
+      setConsents(consentResult.data ?? []);
       const extraErrors = [fieldResult, soilResult, consentResult]
-        .filter((result) => result.status === "rejected")
-        .map((result) => errorMessage(result.reason, "Failed to load related data"));
+        .map((result) => result.error)
+        .filter((message): message is string => Boolean(message));
       if (extraErrors.length) {
         setError(extraErrors.join(" · "));
       }

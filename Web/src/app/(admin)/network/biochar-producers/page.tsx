@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
+import { unwrapQuery } from "@/lib/queryResult";
 import { listProducers } from "./actions";
 import { formatProducerClass, formatProducerRegistry, formatSiteModel } from "./producerLib";
 
@@ -29,7 +30,10 @@ export default function BiocharProducersPage() {
     setError(null);
 
     try {
-      const data = await listProducers();
+      const data = unwrapQuery(
+        await listProducers(),
+        "Failed to load producers",
+      );
       setProducers(
         data.map((p) => ({
           id: p.id,

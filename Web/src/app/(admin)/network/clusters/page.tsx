@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
 import { listClusters } from "./actions";
 import type { ClusterDetail, ClusterTableRow } from "@/types";
+import { unwrapQuery } from "@/lib/queryResult";
 
 function names(people: Array<{ full_name: string }>) {
   if (people.length === 0) return "—";
@@ -42,7 +43,7 @@ export default function ClustersPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listClusters();
+      const data = unwrapQuery(await listClusters(), "Failed to load clusters");
       setRows(data.map(mapRow));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load clusters");

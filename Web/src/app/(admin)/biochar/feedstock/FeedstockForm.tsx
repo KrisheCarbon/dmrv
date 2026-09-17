@@ -3,6 +3,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { listProducers } from "@/app/(admin)/network/biochar-producers/actions";
+import { unwrapQuery } from "@/lib/queryResult";
 import {
   uploadFeedstockAsset,
   type FeedstockAssetType,
@@ -256,7 +257,10 @@ export default function FeedstockForm({
     async function loadProducers() {
       setProducersLoading(true);
       try {
-        const rows = await listProducers();
+        const rows = unwrapQuery(
+          await listProducers(),
+          "Failed to load producers",
+        );
         setProducers(rows);
       } catch {
         setProducers([]);

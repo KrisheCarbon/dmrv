@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
+import { unwrapQuery } from "@/lib/queryResult";
 import { listFarmFields } from "./actions";
 import type { FarmFieldRecord } from "@krishecarbon/shared";
 
@@ -28,7 +29,10 @@ export default function NetworkFieldsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listFarmFields();
+      const data = unwrapQuery(
+        await listFarmFields(),
+        "Failed to load fields",
+      );
       setRows(
         data.map((field: FarmFieldRecord) => ({
           id: field.id,

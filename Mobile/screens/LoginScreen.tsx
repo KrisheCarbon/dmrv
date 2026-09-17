@@ -14,7 +14,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../services/supabase";
-import { assertActiveAccount } from "../services/auth";
+import { assertActiveAccount, resolvePasswordLoginEmail } from "../services/auth";
+import {
+  OTP_EMAIL_REQUIRED_ERROR,
+  isKrishecarbonEmail,
+} from "@krishecarbon/shared";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
 import PrimaryButton from "../components/PrimaryButton";
 
@@ -23,12 +27,12 @@ const loginSurface = colors.chalk;
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const passwordRef = useRef(null);
-  const otpRef = useRef(null);
+  const passwordRef = useRef<TextInput>(null);
+  const otpRef = useRef<TextInput>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
-  const [mode, setMode] = useState("password");
+  const [mode, setMode] = useState<"password" | "otp">("password");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -44,7 +48,7 @@ export default function LoginScreen() {
     };
   }, []);
 
-  function switchMode(nextMode) {
+  function switchMode(nextMode: "password" | "otp") {
     setMode(nextMode);
     setOtpSent(false);
     setOtp("");
@@ -53,39 +57,53 @@ export default function LoginScreen() {
 
   async function handlePasswordLogin() {
     if (!email || !password) {
-      Alert.alert("Missing details", "Enter your email and password.");
+      Alert.alert("Missing details", "Enter your email or mobile number and password.");
       return;
     }
 
     setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password
-    });
-    setLoading(false);
+    try {
+      const loginEmail = await resolvePasswordLoginEmail(email);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password
+      });
 
-    if (error) {
-      Alert.alert("Login failed", error.message);
-      return;
-    }
+      if (error) {
+        Alert.alert("Login failed", error.message);
+        return;
+      }
 
-    if (data.user && !(await assertActiveAccount(data.user.id))) {
+      if (data.user && !(await assertActiveAccount(data.user.id))) {
+        Alert.alert(
+          "Account not active",
+          "Ask your admin to activate this account from the Users page."
+        );
+      }
+    } catch (err) {
       Alert.alert(
-        "Account not active",
-        "Ask your admin to activate this account from the Users page."
+        "Login failed",
+        err instanceof Error ? err.message : "Unable to sign in"
       );
+    } finally {
+      setLoading(false);
     }
   }
 
   async function handleSendOtp() {
     if (!email) {
-      Alert.alert("Missing email", "Enter your email to receive a code.");
+      Alert.alert("Missing email", "Enter your @krishecarbon.com email to receive a code.");
+      return;
+    }
+
+    if (!isKrishecarbonEmail(email)) {
+      Alert.alert("OTP not available", OTP_EMAIL_REQUIRED_ERROR);
       return;
     }
 
     setLoading(true);
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       options: { shouldCreateUser: false }
     });
     setLoading(false);
@@ -107,7 +125,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     const { data, error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       token: otp,
       type: "email"
     });
@@ -201,17 +219,23 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Email</Text>
+          <Text style={styles.label}>
+            {mode === "password" ? "Email or mobile number" : "Email"}
+          </Text>
           <TextInput
             style={styles.input}
-            placeholder="you@example.com"
+            placeholder={
+              mode === "password"
+                ? "you@example.com or 10-digit mobile"
+                : "you@krishecarbon.com"
+            }
             placeholderTextColor={colors.smokeLight}
             value={email}
             onChangeText={setEmail}
-            keyboardType="email-address"
+            keyboardType={mode === "otp" ? "email-address" : "default"}
             autoCapitalize="none"
             autoCorrect={false}
-            textContentType="emailAddress"
+            textContentType={mode === "otp" ? "emailAddress" : "username"}
             returnKeyType={mode === "password" || otpSent ? "next" : "done"}
             blurOnSubmit={false}
             editable={mode === "password" || !otpSent}
@@ -262,6 +286,13 @@ export default function LoginScreen() {
                 onSubmitEditing={handleSubmit}
               />
             </>
+          ) : null}
+
+          {mode === "otp" && !otpSent ? (
+            <Text style={styles.hint}>
+              Codes are sent only to @krishecarbon.com emails. Everyone else
+              should use password login.
+            </Text>
           ) : null}
 
           <PrimaryButton
@@ -368,5 +399,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.text,
     marginBottom: spacing.md
+  },
+  hint: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+    lineHeight: 18
   }
 });

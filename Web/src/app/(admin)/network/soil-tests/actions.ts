@@ -1,15 +1,15 @@
 "use server";
 
-import { backendFetch } from "@/lib/backendApi";
+import { backendFetch, backendQuery } from "@/lib/backendApi";
 import type {
   SoilTestRecord,
   SoilTestReportPayload,
   SoilTestUpsertPayload,
 } from "@krishecarbon/shared";
 
-export async function listSoilTests(farmId?: string): Promise<SoilTestRecord[]> {
+export async function listSoilTests(farmId?: string) {
   const query = farmId ? `?farmId=${encodeURIComponent(farmId)}` : "";
-  return backendFetch<SoilTestRecord[]>(`/soil-tests${query}`);
+  return backendQuery<SoilTestRecord[]>(`/soil-tests${query}`);
 }
 
 export async function createSoilTest(

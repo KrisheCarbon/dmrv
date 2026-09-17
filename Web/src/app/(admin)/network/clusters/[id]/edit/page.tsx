@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import ClusterForm from "../../ClusterForm";
 import { getCluster } from "../../actions";
 import type { ClusterDetail } from "@/types";
+import { unwrapQuery } from "@/lib/queryResult";
 
 export default function ClusterEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,7 +17,9 @@ export default function ClusterEditPage() {
   useEffect(() => {
     if (!id) return;
     getCluster(id)
-      .then(setData)
+      .then((result) =>
+        setData(unwrapQuery(result, "Failed to load cluster")),
+      )
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load cluster");
         setData(null);

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import BiocharProducerForm from "../../BiocharProducerForm";
 import { getProducer } from "../../actions";
 import type { BiocharProducerDetail } from "@/types";
+import { unwrapQuery } from "@/lib/queryResult";
 
 export default function BiocharProducerEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,7 +18,9 @@ export default function BiocharProducerEditPage() {
     if (!id) return;
 
     getProducer(id)
-      .then(setData)
+      .then((result) =>
+        setData(unwrapQuery(result, "Failed to load producer")),
+      )
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load producer");
         setData(null);

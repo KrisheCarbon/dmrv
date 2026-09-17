@@ -6,6 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactCompiler: true,
+  transpilePackages: ["@krishecarbon/shared"],
   outputFileTracingRoot: path.join(__dirname, ".."),
   async redirects() {
     return [

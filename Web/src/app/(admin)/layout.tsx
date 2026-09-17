@@ -1,9 +1,7 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/ssr";
 import type { ReactNode } from "react";
 import { canAccessWebPortal } from "@krishecarbon/shared";
-import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
+import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
@@ -13,13 +11,7 @@ export default async function AdminLayout({
 }: {
   children: ReactNode;
 }) {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      get: (name) => cookieStore.get(name)?.value,
-    },
-  });
+  const supabase = await createServerSupabaseClient();
 
   const {
     data: { user },

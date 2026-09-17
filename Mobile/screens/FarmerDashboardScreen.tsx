@@ -6,7 +6,8 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  Pressable
+  Pressable,
+  TextInput,
 } from "react-native";
 import FarmerCard from "../components/FarmerCard";
 import { ScreenShell } from "../components/ScreenHeader";
@@ -55,6 +56,12 @@ function filterFarmers(farmers, activeFilter) {
   return farmers;
 }
 
+function matchesFarmerName(farmer, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return String(farmer.farmer_name ?? "").toLowerCase().includes(q);
+}
+
 function StatTile({ label, value, active, onPress }) {
   return (
     <Pressable
@@ -78,6 +85,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
   const [stats, setStats] = useState({ total: 0, synced: 0, pendingSync: 0 });
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [syncProgress, setSyncProgress] = useState({});
   const [checklist, setChecklist] = useState({});
 
@@ -126,8 +134,11 @@ export default function FarmerDashboardScreen({ navigation, route }) {
   }, [navigation, loadData]);
 
   const filteredFarmers = useMemo(
-    () => filterFarmers(farmers, activeFilter),
-    [farmers, activeFilter]
+    () =>
+      filterFarmers(farmers, activeFilter).filter((farmer) =>
+        matchesFarmerName(farmer, searchQuery),
+      ),
+    [farmers, activeFilter, searchQuery]
   );
 
   async function onRefresh() {
@@ -183,10 +194,34 @@ export default function FarmerDashboardScreen({ navigation, route }) {
         />
       </View>
 
+      <View style={styles.searchRow}>
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search farmer name"
+          placeholderTextColor={colors.smokeLight}
+          style={styles.search}
+          autoCorrect={false}
+          autoCapitalize="words"
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+        />
+        {searchQuery.length > 0 ? (
+          <Pressable
+            onPress={() => setSearchQuery("")}
+            style={styles.searchClear}
+            accessibilityLabel="Clear search"
+          >
+            <Text style={styles.searchClearText}>Clear</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
       <FlatList
         style={styles.list}
         data={filteredFarmers}
         keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -206,16 +241,20 @@ export default function FarmerDashboardScreen({ navigation, route }) {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>
-              {activeFilter === "all"
-                ? "No farmers yet"
-                : `No ${FILTERS[activeFilter].heading.toLowerCase()}`}
+              {searchQuery.trim()
+                ? "No matching farmers"
+                : activeFilter === "all"
+                  ? "No farmers yet"
+                  : `No ${FILTERS[activeFilter].heading.toLowerCase()}`}
             </Text>
             <Text style={styles.emptyText}>
-              {activeFilter === "all"
-                ? listMode === "repeat"
-                  ? "No farmers yet. Onboard under New Farmer, then return here to update them."
-                  : "Use New Farmer from Farmers Network, or tap +."
-                : "Try another filter or pull to refresh."}
+              {searchQuery.trim()
+                ? `No farmer name matches “${searchQuery.trim()}”.`
+                : activeFilter === "all"
+                  ? listMode === "repeat"
+                    ? "No farmers yet. Onboard under New Farmer, then return here to update them."
+                    : "Use New Farmer from Farmers Network, or tap +."
+                  : "Try another filter or pull to refresh."}
             </Text>
           </View>
         }
@@ -273,7 +312,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md
+    marginBottom: spacing.sm
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  search: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    color: colors.text,
+    backgroundColor: colors.white,
+  },
+  searchClear: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  searchClearText: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: colors.brunswick,
   },
   statTile: {
     flex: 1,

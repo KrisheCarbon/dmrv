@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
 import ProducerDocumentsSection from "../ProducerDocumentsSection";
 import { deleteProducer, getProducer } from "../actions";
+import { unwrapQuery } from "@/lib/queryResult";
 import {
   affiliationFromProducer,
   formatProducerClass,
@@ -50,7 +51,10 @@ export default function BiocharProducerViewPage() {
     setError(null);
 
     try {
-      const producer = await getProducer(id);
+      const producer = unwrapQuery(
+        await getProducer(id),
+        "Failed to load producer",
+      );
       setData(producer);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load producer");

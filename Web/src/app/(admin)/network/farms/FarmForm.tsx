@@ -18,6 +18,7 @@ import {
   type ClusterVillageRecord,
   type FarmUpsertPayload,
 } from "@krishecarbon/shared";
+import { unwrapQuery } from "@/lib/queryResult";
 
 const OTHER_CROP = "Other";
 
@@ -181,7 +182,10 @@ export default function FarmForm({
     async function loadVillages() {
       setVillagesLoading(true);
       try {
-        const options = await listClusterVillages();
+        const options = unwrapQuery(
+          await listClusterVillages(),
+          "Failed to load villages",
+        );
         if (cancelled) return;
         setVillages(options);
         if (!form.cluster_village_id) {

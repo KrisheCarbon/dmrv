@@ -1,6 +1,6 @@
 "use server";
 
-import { backendFetch } from "@/lib/backendApi";
+import { backendFetch, backendQuery } from "@/lib/backendApi";
 import type { ClusterDetail, ClusterFormOptions } from "@/types";
 import type { ClusterVillageInput, ClusterVillageRecord } from "@krishecarbon/shared";
 
@@ -12,19 +12,19 @@ export interface ClusterSavePayload {
 }
 
 export async function listClusters() {
-  return backendFetch<ClusterDetail[]>("/clusters");
+  return backendQuery<ClusterDetail[]>("/clusters");
 }
 
 export async function getCluster(id: string) {
-  return backendFetch<ClusterDetail>(`/clusters/${id}`);
+  return backendQuery<ClusterDetail>(`/clusters/${id}`);
 }
 
 export async function getClusterFormOptions() {
-  return backendFetch<ClusterFormOptions>("/clusters/form-options");
+  return backendQuery<ClusterFormOptions>("/clusters/form-options");
 }
 
 export async function listClusterVillages() {
-  return backendFetch<ClusterVillageRecord[]>("/clusters/village-options");
+  return backendQuery<ClusterVillageRecord[]>("/clusters/village-options");
 }
 
 export async function createCluster(payload: ClusterSavePayload) {

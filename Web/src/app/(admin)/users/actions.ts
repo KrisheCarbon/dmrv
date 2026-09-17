@@ -1,30 +1,25 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
 import {
   assertCanAssignRole,
   assertCanEditUser,
   canManageUsers,
   isClimapreneurSupervisorSwap,
+  isIndianMobileLogin,
   isUserRole,
+  toLocalIndianMobile,
   type UserRole,
 } from "@krishecarbon/shared";
 import { getSignupRedirect, getSiteUrl } from "@/lib/siteUrl";
-import { getServiceRoleKey, supabaseAnonKey, supabaseUrl } from "@/lib/env";
+import { getServiceRoleKey, supabaseUrl } from "@/lib/env";
+import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import type { CreateUserResult, UserFormData } from "@/types";
 
 const admin = createClient(supabaseUrl, getServiceRoleKey());
 
 async function getActorRole(): Promise<UserRole> {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      get: (name) => cookieStore.get(name)?.value,
-    },
-  });
+  const supabase = await createServerSupabaseClient();
 
   const {
     data: { user },
@@ -63,6 +58,30 @@ function requirePassword(password: string | undefined, label = "Password"): stri
   return value;
 }
 
+function requirePhone(phone: string | undefined): string {
+  const value = phone?.trim() ?? "";
+  if (!value || !isIndianMobileLogin(value)) {
+    throw new Error("Enter a valid 10-digit mobile number (optionally with +91).");
+  }
+  return toLocalIndianMobile(value);
+}
+
+async function assertPhoneAvailable(phone: string, excludeId?: string) {
+  const { data, error } = await admin.from("users").select("id, phone");
+  if (error) throw new Error(error.message);
+
+  const taken = (data ?? []).some(
+    (row) =>
+      row.id !== excludeId &&
+      row.phone &&
+      toLocalIndianMobile(row.phone) === phone,
+  );
+
+  if (taken) {
+    throw new Error("That mobile number is already used by another account.");
+  }
+}
+
 export async function createUser(form: UserFormData): Promise<CreateUserResult> {
   const actorRole = await getActorRole();
   assertCanAssignRole(actorRole, form.role);
@@ -71,6 +90,9 @@ export async function createUser(form: UserFormData): Promise<CreateUserResult> 
   if (!isValidEmail(email)) {
     throw new Error("Enter a valid email address. Personal inboxes like Gmail are allowed.");
   }
+
+  const phone = requirePhone(form.phone);
+  await assertPhoneAvailable(phone);
 
   const method = form.onboardingMethod === "password" ? "password" : "invite";
   const activateNow = method === "password" ? Boolean(form.activateNow) : false;
@@ -105,7 +127,7 @@ export async function createUser(form: UserFormData): Promise<CreateUserResult> 
     const { error: dbError } = await admin.from("users").insert({
       id: authUserId,
       email,
-      phone: form.phone,
+      phone,
       role: form.role,
       first_name: form.first_name,
       middle_name: form.middle_name || null,
@@ -123,6 +145,7 @@ export async function createUser(form: UserFormData): Promise<CreateUserResult> 
 
   return {
     email,
+    phone,
     signupUrl: `${getSiteUrl()}/signup`,
     emailSent: method === "invite",
     activated: status === "active",
@@ -405,6 +428,9 @@ export async function updateUser(
   assertCanEditUser(actorRole, target.role);
   assertCanAssignRole(actorRole, form.role);
 
+  const phone = requirePhone(form.phone);
+  await assertPhoneAvailable(phone, id);
+
   if (isClimapreneurSupervisorSwap(target.role, form.role)) {
     await applyRoleChangePlan(id, target.role, form.role, roleChange);
   }
@@ -412,7 +438,7 @@ export async function updateUser(
   const { error } = await admin
     .from("users")
     .update({
-      phone: form.phone,
+      phone,
       role: form.role,
       status: form.status,
       first_name: form.first_name,

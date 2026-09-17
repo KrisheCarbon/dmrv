@@ -90,6 +90,7 @@ export default function AddUserModal({
     return (
       <UserCreatedModal
         email={created.email}
+        phone={created.phone}
         emailSent={created.emailSent}
         activated={created.activated}
         password={created.password}
@@ -179,8 +180,9 @@ export default function AddUserModal({
                   }
                 />
                 <span>
-                  Set a password here — no email needed. Best for climapreneurs
-                  and personal inboxes.
+                  Set a password here — no email needed. They can sign in with
+                  email or their mobile number. Best for climapreneurs and
+                  personal inboxes.
                 </span>
               </label>
               <label className="flex items-start gap-2 text-sm">

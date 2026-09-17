@@ -9,6 +9,7 @@ import {
 } from "./actions";
 import type { ClusterDetail, ClusterPerson, ClusterVillage } from "@/types";
 import { villagePlaceLine, type ClusterVillageInput } from "@krishecarbon/shared";
+import { unwrapQuery } from "@/lib/queryResult";
 
 interface ClusterFormProps {
   mode: "create" | "edit";
@@ -162,7 +163,10 @@ export default function ClusterForm({
     async function loadOptions() {
       setOptionsLoading(true);
       try {
-        const options = await getClusterFormOptions();
+        const options = unwrapQuery(
+          await getClusterFormOptions(),
+          "Failed to load supervisors and climapreneurs",
+        );
         setSupervisors(options.supervisors);
         setClimapreneurs(options.climapreneurs);
       } catch (err) {

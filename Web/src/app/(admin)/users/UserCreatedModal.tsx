@@ -4,6 +4,7 @@ import { useState } from "react";
 
 interface UserCreatedModalProps {
   email: string;
+  phone?: string;
   emailSent?: boolean;
   activated?: boolean;
   password?: string;
@@ -12,6 +13,7 @@ interface UserCreatedModalProps {
 
 export default function UserCreatedModal({
   email,
+  phone,
   emailSent = true,
   activated = false,
   password,
@@ -21,9 +23,10 @@ export default function UserCreatedModal({
   const passwordReady = Boolean(password);
 
   async function copyLogin() {
-    const text = password
-      ? `Email: ${email}\nPassword: ${password}`
-      : email;
+    const lines = [`Email: ${email}`];
+    if (phone) lines.push(`Mobile: ${phone}`);
+    if (password) lines.push(`Password: ${password}`);
+    const text = lines.join("\n");
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -41,7 +44,7 @@ export default function UserCreatedModal({
           <>
             <p className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
               No setup email was sent. Share these login details so they can
-              sign in to the mobile app
+              sign in with email or mobile number
               {activated ? " now" : " after you mark them Active"}.
             </p>
             <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 space-y-1">
@@ -49,6 +52,12 @@ export default function UserCreatedModal({
                 <span className="text-gray-500">Email:</span>{" "}
                 <span className="font-medium break-all">{email}</span>
               </p>
+              {phone ? (
+                <p className="text-sm">
+                  <span className="text-gray-500">Mobile:</span>{" "}
+                  <span className="font-medium">{phone}</span>
+                </p>
+              ) : null}
               <p className="text-sm">
                 <span className="text-gray-500">Password:</span>{" "}
                 <span className="font-mono font-medium">{password}</span>
@@ -59,7 +68,7 @@ export default function UserCreatedModal({
               onClick={copyLogin}
               className="text-sm font-medium text-brand-dark hover:underline"
             >
-              {copied ? "Copied" : "Copy email and password"}
+              {copied ? "Copied" : "Copy login details"}
             </button>
           </>
         ) : (

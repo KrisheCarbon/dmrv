@@ -15,6 +15,7 @@ import {
 } from "@/lib/uploadBiocharProducerDocs";
 import { createProducer, updateProducer } from "./actions";
 import { listClusters } from "../clusters/actions";
+import { unwrapQuery } from "@/lib/queryResult";
 import {
   affiliationFromProducer,
   affiliationToSelectValue,
@@ -1023,7 +1024,7 @@ function ClusterSection({
     async function fetchClusters() {
       setLoading(true);
       try {
-        const data = await listClusters();
+        const data = unwrapQuery(await listClusters(), "Failed to load clusters");
         setClusters(
           data.map((cluster) => ({
             id: cluster.id,

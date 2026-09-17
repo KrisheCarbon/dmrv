@@ -1,8 +1,6 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@supabase/ssr";
+import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { canAccessFarmersNetworkPortal } from "@/lib/roles";
-import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 import type { ReactNode } from "react";
 
 export default async function NetworkLayout({
@@ -10,13 +8,7 @@ export default async function NetworkLayout({
 }: {
   children: ReactNode;
 }) {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      get: (name) => cookieStore.get(name)?.value,
-    },
-  });
+  const supabase = await createServerSupabaseClient();
 
   const {
     data: { user },

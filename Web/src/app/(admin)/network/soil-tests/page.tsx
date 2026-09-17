@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import Modal from "@/components/Modal";
 import SignedStorageLink from "@/components/SignedStorageLink";
 import DataTable from "@/components/table/DataTable";
+import { unwrapQuery } from "@/lib/queryResult";
 import { soilTestStatusLabel, SOIL_REPORTS_BUCKET } from "@krishecarbon/shared";
 import type { SoilTestRecord } from "@krishecarbon/shared";
 import {
@@ -54,7 +55,10 @@ export default function NetworkSoilTestsPage() {
     setLoading(true);
     setError(null);
     try {
-      const tests = await listSoilTests();
+      const tests = unwrapQuery(
+        await listSoilTests(),
+        "Failed to load soil tests",
+      );
       setRows(tests.map(mapRow));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load soil tests");

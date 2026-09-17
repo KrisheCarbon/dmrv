@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { deleteCluster, getCluster } from "../actions";
 import type { ClusterDetail, ClusterPerson } from "@/types";
+import { unwrapQuery } from "@/lib/queryResult";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -42,7 +43,7 @@ export default function ClusterDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      setData(await getCluster(id));
+      setData(unwrapQuery(await getCluster(id), "Failed to load cluster"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load cluster");
       setData(null);

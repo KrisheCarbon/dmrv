@@ -1,7 +1,13 @@
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getBackendUrl } from "@/lib/env";
+import type { QueryResult } from "@/lib/queryResult";
 
-function parseApiError(body: unknown, status: number): string {
+export type { QueryResult };
+
+function parseApiError(body: unknown, status: number, path: string): string {
+  if (status === 404) {
+    return `API ${path} was not found on ${getBackendUrl()}. The running backend is missing this route.`;
+  }
   if (body && typeof body === "object" && "message" in body) {
     const message = (body as { message: string | string[] }).message;
     return Array.isArray(message) ? message.join(", ") : message;
@@ -74,8 +80,23 @@ export async function backendFetch<T>(
   const body: unknown = JSON.parse(text);
 
   if (!response.ok) {
-    throw new Error(parseApiError(body, response.status));
+    throw new Error(parseApiError(body, response.status, path));
   }
 
   return body as T;
+}
+
+/** GET/list helper that returns errors as data so Next.js does not hide them. */
+export async function backendQuery<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<QueryResult<T>> {
+  try {
+    return { data: await backendFetch<T>(path, init), error: null };
+  } catch (err) {
+    const error =
+      err instanceof Error ? err.message : `Request failed for ${path}`;
+    console.error(`backendQuery ${path}:`, error);
+    return { data: null, error };
+  }
 }

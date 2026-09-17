@@ -182,6 +182,70 @@ async function requestBackend<T>(
   return body as T;
 }
 
+export async function backendPublicFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  let backendUrl = await resolveBackendUrl();
+
+  try {
+    return await requestBackendPublic<T>(backendUrl, path, init);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("Network request failed")) {
+      throw err;
+    }
+
+    clearBackendUrlCache();
+    backendUrl = await resolveBackendUrl();
+    return await requestBackendPublic<T>(backendUrl, path, init);
+  }
+}
+
+async function requestBackendPublic<T>(
+  backendUrl: string,
+  path: string,
+  init: RequestInit,
+): Promise<T> {
+  const headers = new Headers(init.headers);
+
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${backendUrl}${path}`, {
+      ...init,
+      headers,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Network request failed (${message})`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  if (!text) {
+    if (!response.ok) {
+      throw new Error(`Request failed (${response.status})`);
+    }
+    return undefined as T;
+  }
+
+  const body: unknown = JSON.parse(text);
+
+  if (!response.ok) {
+    throw new Error(parseApiError(body, response.status));
+  }
+
+  return body as T;
+}
+
 export async function backendFetch<T>(
   path: string,
   init: RequestInit = {},

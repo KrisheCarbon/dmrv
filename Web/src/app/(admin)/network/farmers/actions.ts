@@ -1,16 +1,14 @@
 "use server";
 
-import { backendFetch } from "@/lib/backendApi";
+import { backendFetch, backendQuery } from "@/lib/backendApi";
 import type {
   FarmerConsentRecord,
   FarmerConsentUpsertPayload,
 } from "@krishecarbon/shared";
 
-export async function listFarmerConsents(
-  farmId?: string,
-): Promise<FarmerConsentRecord[]> {
+export async function listFarmerConsents(farmId?: string) {
   const query = farmId ? `?farmId=${encodeURIComponent(farmId)}` : "";
-  return backendFetch<FarmerConsentRecord[]>(`/farmer-consents${query}`);
+  return backendQuery<FarmerConsentRecord[]>(`/farmer-consents${query}`);
 }
 
 export async function createFarmerConsent(

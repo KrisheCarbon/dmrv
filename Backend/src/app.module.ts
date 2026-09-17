@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { SupabaseModule } from './supabase/supabase.module';
+import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { FarmsModule } from './farms/farms.module';
 import { KontikkisModule } from './kontikkis/kontikkis.module';
@@ -24,6 +25,7 @@ import { ClustersModule } from './clusters/clusters.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     SupabaseModule,
+    AuthModule,
     HealthModule,
     FarmsModule,
     KontikkisModule,

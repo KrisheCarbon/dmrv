@@ -69,22 +69,22 @@ export default function FarmersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [farmResult, fieldResult, testResult] = await Promise.allSettled([
+      const [farmResult, fieldResult, testResult] = await Promise.all([
         listFarms(),
         listFarmFields(),
         listSoilTests(),
       ]);
 
-      if (farmResult.status === "rejected") {
-        throw farmResult.reason;
+      if (farmResult.error || farmResult.data == null) {
+        throw new Error(farmResult.error || "Failed to load farmers");
       }
-      setFarms(farmResult.value);
-      setFields(fieldResult.status === "fulfilled" ? fieldResult.value : []);
-      setTests(testResult.status === "fulfilled" ? testResult.value : []);
+      setFarms(farmResult.data);
+      setFields(fieldResult.data ?? []);
+      setTests(testResult.data ?? []);
 
       const extraErrors = [fieldResult, testResult]
-        .filter((result) => result.status === "rejected")
-        .map((result) => errorMessage(result.reason));
+        .map((result) => result.error)
+        .filter((message): message is string => Boolean(message));
       if (extraErrors.length) {
         setError(`Some farmer network data could not load: ${extraErrors.join(" · ")}`);
       }

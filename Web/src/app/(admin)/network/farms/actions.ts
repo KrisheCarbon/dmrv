@@ -1,15 +1,15 @@
 "use server";
 
 import type { FarmUpsertPayload } from "@krishecarbon/shared";
-import { backendFetch } from "@/lib/backendApi";
+import { backendFetch, backendQuery } from "@/lib/backendApi";
 import type { FarmDetail } from "@/types";
 
-export async function listFarms(): Promise<FarmDetail[]> {
-  return backendFetch<FarmDetail[]>("/farms");
+export async function listFarms() {
+  return backendQuery<FarmDetail[]>("/farms");
 }
 
-export async function getFarm(id: string): Promise<FarmDetail> {
-  return backendFetch<FarmDetail>(`/farms/${id}`);
+export async function getFarm(id: string) {
+  return backendQuery<FarmDetail>(`/farms/${id}`);
 }
 
 export async function createFarm(

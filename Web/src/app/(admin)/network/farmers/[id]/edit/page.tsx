@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import FarmForm from "../../../farms/FarmForm";
 import { getFarm } from "../../../farms/actions";
 import type { FarmDetail } from "@/types";
+import { unwrapQuery } from "@/lib/queryResult";
 
 export default function FarmerEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,7 +17,7 @@ export default function FarmerEditPage() {
   useEffect(() => {
     if (!id) return;
     getFarm(id)
-      .then(setData)
+      .then((result) => setData(unwrapQuery(result, "Failed to load farmer")))
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load farmer");
         setData(null);

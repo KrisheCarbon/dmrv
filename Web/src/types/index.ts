@@ -94,6 +94,7 @@ export interface SignupCheckResult {
 
 export interface CreateUserResult {
   email: string;
+  phone: string;
   signupUrl: string;
   emailSent: boolean;
   activated: boolean;

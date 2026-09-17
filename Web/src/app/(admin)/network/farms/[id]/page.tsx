@@ -9,6 +9,7 @@ import { listSoilTests } from "../../soil-tests/actions";
 import type { FarmerCrop, FarmDetail } from "@/types";
 import type { FarmFieldRecord, SoilTestRecord } from "@krishecarbon/shared";
 import { soilTestStatusLabel } from "@krishecarbon/shared";
+import { unwrapQuery } from "@/lib/queryResult";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -40,14 +41,14 @@ export default function FarmDetailPage() {
     setError(null);
 
     try {
-      const farm = await getFarm(id);
+      const farm = unwrapQuery(await getFarm(id), "Failed to load farm");
       setData(farm);
-      const [fieldRows, soilRows] = await Promise.all([
-        listFarmFields(id).catch(() => []),
-        listSoilTests(id).catch(() => []),
+      const [fieldResult, soilResult] = await Promise.all([
+        listFarmFields(id),
+        listSoilTests(id),
       ]);
-      setFields(fieldRows);
-      setSoilTests(soilRows);
+      setFields(fieldResult.data ?? []);
+      setSoilTests(soilResult.data ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load farm");
       setData(null);

@@ -1,17 +1,17 @@
 "use server";
 
-import { backendFetch } from "@/lib/backendApi";
+import { backendFetch, backendQuery } from "@/lib/backendApi";
 import type { BiocharProducerDetail } from "@/types";
 import type { ProducerSavePayload } from "./producerLib";
 
 export type { ProducerSavePayload, ProducerSitePayload } from "./producerLib";
 
 export async function listProducers() {
-  return backendFetch<BiocharProducerDetail[]>("/biochar-producers");
+  return backendQuery<BiocharProducerDetail[]>("/biochar-producers");
 }
 
 export async function getProducer(id: string) {
-  return backendFetch<BiocharProducerDetail>(`/biochar-producers/${id}`);
+  return backendQuery<BiocharProducerDetail>(`/biochar-producers/${id}`);
 }
 
 export async function createProducer(payload: ProducerSavePayload) {
