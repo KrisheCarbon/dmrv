@@ -5,6 +5,7 @@ import {
   Pressable,
   Modal,
   FlatList,
+  TextInput,
   StyleSheet,
 } from "react-native";
 import { colors, fonts, spacing, radius } from "../constants/theme";
@@ -23,6 +24,8 @@ type FormPickerProps = {
   options: FormPickerOption[];
   onValueChange: (value: string) => void;
   enabled?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 };
 
 export default function FormPicker({
@@ -32,17 +35,39 @@ export default function FormPicker({
   options,
   onValueChange,
   enabled = true,
+  searchable = false,
+  searchPlaceholder = "Search…",
 }: FormPickerProps) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   const selectedLabel = useMemo(() => {
     const match = options.find((option) => option.value === value);
     return match?.label ?? "";
   }, [options, value]);
 
+  const filteredOptions = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return options;
+    return options.filter((option) =>
+      `${option.label} ${option.hint ?? ""}`.toLowerCase().includes(needle),
+    );
+  }, [options, query]);
+
+  function openPicker() {
+    if (!enabled) return;
+    setQuery("");
+    setOpen(true);
+  }
+
+  function closePicker() {
+    setQuery("");
+    setOpen(false);
+  }
+
   function select(next: string) {
     onValueChange(next);
-    setOpen(false);
+    closePicker();
   }
 
   return (
@@ -54,7 +79,7 @@ export default function FormPicker({
           !enabled && styles.fieldDisabled,
           pressed && enabled && styles.fieldPressed,
         ]}
-        onPress={() => enabled && setOpen(true)}
+        onPress={openPicker}
         disabled={!enabled}
       >
         <Text
@@ -70,17 +95,37 @@ export default function FormPicker({
         visible={open}
         transparent
         animationType="fade"
-        onRequestClose={() => setOpen(false)}
+        onRequestClose={closePicker}
       >
         <View style={styles.overlay}>
-          <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
+          <Pressable style={styles.backdrop} onPress={closePicker} />
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>{label}</Text>
+            {searchable ? (
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder={searchPlaceholder}
+                placeholderTextColor={colors.smokeLight}
+                style={styles.search}
+                autoCorrect={false}
+                autoCapitalize="none"
+                returnKeyType="search"
+                clearButtonMode="while-editing"
+              />
+            ) : null}
             <FlatList
-              data={options}
+              data={filteredOptions}
               keyExtractor={(item) => item.value}
               keyboardShouldPersistTaps="handled"
               style={styles.list}
+              ListEmptyComponent={
+                <Text style={styles.empty}>
+                  {query.trim()
+                    ? "No options match that search."
+                    : "No options available."}
+                </Text>
+              }
               renderItem={({ item }) => {
                 const selected = item.value === value;
                 return (
@@ -110,7 +155,7 @@ export default function FormPicker({
                 );
               }}
             />
-            <Pressable style={styles.cancelBtn} onPress={() => setOpen(false)}>
+            <Pressable style={styles.cancelBtn} onPress={closePicker}>
               <Text style={styles.cancelText}>Cancel</Text>
             </Pressable>
           </View>
@@ -184,6 +229,27 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
+  },
+  search: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    color: colors.text,
+    backgroundColor: colors.white,
+  },
+  empty: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.lg,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    color: colors.smoke,
+    textAlign: "center",
   },
   list: {
     paddingHorizontal: spacing.sm,

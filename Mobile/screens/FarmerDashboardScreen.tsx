@@ -56,10 +56,24 @@ function filterFarmers(farmers, activeFilter) {
   return farmers;
 }
 
-function matchesFarmerName(farmer, query: string) {
+function farmerSearchText(farmer): string {
+  return [
+    farmer.farmer_name,
+    farmer.mobile_number,
+    farmer.farmer_code,
+    farmer.village,
+    farmer.cluster_name,
+    farmer.mandal,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function matchesFarmerSearch(farmer, query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return String(farmer.farmer_name ?? "").toLowerCase().includes(q);
+  return farmerSearchText(farmer).includes(q);
 }
 
 function StatTile({ label, value, active, onPress }) {
@@ -136,7 +150,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
   const filteredFarmers = useMemo(
     () =>
       filterFarmers(farmers, activeFilter).filter((farmer) =>
-        matchesFarmerName(farmer, searchQuery),
+        matchesFarmerSearch(farmer, searchQuery),
       ),
     [farmers, activeFilter, searchQuery]
   );
@@ -198,11 +212,11 @@ export default function FarmerDashboardScreen({ navigation, route }) {
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
-          placeholder="Search farmer name"
+          placeholder="Search name, mobile, or farmer ID"
           placeholderTextColor={colors.smokeLight}
           style={styles.search}
           autoCorrect={false}
-          autoCapitalize="words"
+          autoCapitalize="none"
           returnKeyType="search"
           clearButtonMode="while-editing"
         />
@@ -249,7 +263,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
             </Text>
             <Text style={styles.emptyText}>
               {searchQuery.trim()
-                ? `No farmer name matches “${searchQuery.trim()}”.`
+                ? `No farmer matches “${searchQuery.trim()}”.`
                 : activeFilter === "all"
                   ? listMode === "repeat"
                     ? "No farmers yet. Onboard under New Farmer, then return here to update them."

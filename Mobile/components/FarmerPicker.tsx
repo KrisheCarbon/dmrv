@@ -114,6 +114,8 @@ export default function FarmerPicker({
         options={options}
         onValueChange={onChange}
         placeholder="Select farmer…"
+        searchable
+        searchPlaceholder="Search name, mobile, or farmer ID"
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
