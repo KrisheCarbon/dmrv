@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.dmrvapp",
+      "bundleIdentifier": "com.krishecarbon.dmrv",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "DMRV needs Bluetooth to connect to kiln temperature sensors.",
         "NSBluetoothPeripheralUsageDescription": "DMRV needs Bluetooth to download encrypted batch data from kiln sensors."
@@ -28,7 +28,7 @@
       },
       "edgeToEdgeEnabled": true,
       "usesCleartextTraffic": true,
-      "package": "com.anonymous.dmrvapp",
+      "package": "com.krishecarbon.dmrv",
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",

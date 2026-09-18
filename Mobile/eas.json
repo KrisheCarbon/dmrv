@@ -23,12 +23,32 @@
         "EXPO_PUBLIC_BACKEND_URL": "https://krishecarbon-backend.onrender.com"
       }
     },
+    "play-internal": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://krishecarbon-backend.onrender.com"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production"
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "track": "production"
+      }
+    },
+    "play-internal": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "completed"
+      }
+    }
   }
 }

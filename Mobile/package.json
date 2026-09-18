@@ -11,6 +11,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "eas:build:android": "eas build --profile preview --platform android --non-interactive",
+    "eas:build:play": "eas build --profile play-internal --platform android --non-interactive",
+    "eas:submit:play": "eas submit --profile play-internal --platform android --latest --non-interactive",
     "eas:update": "eas update --channel preview --non-interactive --message"
   },
   "dependencies": {

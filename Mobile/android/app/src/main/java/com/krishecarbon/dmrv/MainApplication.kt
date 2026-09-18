@@ -1,4 +1,4 @@
-package com.anonymous.dmrvapp
+package com.krishecarbon.dmrv
 
 import android.app.Application
 import android.content.res.Configuration
