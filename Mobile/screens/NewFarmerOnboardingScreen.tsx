@@ -358,8 +358,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       >
         <Text style={styles.title}>{isEdit ? "Edit Farmer" : "New Farmer"}</Text>
         <Text style={styles.subtitle}>
-          Farmer info only (no Aadhaar). Add cultivated land, the major crop, and
-          biochar interest here. Farms, soil and consent are separate modules.
+          Profile, land, and major crop. Farms and soil are separate.
         </Text>
 
         <Text style={styles.section}>Farmer profile</Text>
@@ -514,7 +513,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           </Text>
         ) : (
           <Text style={styles.hint}>
-            GPS optional for profile; capture it on farms when needed.
+            GPS optional here. Capture it on farms if needed.
           </Text>
         )}
 
@@ -556,11 +555,11 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
     marginBottom: spacing.sm,
-    lineHeight: 20,
+    lineHeight: 16,
   },
   section: {
     marginTop: spacing.md,

@@ -115,7 +115,7 @@ export default function SoilReportUploadScreen({ navigation }) {
       >
         <Text style={styles.title}>Soil reports</Text>
         <Text style={styles.subtitle}>
-          Select an accepted sample, then upload the lab PDF or photograph the results.
+          Upload the lab PDF or a photo of results.
         </Text>
 
         {options.length ? (
@@ -163,10 +163,10 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
     marginBottom: spacing.sm,
   },
   locBtn: {

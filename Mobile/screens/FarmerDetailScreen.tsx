@@ -9,7 +9,7 @@ import {
   Pressable,
   Image,
 } from "react-native";
-import { isFarmerProfileComplete, soilTestStatusLabel, soilSampleToneFromStatuses } from "@krishecarbon/shared";
+import { fieldSeasonLabel, isFarmerProfileComplete, soilTestStatusLabel, soilSampleToneFromStatuses } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import { farmerToFormData, getFarmerByIdLocal } from "../services/farmerService";
 import {
@@ -280,7 +280,10 @@ export default function FarmerDetailScreen({ route, navigation }) {
                   />
                   <DetailRow label="Water" value={field.waterSource} />
                   <DetailRow label="Crop" value={field.cropName} />
-                  <DetailRow label="Season" value={field.season} />
+                  <DetailRow
+                    label="Season"
+                    value={field.season ? fieldSeasonLabel(field.season) : null}
+                  />
                   <DetailRow
                     label="Sowing / harvest"
                     value={
@@ -290,7 +293,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
                     }
                   />
                   <DetailRow
-                    label="GPS"
+                    label="Location"
                     value={
                       field.latitude != null
                         ? `${Number(field.latitude).toFixed(5)}, ${Number(field.longitude).toFixed(5)}`
@@ -363,6 +366,14 @@ export default function FarmerDetailScreen({ route, navigation }) {
                   <DetailRow
                     label="Supervisor"
                     value={t.submittedToSupervisorName}
+                  />
+                  <DetailRow
+                    label="Sampling points"
+                    value={
+                      t.sampleSites?.length
+                        ? `${t.sampleSites.filter((site) => site.photo_uri || site.photo_url).length} photographed`
+                        : null
+                    }
                   />
                   {t.samplePhotoUri ? (
                     <Image source={{ uri: t.samplePhotoUri }} style={styles.thumb} />

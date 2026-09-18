@@ -1,8 +1,11 @@
 import {
   calculateEstimatedBiomass,
+  completedSoilSampleSites,
   isFarmerProfileComplete,
+  MIN_SOIL_SAMPLE_SITES,
   soilSampleToneFromStatuses,
   type FarmerCrop,
+  type SoilSampleSite,
   type SoilSampleTone,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
@@ -165,6 +168,15 @@ export async function saveFieldLocal(
   const area = Number(form.calculatedArea ?? 0);
   if (!area || area <= 0) {
     throw new Error("Plot area (acres) is required.");
+  }
+  if (!form.boundaryGeojson) {
+    throw new Error("Farm boundary is required. Draw it on the map.");
+  }
+  if (!(form.photos?.length)) {
+    throw new Error("Take at least 1 farm photograph.");
+  }
+  if ((form.photos?.length ?? 0) > 5) {
+    throw new Error("Maximum 5 farm photographs.");
   }
 
   const { cap, remaining } = await remainingCultivatedAcres(farmerId, existingId);
@@ -492,6 +504,7 @@ export type SoilTestFormInput = {
   sampleLng?: number | null;
   sampleLocation?: string;
   samplePhotoUri?: string | null;
+  sampleSites?: SoilSampleSite[];
   labSource?: string;
   parametersText?: string;
   resultsText?: string;
@@ -572,6 +585,15 @@ export async function saveSoilTestLocal(
     form.collectedByRole === "manager";
   const status =
     form.status || (isSupervisor ? "accepted" : "collected");
+  const sampleSites = form.sampleSites ?? [];
+  if (completedSoilSampleSites(sampleSites).length < MIN_SOIL_SAMPLE_SITES) {
+    throw new Error(
+      `Photograph at least ${MIN_SOIL_SAMPLE_SITES} sampling points before mixing the soil.`,
+    );
+  }
+  if (!form.samplePhotoUri) {
+    throw new Error("Take a photo of the mixed soil sample.");
+  }
   const row = soilTestToRow({
     farmerId,
     fieldId: fieldIds[0] ?? null,
@@ -583,6 +605,7 @@ export async function saveSoilTestLocal(
     sampleLocation: form.sampleLocation?.trim() || null,
     samplePhotoUri: form.samplePhotoUri ?? null,
     samplePhotoUrl: null,
+    sampleSites,
     receivePhotoUri: null,
     receivePhotoUrl: null,
     labSource: form.labSource?.trim() || null,

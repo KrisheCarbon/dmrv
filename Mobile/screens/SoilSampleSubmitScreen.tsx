@@ -114,7 +114,7 @@ export default function SoilSampleSubmitScreen({ navigation }) {
       <View style={styles.header}>
         <Text style={styles.title}>Submit samples</Text>
         <Text style={styles.subtitle}>
-          Collected samples stay here until you select a supervisor and submit.
+          Select a supervisor, then submit collected samples.
         </Text>
         {supervisors.length ? (
           <FormPicker
@@ -180,10 +180,10 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 4,
     marginBottom: spacing.sm,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
   },
   hint: {
     fontSize: 13,

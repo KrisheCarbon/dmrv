@@ -106,7 +106,7 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
         {receivePhoto ? (
           <Image source={{ uri: receivePhoto }} style={styles.photo} />
         ) : (
-          <Text style={styles.hint}>Photograph the physical sample before deciding.</Text>
+          <Text style={styles.hint}>Photograph the sample first.</Text>
         )}
 
         <View style={styles.actions}>
@@ -145,10 +145,10 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
     marginBottom: spacing.sm,
   },
   section: {

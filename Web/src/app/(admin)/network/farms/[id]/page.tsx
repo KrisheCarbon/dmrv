@@ -8,7 +8,7 @@ import { listFarmFields } from "../../fields/actions";
 import { listSoilTests } from "../../soil-tests/actions";
 import type { FarmerCrop, FarmDetail } from "@/types";
 import type { FarmFieldRecord, SoilTestRecord } from "@krishecarbon/shared";
-import { soilTestStatusLabel } from "@krishecarbon/shared";
+import { fieldSeasonLabel, soilTestStatusLabel } from "@krishecarbon/shared";
 import { unwrapQuery } from "@/lib/queryResult";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -195,7 +195,9 @@ export default function FarmDetailPage() {
                   </DetailRow>
                   <DetailRow label="Water">{field.water_source || "—"}</DetailRow>
                   <DetailRow label="Crop">{field.crop_name || "—"}</DetailRow>
-                  <DetailRow label="Season">{field.season || "—"}</DetailRow>
+                  <DetailRow label="Season">
+                    {field.season ? fieldSeasonLabel(field.season) : "—"}
+                  </DetailRow>
                   <DetailRow label="Sowing">{field.sowing_date || "—"}</DetailRow>
                   <DetailRow label="Harvest">{field.harvest_date || "—"}</DetailRow>
                 </dl>

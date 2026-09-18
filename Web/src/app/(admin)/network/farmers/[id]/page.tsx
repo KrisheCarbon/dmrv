@@ -38,6 +38,7 @@ import {
   SOIL_REPORTS_BUCKET,
   parseBoundaryGeojson,
   soilTestStatusLabel,
+  fieldSeasonLabel,
 } from "@krishecarbon/shared";
 import { unwrapQuery } from "@/lib/queryResult";
 
@@ -487,7 +488,10 @@ export default function FarmerDetailPage() {
                       </DetailRow>
                       <OptionalRow label="Water" value={field.water_source} />
                       <OptionalRow label="Crop" value={field.crop_name} />
-                      <OptionalRow label="Season" value={field.season} />
+                      <OptionalRow
+                        label="Season"
+                        value={field.season ? fieldSeasonLabel(field.season) : null}
+                      />
                       <OptionalRow
                         label="Sowing / harvest"
                         value={
@@ -631,7 +635,36 @@ export default function FarmerDetailPage() {
                         }
                       />
                       <OptionalRow
-                        label="Sample photo"
+                        label="Sampling points"
+                        value={
+                          test.sample_sites?.length ? (
+                            <div className="space-y-1">
+                              {test.sample_sites.map((site) => (
+                                <div key={site.id} className="text-sm">
+                                  {site.name}
+                                  {site.latitude != null && site.longitude != null
+                                    ? ` · ${Number(site.latitude).toFixed(5)}, ${Number(site.longitude).toFixed(5)}`
+                                    : ""}
+                                  {site.photo_url ? (
+                                    <>
+                                      {" · "}
+                                      <SignedStorageLink
+                                        bucket={FARMER_NETWORK_PHOTOS_BUCKET}
+                                        path={site.photo_url}
+                                        className="font-medium text-brand-dark hover:underline"
+                                      >
+                                        Photo
+                                      </SignedStorageLink>
+                                    </>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null
+                        }
+                      />
+                      <OptionalRow
+                        label="Mixed sample photo"
                         value={
                           test.sample_photo_url ? (
                             <SignedStorageLink

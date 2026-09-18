@@ -181,6 +181,7 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "soil_tests", "field_ids_json", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "sample_photo_uri", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "sample_photo_url", "TEXT");
+  await addColumnIfMissing(db, "soil_tests", "sample_sites_json", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "receive_photo_uri", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "receive_photo_url", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "submitted_to_supervisor_id", "TEXT");

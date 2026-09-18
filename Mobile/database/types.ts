@@ -2,7 +2,11 @@
 // Model classes in database/models/. Field names on the camelCase interfaces
 // intentionally match the old Model property names so call sites elsewhere
 // in the app need minimal changes.
-import type { FarmerCrop } from "@krishecarbon/shared";
+import {
+  parseSoilSampleSites,
+  type FarmerCrop,
+  type SoilSampleSite,
+} from "@krishecarbon/shared";
 import { fromSqliteBool, toSqliteBool } from "./sqlHelpers";
 
 // ---------------------------------------------------------------------------
@@ -461,6 +465,7 @@ export interface SoilTest {
   sampleLocation: string | null;
   samplePhotoUri: string | null;
   samplePhotoUrl: string | null;
+  sampleSites: SoilSampleSite[];
   receivePhotoUri: string | null;
   receivePhotoUrl: string | null;
   labSource: string | null;
@@ -494,6 +499,7 @@ interface SoilTestRowRaw {
   sample_location: string | null;
   sample_photo_uri?: string | null;
   sample_photo_url?: string | null;
+  sample_sites_json?: string | null;
   receive_photo_uri?: string | null;
   receive_photo_url?: string | null;
   lab_source: string | null;
@@ -531,6 +537,7 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
     sampleLocation: row.sample_location,
     samplePhotoUri: row.sample_photo_uri ?? null,
     samplePhotoUrl: row.sample_photo_url ?? null,
+    sampleSites: parseSoilSampleSites(row.sample_sites_json),
     receivePhotoUri: row.receive_photo_uri ?? null,
     receivePhotoUrl: row.receive_photo_url ?? null,
     labSource: row.lab_source,
@@ -565,6 +572,7 @@ export function soilTestToRow(test: Omit<SoilTest, "id">): Record<string, unknow
     sample_location: test.sampleLocation,
     sample_photo_uri: test.samplePhotoUri,
     sample_photo_url: test.samplePhotoUrl,
+    sample_sites_json: JSON.stringify(test.sampleSites ?? []),
     receive_photo_uri: test.receivePhotoUri,
     receive_photo_url: test.receivePhotoUrl,
     lab_source: test.labSource,

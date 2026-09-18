@@ -131,7 +131,7 @@ export default function ConsentFormScreen({ route, navigation }) {
       >
         <Text style={styles.title}>Farmer consent</Text>
         <Text style={styles.subtitle}>
-          Record the signed date, expiry date, and photos of the signed consent.
+          Signed date, expiry, and photos.
         </Text>
 
         <FarmerPicker value={farmerId} onChange={setSelectedFarmerId} />
@@ -187,10 +187,10 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
     marginBottom: spacing.sm,
   },
   section: {

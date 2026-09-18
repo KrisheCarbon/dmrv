@@ -6,6 +6,7 @@ import DataTable from "@/components/table/DataTable";
 import { unwrapQuery } from "@/lib/queryResult";
 import { listFarmFields } from "./actions";
 import type { FarmFieldRecord } from "@krishecarbon/shared";
+import { fieldSeasonLabel } from "@krishecarbon/shared";
 
 interface FieldTableRow {
   id: string;
@@ -41,7 +42,7 @@ export default function NetworkFieldsPage() {
           ownership: String(field.ownership_type),
           area: field.calculated_area != null ? `${field.calculated_area}` : "—",
           crop: field.crop_name || "—",
-          season: field.season || "—",
+          season: field.season ? fieldSeasonLabel(field.season) : "—",
           farmId: field.farm_id,
         })),
       );

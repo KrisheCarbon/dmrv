@@ -71,8 +71,7 @@ export default function FarmersNetworkScreen({ navigation }) {
       <View style={styles.header}>
         <Text style={styles.title}>Farmers Network</Text>
         <Text style={styles.subtitle}>
-          Open Farmers to view people already onboarded. Use the modules below
-          to enter new farmer, farm, soil, or consent information.
+          View farmers, or add farmer, farm, soil, and consent details.
         </Text>
       </View>
 
@@ -82,12 +81,12 @@ export default function FarmersNetworkScreen({ navigation }) {
       >
         <Section
           title="Farmers"
-          hint="A list of farmers and their information. This is not a form."
+          hint="Farmers already onboarded."
         >
           <PathCard
             title="Farmers"
             badge="List"
-            subtitle="Browse onboarded farmers and see their profile, farms, soil, and consent status"
+            subtitle="Profiles, farms, soil, and consent"
             onPress={() =>
               navigation.navigate("FarmerDashboard", {
                 listMode: "all",
@@ -99,38 +98,38 @@ export default function FarmersNetworkScreen({ navigation }) {
 
         <Section
           title="Enter details"
-          hint="These modules are for recording information in the field."
+          hint="Record information in the field."
         >
           <PathCard
             title="New farmer"
             badge="Enter info"
-            subtitle="Create a farmer profile with cultivated land and major crop"
+            subtitle="Name, land, and major crop"
             onPress={() => navigation.navigate("NewFarmerOnboarding")}
           />
           <PathCard
             title="Farms onboarding"
             badge="Enter info"
-            subtitle="Select a farmer, then add one or more farms (GPS, area, season, dates)"
+            subtitle="Area, map boundary, season, photos"
             onPress={() => navigation.navigate("FieldForm", {})}
           />
           <PathCard
             title="Soil testing"
             badge="Enter info"
-            subtitle="Collect a GPS-tagged soil sample from a farmer with farms"
+            subtitle="4+ points, mix, then photograph"
             onPress={() => navigation.navigate("SoilTestForm", {})}
           />
           {role === "climapreneur" ? (
             <PathCard
               title="Submit samples"
               badge="Enter info"
-              subtitle="Choose a supervisor and submit collected soil samples"
+              subtitle="Send samples to a supervisor"
               onPress={() => navigation.navigate("SoilSampleSubmit")}
             />
           ) : null}
           <PathCard
             title="Farmer consent"
             badge="Enter info"
-            subtitle="Record signed farmer consent, photos, and expiry date"
+            subtitle="Signed photos and expiry date"
             onPress={() => navigation.navigate("ConsentForm", {})}
           />
           {isSupervisor ? (
@@ -138,13 +137,13 @@ export default function FarmersNetworkScreen({ navigation }) {
               <PathCard
                 title="Sample receiving"
                 badge="Review"
-                subtitle="Site-wise climapreneur samples. Photograph, then accept, reject, or store"
+                subtitle="Accept, reject, or store samples"
                 onPress={() => navigation.navigate("SoilSamplesInbox")}
               />
               <PathCard
                 title="Soil reports"
                 badge="Enter info"
-                subtitle="Select a sample and upload the lab PDF or a photo of the results"
+                subtitle="Upload lab PDF or photo"
                 onPress={() => navigation.navigate("SoilReportUpload")}
               />
             </>
@@ -169,10 +168,10 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     marginTop: spacing.xs,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
   },
   content: {
     paddingHorizontal: spacing.lg,
@@ -191,10 +190,10 @@ const styles = StyleSheet.create({
   sectionHint: {
     marginTop: 4,
     marginBottom: spacing.sm,
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   sectionBody: {
     gap: spacing.sm,
@@ -237,10 +236,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   cardSubtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.textSecondary,
-    lineHeight: 20,
+    lineHeight: 16,
     paddingRight: 20,
   },
   cardChevron: {

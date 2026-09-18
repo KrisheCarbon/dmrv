@@ -110,7 +110,7 @@ export default function NewFarmerProgressScreen({ route, navigation }) {
           <Text style={styles.code}>Farmer ID: {farmer.farmer_code}</Text>
         ) : null}
         <Text style={styles.subtitle}>
-          Complete farms next. Soil testing is optional, but needs a farm first.
+          Add farms next. Soil testing needs a farm first.
         </Text>
 
         <SectionCard
@@ -190,10 +190,10 @@ const styles = StyleSheet.create({
     color: colors.smoke,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
     marginBottom: spacing.sm,
   },
   card: {

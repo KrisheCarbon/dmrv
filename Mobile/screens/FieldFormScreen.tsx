@@ -8,14 +8,19 @@ import {
   Pressable,
   Image,
 } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import {
-  ACRES_PER_HECTARE,
+  FIELD_SEASONS,
   FIELD_WATER_SOURCES,
   CROP_OPTIONS,
   boundaryPointsToGeojson,
+  farmAreasAreNearby,
+  fieldSeasonLabel,
   formatHectaresFromAcres,
-  isOverOneHectare,
+  normalizeFieldSeason,
   parseBoundaryGeojson,
+  polygonAreaAcres,
+  polygonCentroid,
   type GeoPoint,
 } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
@@ -33,10 +38,11 @@ import {
   saveCropLocal,
   saveFieldLocal,
 } from "../services/farmersNetworkService";
+import type { FarmField } from "../database/types";
 import { getFarmerByIdLocal } from "../services/farmerService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
-import { getCurrentFarmLocation } from "../utils/location";
-import { startLocationCache } from "../services/locationCache";
+import { persistFarmFile } from "../utils/farmLocalFiles";
+import { isLocalMediaUri } from "../utils/farmerNetworkPhotoUpload";
 import { processSyncQueue } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
@@ -47,14 +53,29 @@ const OWNERSHIP = [
 
 const WATER = FIELD_WATER_SOURCES.map((value) => ({ value, label: value }));
 
-const SEASONS = [
-  { value: "Kharif", label: "Kharif" },
-  { value: "Rabi", label: "Rabi" },
-  { value: "Zaid", label: "Zaid" },
-  { value: "Annual", label: "Annual" },
-];
+const SEASONS = FIELD_SEASONS.map((value) => ({
+  value,
+  label: fieldSeasonLabel(value),
+}));
 
 const CROP_PICKER = CROP_OPTIONS.map((crop) => ({ value: crop, label: crop }));
+
+function isMediaUri(value: string): boolean {
+  return /^(file:|content:|https?:)/i.test(value) || isLocalMediaUri(value);
+}
+
+function isImageUri(value: string): boolean {
+  if (!isMediaUri(value)) return false;
+  return !/\.pdf($|\?)/i.test(value);
+}
+
+function fileNameFromUri(uri: string): string {
+  try {
+    return decodeURIComponent(uri.split("/").pop()?.split("?")[0] || "Document");
+  } catch {
+    return "Document";
+  }
+}
 
 export default function FieldFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
@@ -62,7 +83,7 @@ export default function FieldFormScreen({ route, navigation }) {
   const [selectedFarmerId, setSelectedFarmerId] = useState(paramFarmerId);
   const [loading, setLoading] = useState(false);
   const [land, setLand] = useState({ cap: 0, used: 0, remaining: 0 });
-  const [existingFields, setExistingFields] = useState([]);
+  const [existingFields, setExistingFields] = useState<FarmField[]>([]);
   const [farmerName, setFarmerName] = useState("");
   const [field, setField] = useState({
     ownershipType: "Owned",
@@ -76,7 +97,7 @@ export default function FieldFormScreen({ route, navigation }) {
     photos: [] as string[],
     notes: "",
     cropName: (CROP_OPTIONS[0] || "Cotton") as string,
-    season: "Kharif",
+    season: "Monsoon",
     sowingDate: "",
     harvestDate: "",
     cropPhotos: [] as string[],
@@ -86,7 +107,13 @@ export default function FieldFormScreen({ route, navigation }) {
 
   const farmerId = selectedFarmerId;
   const areaNum = Number(field.calculatedArea) || 0;
-  const showPolygon = isOverOneHectare(areaNum);
+  const mappedArea = polygonAreaAcres(boundaryPoints);
+  const areaMismatch =
+    areaNum > 0 && mappedArea > 0 && !farmAreasAreNearby(areaNum, mappedArea);
+  const landDocLabel =
+    field.ownershipType === "Leased"
+      ? "Lease document"
+      : "Land ownership document";
 
   const remainingLabel = useMemo(() => {
     if (!land.cap) return "Set cultivated land on the farmer profile first.";
@@ -118,28 +145,40 @@ export default function FieldFormScreen({ route, navigation }) {
     loadFarmerContext().catch(() => {});
   }, [loadFarmerContext]);
 
+  const applyBoundary = useCallback((points: GeoPoint[]) => {
+    setBoundaryPoints(points);
+    const centroid = polygonCentroid(points);
+    setField((prev) => ({
+      ...prev,
+      latitude: centroid?.latitude ?? null,
+      longitude: centroid?.longitude ?? null,
+    }));
+  }, []);
+
   const loadExisting = useCallback(async () => {
     if (!fieldId) return;
     const f = await getFieldById(fieldId);
     setSelectedFarmerId(f.farmerId);
+    const points = parseBoundaryGeojson(f.boundaryGeojson);
+    const centroid = polygonCentroid(points);
     setField({
       ownershipType: f.ownershipType,
       landReference: f.landReference || "",
       leaseStart: f.leaseStart || "",
       leaseEnd: f.leaseEnd || "",
-      latitude: f.latitude,
-      longitude: f.longitude,
+      latitude: centroid?.latitude ?? f.latitude,
+      longitude: centroid?.longitude ?? f.longitude,
       calculatedArea: f.calculatedArea != null ? String(f.calculatedArea) : "",
       waterSource: f.waterSource || "Rainfed",
       photos: f.photos || [],
       notes: f.notes || "",
       cropName: f.cropName || (CROP_OPTIONS[0] as string),
-      season: f.season || "Kharif",
+      season: normalizeFieldSeason(f.season),
       sowingDate: f.sowingDate || "",
       harvestDate: f.harvestDate || "",
       cropPhotos: f.cropPhotos || [],
     });
-    setBoundaryPoints(parseBoundaryGeojson(f.boundaryGeojson));
+    setBoundaryPoints(points);
   }, [fieldId]);
 
   useEffect(() => {
@@ -148,25 +187,11 @@ export default function FieldFormScreen({ route, navigation }) {
     );
   }, [loadExisting]);
 
-  async function captureGps() {
-    try {
-      await startLocationCache();
-      const loc = await getCurrentFarmLocation();
-      setField((prev) => ({
-        ...prev,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-      }));
-    } catch (err) {
-      Alert.alert("GPS", err instanceof Error ? err.message : String(err));
-    }
-  }
-
   async function openPolygonMapper() {
     const canOpen = await openMapPickerIfOnline(() => {
       Alert.alert(
         "Map unavailable",
-        "Polygon mapping needs internet and a Mapbox token so you can clip the farm on the map.",
+        "Drawing the farm boundary needs internet and a Mapbox token.",
       );
     });
     if (canOpen) setPolygonMapVisible(true);
@@ -198,31 +223,104 @@ export default function FieldFormScreen({ route, navigation }) {
     }
   }
 
+  function removePhoto(target: "field" | "crop", uri: string) {
+    Alert.alert("Remove photo", "Remove this photograph?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () =>
+          setField((prev) =>
+            target === "field"
+              ? { ...prev, photos: prev.photos.filter((item) => item !== uri) }
+              : {
+                  ...prev,
+                  cropPhotos: prev.cropPhotos.filter((item) => item !== uri),
+                },
+          ),
+      },
+    ]);
+  }
+
+  async function pickLandDocument() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      const fromName = asset.name?.split(".").pop();
+      const fallback = asset.mimeType?.includes("pdf") ? "pdf" : "jpg";
+      const uri = await persistFarmFile(asset.uri, fromName || fallback);
+      setField((prev) => ({ ...prev, landReference: uri }));
+    } catch (err) {
+      Alert.alert("Document", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function photographLandDocument() {
+    try {
+      const captured = await captureAndSaveFieldPhoto();
+      if (!captured) return;
+      setField((prev) => ({ ...prev, landReference: captured.uri }));
+    } catch (err) {
+      Alert.alert("Document", err instanceof Error ? err.message : String(err));
+    }
+  }
+
   async function handleSave(addAnother: boolean) {
     if (!farmerId) {
       Alert.alert("Required", "Select a farmer from the dropdown.");
       return;
     }
-    if (!field.calculatedArea) {
-      Alert.alert("Required", "Enter plot area in acres.");
+    if (!areaNum) {
+      Alert.alert("Required", "Enter the farm area in acres.");
+      return;
+    }
+    if (boundaryPoints.length < 3 || mappedArea <= 0) {
+      Alert.alert(
+        "Required",
+        "Draw the farm boundary on the map so we can check the area.",
+      );
+      return;
+    }
+    if (field.photos.length < 1) {
+      Alert.alert("Required", "Take at least 1 farm photograph.");
       return;
     }
     if (field.ownershipType === "Leased" && !field.leaseEnd) {
       Alert.alert("Required", "Lease end date is needed for leased farms.");
       return;
     }
+    if (areaMismatch) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          "Area does not match map",
+          `You entered ${areaNum} acres. The map shape is about ${mappedArea} acres. Check the number or redraw the boundary.`,
+          [
+            { text: "Check again", style: "cancel", onPress: () => resolve(false) },
+            { text: "Save anyway", onPress: () => resolve(true) },
+          ],
+        );
+      });
+      if (!confirmed) return;
+    }
 
     try {
       setLoading(true);
+      const centroid = polygonCentroid(boundaryPoints);
       const savedFieldId = await saveFieldLocal(
         farmerId,
         {
           ownershipType: field.ownershipType as "Owned" | "Leased",
           landReference: field.landReference,
-          leaseStart: field.leaseStart || undefined,
-          leaseEnd: field.leaseEnd || undefined,
-          latitude: field.latitude,
-          longitude: field.longitude,
+          leaseStart:
+            field.ownershipType === "Leased" ? field.leaseStart || undefined : undefined,
+          leaseEnd:
+            field.ownershipType === "Leased" ? field.leaseEnd || undefined : undefined,
+          latitude: centroid?.latitude ?? field.latitude,
+          longitude: centroid?.longitude ?? field.longitude,
           boundaryGeojson: boundaryPointsToGeojson(boundaryPoints),
           calculatedArea: areaNum,
           waterSource: field.waterSource,
@@ -290,7 +388,7 @@ export default function FieldFormScreen({ route, navigation }) {
           {fieldId ? "Edit farm" : "Farms onboarding"}
         </Text>
         <Text style={styles.subtitle}>
-          Select a farmer, then add farms. Total farm area cannot exceed the farmer's cultivated land.
+          Enter acres, then draw the farm on the map.
         </Text>
 
         <FarmerPicker
@@ -340,11 +438,38 @@ export default function FieldFormScreen({ route, navigation }) {
             }))
           }
         />
-        <FormInput
-          label="Land title / lease reference"
-          value={field.landReference}
-          onChangeText={(t) => setField((p) => ({ ...p, landReference: t }))}
-        />
+
+        <Text style={styles.fieldLabel}>{landDocLabel}</Text>
+        <Text style={styles.hint}>
+          Optional. Photograph or upload the paper if you have it.
+        </Text>
+        <View style={styles.rowBtns}>
+          <Pressable style={[styles.locBtn, styles.rowBtn]} onPress={photographLandDocument}>
+            <Text style={styles.locBtnText}>Photograph document</Text>
+          </Pressable>
+          <Pressable style={[styles.locBtn, styles.rowBtn]} onPress={pickLandDocument}>
+            <Text style={styles.locBtnText}>Upload PDF / image</Text>
+          </Pressable>
+        </View>
+        {field.landReference ? (
+          <View style={styles.docBox}>
+            {isImageUri(field.landReference) ? (
+              <Image source={{ uri: field.landReference }} style={styles.docThumb} />
+            ) : (
+              <Text style={styles.hint}>
+                {isMediaUri(field.landReference)
+                  ? fileNameFromUri(field.landReference)
+                  : field.landReference}
+              </Text>
+            )}
+            <Pressable
+              onPress={() => setField((prev) => ({ ...prev, landReference: "" }))}
+            >
+              <Text style={styles.linkMuted}>Remove document</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {field.ownershipType === "Leased" ? (
           <>
             <FormDateField
@@ -360,56 +485,63 @@ export default function FieldFormScreen({ route, navigation }) {
           </>
         ) : null}
 
-        <Text style={styles.section}>GPS / area</Text>
-        <Pressable style={styles.locBtn} onPress={captureGps}>
-          <Text style={styles.locBtnText}>Capture GPS point</Text>
-        </Pressable>
-        {field.latitude != null ? (
-          <Text style={styles.hint}>
-            {Number(field.latitude).toFixed(6)},{" "}
-            {Number(field.longitude).toFixed(6)}
-          </Text>
-        ) : null}
         <FormInput
           label="Plot area (acres) *"
           value={field.calculatedArea}
           onChangeText={(t) => setField((p) => ({ ...p, calculatedArea: t }))}
           keyboardType="decimal-pad"
+          error={areaMismatch ? "This does not match the map estimate." : undefined}
         />
         {areaNum > 0 ? (
           <Text style={styles.hint}>
-            {areaNum} acres ≈ {formatHectaresFromAcres(areaNum)} ha
-            {showPolygon
-              ? ` (over 1 hectare / ${ACRES_PER_HECTARE.toFixed(2)} acres)`
-              : ""}
+            Entered: {areaNum} acres ≈ {formatHectaresFromAcres(areaNum)} ha
           </Text>
         ) : null}
 
-        {showPolygon ? (
-          <View style={styles.polygonBox}>
-            <Text style={styles.section}>Polygon mapping</Text>
-            <Text style={styles.hint}>
-              This plot is more than 1 hectare. Clip the farm boundary on the satellite map — do not walk GPS corners.
+        <View style={styles.polygonBox}>
+          <Text style={styles.section}>Farm boundary *</Text>
+          <Text style={styles.hint}>
+            Draw the plot on the map. Area is checked against the acres entered.
+          </Text>
+          <Pressable style={styles.locBtn} onPress={openPolygonMapper}>
+            <Text style={styles.locBtnText}>
+              {boundaryPoints.length >= 3
+                ? "Edit farm polygon on map"
+                : "Draw farm on map"}
             </Text>
-            <Pressable style={styles.locBtn} onPress={openPolygonMapper}>
-              <Text style={styles.locBtnText}>
-                {boundaryPoints.length >= 3
-                  ? "Edit farm polygon on map"
-                  : "Clip farm on map"}
+          </Pressable>
+          {boundaryPoints.length >= 3 && mappedArea > 0 ? (
+            <Text style={styles.hint}>
+              {boundaryPoints.length} corners · map estimate {mappedArea} acres
+              {` (≈ ${formatHectaresFromAcres(mappedArea)} ha)`}
+            </Text>
+          ) : (
+            <Text style={styles.hint}>No boundary yet.</Text>
+          )}
+          {areaNum > 0 && mappedArea > 0 ? (
+            <View style={[styles.compareBox, areaMismatch && styles.compareBoxWarn]}>
+              <Text style={areaMismatch ? styles.warnText : styles.hint}>
+                {areaMismatch
+                  ? `Flag: entered ${areaNum} ac is not close to the map estimate of ${mappedArea} ac. Check the acres or redraw the boundary.`
+                  : `Entered ${areaNum} ac is close to the map estimate of ${mappedArea} ac.`}
               </Text>
+            </View>
+          ) : null}
+          {boundaryPoints.length > 0 ? (
+            <Pressable
+              onPress={() => {
+                setBoundaryPoints([]);
+                setField((prev) => ({
+                  ...prev,
+                  latitude: null,
+                  longitude: null,
+                }));
+              }}
+            >
+              <Text style={styles.linkMuted}>Clear boundary</Text>
             </Pressable>
-            {boundaryPoints.length >= 3 ? (
-              <Text style={styles.hint}>
-                {boundaryPoints.length} corners clipped on the map
-              </Text>
-            ) : null}
-            {boundaryPoints.length > 0 ? (
-              <Pressable onPress={() => setBoundaryPoints([])}>
-                <Text style={styles.linkMuted}>Clear boundary</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
+          ) : null}
+        </View>
 
         <FormPicker
           label="Water source"
@@ -418,13 +550,24 @@ export default function FieldFormScreen({ route, navigation }) {
           onValueChange={(v) => setField((p) => ({ ...p, waterSource: v }))}
         />
 
-        <Text style={styles.section}>Farm photographs (up to 5)</Text>
-        <Pressable style={styles.locBtn} onPress={() => addPhoto("field")}>
-          <Text style={styles.locBtnText}>Take farm photo</Text>
+        <Text style={styles.section}>Farm photographs * (1 required, max 5)</Text>
+        <Text style={styles.hint}>At least 1 photo, max 5. Tap to remove.</Text>
+        <Pressable
+          style={styles.locBtn}
+          onPress={() => addPhoto("field")}
+          disabled={field.photos.length >= 5}
+        >
+          <Text style={styles.locBtnText}>
+            {field.photos.length >= 5
+              ? "Maximum 5 farm photos"
+              : `Take farm photo (${field.photos.length}/5)`}
+          </Text>
         </Pressable>
         <View style={styles.photoRow}>
           {field.photos.map((uri) => (
-            <Image key={uri} source={{ uri }} style={styles.thumb} />
+            <Pressable key={uri} onPress={() => removePhoto("field", uri)}>
+              <Image source={{ uri }} style={styles.thumb} />
+            </Pressable>
           ))}
         </View>
 
@@ -451,13 +594,26 @@ export default function FieldFormScreen({ route, navigation }) {
           value={field.harvestDate}
           onChange={(t) => setField((p) => ({ ...p, harvestDate: t }))}
         />
-        <Text style={styles.hint}>Crop photo is optional (max 5).</Text>
-        <Pressable style={styles.locBtn} onPress={() => addPhoto("crop")}>
-          <Text style={styles.locBtnText}>Take crop photo</Text>
+        <Text style={styles.section}>Crop photograph</Text>
+        <Text style={styles.hint}>
+          Optional. Only if already sown. Max 5.
+        </Text>
+        <Pressable
+          style={styles.locBtn}
+          onPress={() => addPhoto("crop")}
+          disabled={field.cropPhotos.length >= 5}
+        >
+          <Text style={styles.locBtnText}>
+            {field.cropPhotos.length >= 5
+              ? "Maximum 5 crop photos"
+              : `Take crop photo (${field.cropPhotos.length}/5)`}
+          </Text>
         </Pressable>
         <View style={styles.photoRow}>
           {field.cropPhotos.map((uri) => (
-            <Image key={uri} source={{ uri }} style={styles.thumb} />
+            <Pressable key={uri} onPress={() => removePhoto("crop", uri)}>
+              <Image source={{ uri }} style={styles.thumb} />
+            </Pressable>
           ))}
         </View>
 
@@ -477,7 +633,7 @@ export default function FieldFormScreen({ route, navigation }) {
         initialLongitude={field.longitude}
         initialPoints={boundaryPoints}
         onClose={() => setPolygonMapVisible(false)}
-        onConfirm={setBoundaryPoints}
+        onConfirm={applyBoundary}
       />
     </ScreenShell>
   );
@@ -495,10 +651,10 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 18,
+    lineHeight: 16,
     marginBottom: spacing.sm,
   },
   section: {
@@ -506,6 +662,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.bold,
     color: colors.brunswick,
+  },
+  fieldLabel: {
+    marginTop: spacing.sm,
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
   },
   locBtn: {
     borderWidth: 1,
@@ -519,6 +681,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.brunswick,
     fontSize: 13,
+  },
+  rowBtns: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  rowBtn: {
+    flex: 1,
   },
   hint: {
     fontSize: 12,
@@ -548,6 +717,29 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.md,
     backgroundColor: colors.white,
+  },
+  compareBox: {
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    backgroundColor: colors.chalk,
+  },
+  compareBoxWarn: {
+    backgroundColor: colors.warningBg,
+  },
+  warnText: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
+    color: colors.warning,
+    lineHeight: 18,
+  },
+  docBox: {
+    gap: 8,
+  },
+  docThumb: {
+    width: "100%",
+    height: 160,
+    borderRadius: radius.md,
+    backgroundColor: colors.chalk,
   },
   linkMuted: {
     fontFamily: fonts.medium,

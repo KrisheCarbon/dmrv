@@ -82,8 +82,7 @@ export default function SoilSamplesInboxScreen({ navigation }) {
       <View style={styles.header}>
         <Text style={styles.title}>Sample receiving</Text>
         <Text style={styles.subtitle}>
-          Climapreneur samples, grouped by site. Open a sample to photograph it
-          and accept, reject, or store it.
+          Open a sample to accept, reject, or store.
         </Text>
       </View>
       <SectionList
@@ -139,10 +138,10 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     marginTop: 4,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: fonts.regular,
     color: colors.smoke,
-    lineHeight: 20,
+    lineHeight: 16,
   },
   list: {
     paddingHorizontal: spacing.lg,

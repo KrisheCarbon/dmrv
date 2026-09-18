@@ -161,8 +161,8 @@ export default function PolygonMapperModal({
         </View>
 
         <Text style={styles.hint}>
-          Tap satellite imagery to clip the plot boundary. Pan and pinch to
-          move the map. Needs internet and a Mapbox token.
+          Tap satellite imagery to draw the farm boundary. The plot area is
+          calculated from this shape. Pan and pinch to move the map.
         </Text>
 
         {!mapboxToken ? (

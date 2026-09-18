@@ -9,8 +9,9 @@ import {
   CROP_OPTIONS,
   FIELD_SEASONS,
   FIELD_WATER_SOURCES,
+  fieldSeasonLabel,
   formatHectaresFromAcres,
-  isOverOneHectare,
+  normalizeFieldSeason,
   type FarmFieldRecord,
 } from "@krishecarbon/shared";
 
@@ -44,7 +45,7 @@ export default function FarmPlotForm({
   );
   const [water, setWater] = useState(initial?.water_source || "Rainfed");
   const [crop, setCrop] = useState(initial?.crop_name || CROP_OPTIONS[0]);
-  const [season, setSeason] = useState(initial?.season || "Kharif");
+  const [season, setSeason] = useState(normalizeFieldSeason(initial?.season));
   const [sowing, setSowing] = useState(initial?.sowing_date || "");
   const [harvest, setHarvest] = useState(initial?.harvest_date || "");
   const [notes, setNotes] = useState(initial?.notes || "");
@@ -160,7 +161,7 @@ export default function FarmPlotForm({
           {areaNum > 0 ? (
             <p className="text-xs text-neutral-500">
               {areaNum} acres ≈ {formatHectaresFromAcres(areaNum)} ha
-              {isOverOneHectare(areaNum) ? " · over 1 hectare, map the boundary in the field app" : ""}
+              · draw the farm boundary in the field app
             </p>
           ) : null}
         </div>
@@ -182,9 +183,13 @@ export default function FarmPlotForm({
         </div>
         <div className="space-y-1.5">
           <label className={labelClass}>Season</label>
-          <select className={inputClass} value={season} onChange={(e) => setSeason(e.target.value)}>
+          <select
+            className={inputClass}
+            value={season}
+            onChange={(e) => setSeason(normalizeFieldSeason(e.target.value))}
+          >
             {FIELD_SEASONS.map((item) => (
-              <option key={item} value={item}>{item}</option>
+              <option key={item} value={item}>{fieldSeasonLabel(item)}</option>
             ))}
           </select>
         </div>

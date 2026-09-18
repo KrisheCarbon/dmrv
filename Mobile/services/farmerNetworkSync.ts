@@ -1,8 +1,10 @@
 import type {
   FarmFieldRecord,
   FarmerConsentRecord,
+  SoilSampleSite,
   SoilTestRecord,
 } from "@krishecarbon/shared";
+import { soilSampleSitesForApi } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { backendFetch } from "./backendApi";
 import { getFarmerByIdLocal } from "./farmerService";
@@ -11,7 +13,12 @@ import {
   getSoilTestById,
   saveSoilReportLocal,
 } from "./farmersNetworkService";
-import { uploadFarmerNetworkPhoto, uploadFarmerNetworkPhotos, uploadSoilReportFile } from "../utils/farmerNetworkPhotoUpload";
+import {
+  isLocalMediaUri,
+  uploadFarmerNetworkPhoto,
+  uploadFarmerNetworkPhotos,
+  uploadSoilReportFile,
+} from "../utils/farmerNetworkPhotoUpload";
 
 async function farmServerIdForFarmer(farmerId: string): Promise<string> {
   const farmer = await getFarmerByIdLocal(farmerId);
@@ -39,12 +46,21 @@ export async function syncFarmField(localId: string, operation: string): Promise
     "crop",
   );
 
+  let landReference = field.landReference;
+  if (isLocalMediaUri(landReference)) {
+    const ext = landReference.split(".").pop()?.split("?")[0] || "jpg";
+    landReference = await uploadFarmerNetworkPhoto(
+      landReference,
+      `fields/${field.serverId || field.id}/land-document.${ext}`,
+    );
+  }
+
   const payload = {
     id: field.serverId || undefined,
     farm_id: farmId,
     field_code: field.fieldCode,
     ownership_type: field.ownershipType,
-    land_reference: field.landReference,
+    land_reference: landReference,
     lease_start: field.leaseStart,
     lease_end: field.leaseEnd,
     status: field.status,
@@ -78,6 +94,7 @@ export async function syncFarmField(localId: string, operation: string): Promise
       server_id = ?,
       photos_json = ?,
       crop_photos_json = ?,
+      land_reference = ?,
       sync_status = ?,
       sync_error = NULL,
       updated_at = ?
@@ -86,6 +103,7 @@ export async function syncFarmField(localId: string, operation: string): Promise
       remote.id,
       JSON.stringify(photos),
       JSON.stringify(cropPhotos),
+      landReference,
       "synced",
       Date.now(),
       field.id,
@@ -168,6 +186,24 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
     );
   }
 
+  const uploadedSites: SoilSampleSite[] = [];
+  for (let i = 0; i < (test.sampleSites ?? []).length; i += 1) {
+    const site = test.sampleSites[i];
+    let photoUrl = site.photo_url || null;
+    const localUri = site.photo_uri;
+    if (localUri && !photoUrl) {
+      photoUrl = await uploadFarmerNetworkPhoto(
+        localUri,
+        `soil-samples/${test.serverId || test.id}/point-${i + 1}.jpg`,
+      );
+    }
+    uploadedSites.push({
+      ...site,
+      photo_uri: localUri || null,
+      photo_url: photoUrl,
+    });
+  }
+
   let receivePhotoUrl = test.receivePhotoUrl;
   if (test.receivePhotoUri) {
     receivePhotoUrl = await uploadFarmerNetworkPhoto(
@@ -187,6 +223,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
         sample_lat: test.sampleLat,
         sample_lng: test.sampleLng,
         sample_photo_url: samplePhotoUrl,
+        sample_sites: soilSampleSitesForApi(uploadedSites),
         submitted_to_supervisor_id: test.submittedToSupervisorId,
         status: test.status,
       }),
@@ -196,6 +233,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
       `UPDATE soil_tests SET
         server_id = ?,
         sample_photo_url = ?,
+        sample_sites_json = ?,
         status = ?,
         received_at = ?,
         received_by = ?,
@@ -206,6 +244,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
       [
         remote.id,
         samplePhotoUrl,
+        JSON.stringify(uploadedSites),
         remote.status,
         remote.received_at ?? test.receivedAt,
         remote.received_by ?? test.receivedBy,
@@ -323,6 +362,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           received_by = ?,
           sample_photo_url = ?,
           receive_photo_url = ?,
+          sample_sites_json = ?,
           submitted_to_supervisor_id = ?,
           server_id = ?,
           field_ids_json = ?,
@@ -334,6 +374,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           test.received_by ?? null,
           test.sample_photo_url ?? null,
           test.receive_photo_url ?? null,
+          JSON.stringify(test.sample_sites ?? []),
           test.submitted_to_supervisor_id ?? null,
           test.id,
           JSON.stringify(fieldLocalIds),
@@ -346,11 +387,12 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
         `INSERT INTO soil_tests (
           id, farmer_id, field_id, field_ids_json, crop_id, sample_date,
           sample_lat, sample_lng, sample_location, sample_photo_uri, sample_photo_url,
+          sample_sites_json,
           lab_source, parameters_json, results_json, notes,
           submitted_to_supervisor_id, submitted_to_supervisor_name,
           collected_by, collected_by_role, status, received_at, received_by,
           received_by_name, server_id, sync_status, sync_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         [
           test.id,
           farm.id,
@@ -360,6 +402,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           test.sample_lat ?? null,
           test.sample_lng ?? null,
           test.sample_photo_url ?? null,
+          JSON.stringify(test.sample_sites ?? []),
           test.submitted_to_supervisor_id ?? null,
           test.submitted_to_supervisor?.full_name ?? null,
           test.collected_by ?? null,
