@@ -217,6 +217,7 @@ export type ApplicationEntryUpdate = {
   comment?: string | null;
   mediaType?: ApplicationMediaType | null;
   mediaLocalUri?: string | null;
+  mediaUrl?: string | null;
   mediaMetadata?: FieldPhotoMetadata | null;
 };
 
@@ -235,6 +236,7 @@ export async function updateApplicationEntryLocal(
   if (patch.comment !== undefined) columns.comment = patch.comment;
   if (patch.mediaType !== undefined) columns.media_type = patch.mediaType;
   if (patch.mediaLocalUri !== undefined) columns.media_local_uri = patch.mediaLocalUri;
+  if (patch.mediaUrl !== undefined) columns.media_url = patch.mediaUrl;
   if (patch.mediaMetadata !== undefined) {
     columns.media_metadata_json = patch.mediaMetadata
       ? JSON.stringify(patch.mediaMetadata)

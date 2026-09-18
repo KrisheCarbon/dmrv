@@ -538,7 +538,7 @@ export default function FieldFormScreen({ route, navigation }) {
                   setField((prev) => ({ ...prev, landReference: "" }))
                 }
                 addLabel="Retake photo"
-                hint="Tap to view. Use × to remove."
+                hint="Tap to view. Use the red × to remove."
               />
             ) : (
               <Text style={styles.hint}>
@@ -650,7 +650,7 @@ export default function FieldFormScreen({ route, navigation }) {
               ? "Maximum 5 farm photos"
               : `Take farm photo (${field.photos.length}/5)`
           }
-          hint="At least 1 photo, max 5. Tap to view. Use × to remove."
+          hint="Tap a photo to view it. Use the red × on the photo to remove it."
         />
 
         <Text style={styles.section}>Crop on this farm</Text>
@@ -688,7 +688,7 @@ export default function FieldFormScreen({ route, navigation }) {
               ? "Maximum 5 crop photos"
               : `Take crop photo (${field.cropPhotos.length}/5)`
           }
-          hint="Optional. Only if already sown. Max 5. Tap to view. Use × to remove."
+          hint="Optional. Only if already sown. Max 5. Tap to view. Use the red × to remove."
         />
 
         <PrimaryButton title="Save farm" onPress={() => handleSave(false)} loading={loading} />

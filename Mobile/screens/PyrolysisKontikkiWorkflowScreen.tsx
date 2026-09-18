@@ -415,6 +415,67 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     });
   }
 
+  function handleRemoveFeedstockPhoto(kind: "feedstock" | "feedstock_size") {
+    if (kind === "feedstock") {
+      const nextInfo = {
+        ...infoDraft,
+        feedstock_photo_local_uri: null,
+        feedstock_photo_url: null,
+        feedstock_photo_metadata: null,
+      };
+      setInfoDraft(nextInfo);
+      queueAutoSave("info", nextInfo);
+    } else {
+      const nextInfo = {
+        ...infoDraft,
+        feedstock_size_photo_local_uri: null,
+        feedstock_size_photo_url: null,
+        feedstock_size_photo_metadata: null,
+      };
+      setInfoDraft(nextInfo);
+      queueAutoSave("info", nextInfo);
+    }
+  }
+
+  function handleRemoveMoisturePhoto(index: number) {
+    const next = [...moistureDraft];
+    next[index] = {
+      ...next[index],
+      photo_local_uri: null,
+      photo_url: null,
+      photo_metadata: null,
+    };
+    setMoistureDraft(next);
+    queueAutoSave("moisture", { moisture_readings: next });
+  }
+
+  function handleRemoveStagePhoto(stage: PyrolysisStageKey) {
+    const nextStagePhotos = {
+      ...stagePhotos,
+      [stage]: {
+        local_uri: null,
+        url: null,
+        captured_at: null,
+        metadata: null,
+      },
+    };
+    setStagePhotos(nextStagePhotos);
+    queueAutoSave(stage, {
+      stage_photos: nextStagePhotos,
+    });
+  }
+
+  function handleRemoveSamplePhoto() {
+    const next = {
+      ...sampleDraft,
+      sample_photo_local_uri: null,
+      sample_photo_url: null,
+      sample_photo_metadata: null,
+    };
+    setSampleDraft(next);
+    queueAutoSave("sample", next);
+  }
+
   function updateSampleDraft(patch: Partial<typeof sampleDraft>) {
     setSampleDraft((prev) => {
       const next = { ...prev, ...patch };
@@ -616,6 +677,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                     metadata={infoDraft.feedstock_photo_metadata}
                     capturing={capturingKey === "feedstock"}
                     onCapture={() => handleFeedstockPhoto("feedstock")}
+                    onRemove={() => handleRemoveFeedstockPhoto("feedstock")}
                   />
 
                   <PyrolysisPhotoSlot
@@ -625,6 +687,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                     metadata={infoDraft.feedstock_size_photo_metadata}
                     capturing={capturingKey === "feedstock_size"}
                     onCapture={() => handleFeedstockPhoto("feedstock_size")}
+                    onRemove={() => handleRemoveFeedstockPhoto("feedstock_size")}
                   />
 
                   {infoDraft.location ? (
@@ -697,6 +760,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                           metadata={reading.photo_metadata}
                           capturing={capturingKey === `moisture-${index}`}
                           onCapture={() => handleMoisturePhoto(index)}
+                          onRemove={() => handleRemoveMoisturePhoto(index)}
                         />
                       </PyrolysisCollapsibleSection>
                     );
@@ -720,6 +784,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                     metadata={stagePhotos[section]?.metadata}
                     capturing={capturingKey === `stage-${section}`}
                     onCapture={() => handleStagePhoto(section)}
+                    onRemove={() => handleRemoveStagePhoto(section)}
                   />
 
                   {savedAt ? (
@@ -786,6 +851,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                     metadata={sampleDraft.sample_photo_metadata}
                     capturing={capturingKey === "sample"}
                     onCapture={handleSamplePhoto}
+                    onRemove={handleRemoveSamplePhoto}
                   />
 
                   {savedAt ? (

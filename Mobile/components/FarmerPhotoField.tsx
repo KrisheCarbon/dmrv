@@ -36,7 +36,7 @@ export default function FarmerPhotoField({
       onAdd={takePhoto}
       onRemove={() => onChange(null)}
       addLabel={uri ? "Retake photo" : "Take photo"}
-      hint="Open the camera and photograph the farmer."
+      hint="Open the camera and photograph the farmer. Use the red × on the photo to remove it."
     />
   );
 }

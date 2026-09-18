@@ -17,6 +17,25 @@ export type PhotoSlotMeta = {
   captured_at?: string | null;
 };
 
+export function PhotoRemoveBadge({
+  onPress,
+}: {
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.removeBadge}
+      onPress={onPress}
+      hitSlop={10}
+      accessibilityLabel="Remove photo"
+      accessibilityRole="button"
+      accessibilityHint="Removes this photo so you can take another"
+    >
+      <Text style={styles.removeBadgeText}>×</Text>
+    </TouchableOpacity>
+  );
+}
+
 type PhotoThumbProps = {
   uri: string;
   onRemove?: () => void;
@@ -53,17 +72,7 @@ export function PhotoThumb({ uri, onRemove, onPress }: PhotoThumbProps) {
           onError={() => setPreviewError(true)}
         />
       </TouchableOpacity>
-      {onRemove ? (
-        <TouchableOpacity
-          style={styles.removeBadge}
-          onPress={onRemove}
-          hitSlop={8}
-          accessibilityLabel="Remove photo"
-          accessibilityRole="button"
-        >
-          <Text style={styles.removeBadgeText}>×</Text>
-        </TouchableOpacity>
-      ) : null}
+      {onRemove ? <PhotoRemoveBadge onPress={onRemove} /> : null}
     </View>
   );
 }
@@ -173,7 +182,7 @@ export default function PhotoSlot({
       ) : (
         <View style={styles.multiWrap}>
           <Text style={styles.hint}>
-            {hint || "Tap a photo to view. Use × if you need to retake it."}
+            {hint || "Tap a photo to view it. Use the red × on the photo to remove it."}
           </Text>
           {!atMax ? (
             <TouchableOpacity
@@ -286,24 +295,24 @@ const styles = StyleSheet.create({
   },
   removeBadge: {
     position: "absolute",
-    top: -7,
-    right: -7,
+    top: 2,
+    right: 2,
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.borderDark,
+    backgroundColor: colors.error,
+    borderWidth: 1.5,
+    borderColor: colors.white,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 2,
-    elevation: 2,
+    zIndex: 3,
+    elevation: 4,
   },
   removeBadgeText: {
     fontFamily: fonts.bold,
     fontSize: 16,
     lineHeight: 18,
-    color: colors.error,
+    color: colors.white,
     marginTop: -1,
   },
   placeholder: {

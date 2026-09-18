@@ -11,7 +11,6 @@ import {
 import {
   MIXING_MATERIAL_TYPES,
   mixingMaterialLabel,
-  type FieldPhotoMetadata,
   type MixingMaterialType,
 } from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
@@ -19,17 +18,13 @@ import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
 import FormMultiSelectDropdown from "../components/FormMultiSelectDropdown";
 import PyrolysisPhotoSlot from "../components/PyrolysisPhotoSlot";
-import PhotoReviewModal from "../components/PhotoReviewModal";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
 import PrimaryButton from "../components/PrimaryButton";
-import { captureFieldPhotoFromCamera } from "../services/fieldPhoto";
-import {
-  persistAcceptedFieldPhoto,
-  watermarkFieldPhotoForReview,
-} from "../services/photoWatermark";
+import { LocationUnavailableError } from "../services/fieldPhoto";
+import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import {
   fetchAvailablePyrolysisBatches,
   getMixingEntry,
@@ -65,11 +60,6 @@ export default function MixingEntryScreen({ navigation, route }) {
   const [locationLoading, setLocationLoading] = useState(false);
   const [mapVisible, setMapVisible] = useState(false);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
-  const [photoReview, setPhotoReview] = useState<{
-    previewUri: string;
-    metadata: FieldPhotoMetadata;
-    onAccept: () => Promise<void>;
-  } | null>(null);
 
   const isEditable = entry?.status === "draft" || entry?.uploadStatus === "local";
   const locationAutoFetchTried = useRef(false);
@@ -241,58 +231,66 @@ export default function MixingEntryScreen({ navigation, route }) {
     await loadEntry();
   }
 
-  const reviewCapturedPhoto = useCallback(
-    async (captureKey: string, onAccepted: (photo: {
-      uri: string;
-      metadata: FieldPhotoMetadata;
-    }) => Promise<void>) => {
-      try {
-        setCapturingKey(captureKey);
-        const raw = await captureFieldPhotoFromCamera();
-        if (!raw) return;
-
-        const previewUri = await watermarkFieldPhotoForReview(raw.uri, raw.metadata);
-
-        setPhotoReview({
-          previewUri,
-          metadata: raw.metadata,
-          onAccept: async () => {
-            const persistedUri = await persistAcceptedFieldPhoto(previewUri);
-            await onAccepted({ uri: persistedUri, metadata: raw.metadata });
-          },
-        });
-      } catch (err) {
-        Alert.alert(
-          "Camera",
-          err instanceof Error ? err.message : "Could not capture photo.",
-        );
-      } finally {
-        setCapturingKey(null);
-      }
-    },
-    [],
-  );
-
   async function handlePhoto(kind: PhotoKind) {
     if (!isEditable) return;
-    await reviewCapturedPhoto(kind, async (photo) => {
+    try {
+      setCapturingKey(kind);
+      const photo = await captureAndSaveFieldPhoto();
+      if (!photo) return;
       if (kind === "biochar") {
         queueAutoSave({
           biocharPhotoLocalUri: photo.uri,
           biocharPhotoMetadata: photo.metadata,
+          biocharPhotoUrl: null,
         });
       } else if (kind === "substrate") {
         queueAutoSave({
           substratePhotoLocalUri: photo.uri,
           substratePhotoMetadata: photo.metadata,
+          substratePhotoUrl: null,
         });
       } else {
         queueAutoSave({
           mixingPhotoLocalUri: photo.uri,
           mixingPhotoMetadata: photo.metadata,
+          mixingPhotoUrl: null,
         });
       }
-    });
+    } catch (err) {
+      if (err instanceof LocationUnavailableError) {
+        Alert.alert("Location error", err.message);
+        return;
+      }
+      Alert.alert(
+        "Camera",
+        err instanceof Error ? err.message : "Could not capture photo.",
+      );
+    } finally {
+      setCapturingKey(null);
+    }
+  }
+
+  function handleRemovePhoto(kind: PhotoKind) {
+    if (!isEditable) return;
+    if (kind === "biochar") {
+      queueAutoSave({
+        biocharPhotoLocalUri: null,
+        biocharPhotoMetadata: null,
+        biocharPhotoUrl: null,
+      });
+    } else if (kind === "substrate") {
+      queueAutoSave({
+        substratePhotoLocalUri: null,
+        substratePhotoMetadata: null,
+        substratePhotoUrl: null,
+      });
+    } else {
+      queueAutoSave({
+        mixingPhotoLocalUri: null,
+        mixingPhotoMetadata: null,
+        mixingPhotoUrl: null,
+      });
+    }
   }
 
   async function handleSubmit() {
@@ -435,6 +433,7 @@ export default function MixingEntryScreen({ navigation, route }) {
             metadata={entry.biocharPhotoMetadata}
             capturing={capturingKey === "biochar"}
             onCapture={() => handlePhoto("biochar")}
+            onRemove={isEditable ? () => handleRemovePhoto("biochar") : undefined}
           />
         </View>
 
@@ -478,6 +477,7 @@ export default function MixingEntryScreen({ navigation, route }) {
             metadata={entry.substratePhotoMetadata}
             capturing={capturingKey === "substrate"}
             onCapture={() => handlePhoto("substrate")}
+            onRemove={isEditable ? () => handleRemovePhoto("substrate") : undefined}
           />
         </View>
 
@@ -490,6 +490,7 @@ export default function MixingEntryScreen({ navigation, route }) {
             metadata={entry.mixingPhotoMetadata}
             capturing={capturingKey === "mixing"}
             onCapture={() => handlePhoto("mixing")}
+            onRemove={isEditable ? () => handleRemovePhoto("mixing") : undefined}
           />
         </View>
 
@@ -539,29 +540,6 @@ export default function MixingEntryScreen({ navigation, route }) {
           });
         }}
       />
-
-      {photoReview ? (
-        <PhotoReviewModal
-          visible
-          previewUri={photoReview.previewUri}
-          metadata={photoReview.metadata}
-          onReject={() => {
-            setTimeout(() => setPhotoReview(null), 200);
-          }}
-          onAccept={async () => {
-            try {
-              await photoReview.onAccept();
-              await new Promise((resolve) => setTimeout(resolve, 600));
-              setPhotoReview(null);
-            } catch (err) {
-              Alert.alert(
-                "Photo",
-                err instanceof Error ? err.message : "Could not save photo.",
-              );
-            }
-          }}
-        />
-      ) : null}
     </ScreenShell>
   );
 }

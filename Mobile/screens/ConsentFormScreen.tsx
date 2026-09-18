@@ -185,7 +185,7 @@ export default function ConsentFormScreen({ route, navigation }) {
               ? "Maximum 2 photos"
               : `Upload / take photo (${form.photos.length}/${MAX_PHOTOS})`
           }
-          hint="1–2 photos. Tap to view. Use × to remove."
+          hint="1–2 photos. Tap to view. Use the red × on the photo to remove it."
         />
 
         <PrimaryButton title="Save farmer consent" onPress={handleSave} loading={loading} />

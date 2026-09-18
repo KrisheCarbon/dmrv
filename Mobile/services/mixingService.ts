@@ -234,10 +234,13 @@ export type MixingEntryUpdate = {
   materialToBiocharRatio?: number | null;
   comment?: string | null;
   biocharPhotoLocalUri?: string | null;
+  biocharPhotoUrl?: string | null;
   biocharPhotoMetadata?: FieldPhotoMetadata | null;
   substratePhotoLocalUri?: string | null;
+  substratePhotoUrl?: string | null;
   substratePhotoMetadata?: FieldPhotoMetadata | null;
   mixingPhotoLocalUri?: string | null;
+  mixingPhotoUrl?: string | null;
   mixingPhotoMetadata?: FieldPhotoMetadata | null;
 };
 
@@ -258,6 +261,9 @@ export async function updateMixingEntryLocal(entryId: string, patch: MixingEntry
   if (patch.biocharPhotoLocalUri !== undefined) {
     columns.biochar_photo_local_uri = patch.biocharPhotoLocalUri;
   }
+  if (patch.biocharPhotoUrl !== undefined) {
+    columns.biochar_photo_url = patch.biocharPhotoUrl;
+  }
   if (patch.biocharPhotoMetadata !== undefined) {
     columns.biochar_photo_metadata_json = patch.biocharPhotoMetadata
       ? JSON.stringify(patch.biocharPhotoMetadata)
@@ -266,6 +272,9 @@ export async function updateMixingEntryLocal(entryId: string, patch: MixingEntry
   if (patch.substratePhotoLocalUri !== undefined) {
     columns.substrate_photo_local_uri = patch.substratePhotoLocalUri;
   }
+  if (patch.substratePhotoUrl !== undefined) {
+    columns.substrate_photo_url = patch.substratePhotoUrl;
+  }
   if (patch.substratePhotoMetadata !== undefined) {
     columns.substrate_photo_metadata_json = patch.substratePhotoMetadata
       ? JSON.stringify(patch.substratePhotoMetadata)
@@ -273,6 +282,9 @@ export async function updateMixingEntryLocal(entryId: string, patch: MixingEntry
   }
   if (patch.mixingPhotoLocalUri !== undefined) {
     columns.mixing_photo_local_uri = patch.mixingPhotoLocalUri;
+  }
+  if (patch.mixingPhotoUrl !== undefined) {
+    columns.mixing_photo_url = patch.mixingPhotoUrl;
   }
   if (patch.mixingPhotoMetadata !== undefined) {
     columns.mixing_photo_metadata_json = patch.mixingPhotoMetadata

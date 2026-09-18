@@ -11,6 +11,7 @@ import {
 import type { FieldPhotoMetadata } from "@krishecarbon/shared";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import { normalizeImageUri } from "../utils/pyrolysisLocalPhotos";
+import { PhotoThumb } from "./PhotoSlot";
 
 type PyrolysisPhotoSlotProps = {
   label: string;
@@ -20,6 +21,7 @@ type PyrolysisPhotoSlotProps = {
   metadata?: FieldPhotoMetadata | null;
   capturing?: boolean;
   onCapture: () => void;
+  onRemove?: () => void;
 };
 
 export default function PyrolysisPhotoSlot({
@@ -30,16 +32,11 @@ export default function PyrolysisPhotoSlot({
   metadata,
   capturing = false,
   onCapture,
+  onRemove,
 }: PyrolysisPhotoSlotProps) {
   const previewUri = normalizeImageUri(localUri || remoteUrl || null);
   const [viewerOpen, setViewerOpen] = useState(false);
-  const [previewError, setPreviewError] = useState(false);
-
-  React.useEffect(() => {
-    setPreviewError(false);
-  }, [previewUri]);
-
-  const hasPhoto = Boolean(previewUri && !previewError);
+  const hasPhoto = Boolean(previewUri);
 
   return (
     <View style={styles.container}>
@@ -53,17 +50,11 @@ export default function PyrolysisPhotoSlot({
 
       <View style={styles.row}>
         {hasPhoto ? (
-          <TouchableOpacity
-            style={styles.thumbnail}
+          <PhotoThumb
+            uri={previewUri!}
+            onRemove={onRemove}
             onPress={() => setViewerOpen(true)}
-            activeOpacity={0.85}
-          >
-            <Image
-              source={{ uri: previewUri! }}
-              style={styles.thumbnailImage}
-              onError={() => setPreviewError(true)}
-            />
-          </TouchableOpacity>
+          />
         ) : (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderIcon}>📷</Text>
@@ -71,9 +62,6 @@ export default function PyrolysisPhotoSlot({
         )}
 
         <View style={styles.rowBody}>
-          {!hasPhoto && previewError ? (
-            <Text style={styles.errorText}>Could not load photo — retake</Text>
-          ) : null}
           {metadata && hasPhoto ? (
             <Text style={styles.meta} numberOfLines={2}>
               {metadata.captured_at.slice(0, 19).replace("T", " ")} IST
@@ -81,7 +69,11 @@ export default function PyrolysisPhotoSlot({
               {metadata.latitude.toFixed(5)}, {metadata.longitude.toFixed(5)}
             </Text>
           ) : (
-            <Text style={styles.hint}>Photo is watermarked automatically</Text>
+            <Text style={styles.hint}>
+              {hasPhoto
+                ? "Use the red × on the photo to remove it."
+                : "Photo is watermarked automatically"}
+            </Text>
           )}
 
           <TouchableOpacity
@@ -111,7 +103,6 @@ export default function PyrolysisPhotoSlot({
               source={{ uri: previewUri }}
               style={styles.viewerImage}
               resizeMode="contain"
-              onError={() => setPreviewError(true)}
             />
           ) : null}
           <TouchableOpacity style={styles.viewerClose} onPress={() => setViewerOpen(false)}>
@@ -150,17 +141,6 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: "center",
   },
-  thumbnail: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.sm,
-    overflow: "hidden",
-    backgroundColor: colors.chalk,
-  },
-  thumbnailImage: {
-    width: "100%",
-    height: "100%",
-  },
   placeholder: {
     width: 64,
     height: 64,
@@ -174,11 +154,6 @@ const styles = StyleSheet.create({
   },
   placeholderIcon: {
     fontSize: 22,
-  },
-  errorText: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.error,
   },
   hint: {
     fontFamily: fonts.regular,

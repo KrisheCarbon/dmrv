@@ -18,6 +18,7 @@ import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
 import PrimaryButton from "../components/PrimaryButton";
+import { PhotoRemoveBadge } from "../components/PhotoSlot";
 import { captureApplicationVideo, LocationUnavailableError } from "../services/fieldPhoto";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import { getCurrentFarmLocation } from "../utils/location";
@@ -399,9 +400,35 @@ export default function ApplicationEntryScreen({ navigation, route }) {
           {entry.mediaType && mediaPreviewUri ? (
             <View style={styles.previewBox}>
               {entry.mediaType === "photo" ? (
-                <Image source={{ uri: mediaPreviewUri }} style={styles.photoPreview} resizeMode="cover" />
+                <View style={styles.photoPreviewWrap}>
+                  <Image source={{ uri: mediaPreviewUri }} style={styles.photoPreview} resizeMode="cover" />
+                  {isEditable ? (
+                    <PhotoRemoveBadge
+                      onPress={() =>
+                        queueAutoSave({
+                          mediaType: null,
+                          mediaLocalUri: null,
+                          mediaUrl: null,
+                          mediaMetadata: null,
+                        })
+                      }
+                    />
+                  ) : null}
+                </View>
               ) : (
                 <View style={styles.videoPreview}>
+                  {isEditable ? (
+                    <PhotoRemoveBadge
+                      onPress={() =>
+                        queueAutoSave({
+                          mediaType: null,
+                          mediaLocalUri: null,
+                          mediaUrl: null,
+                          mediaMetadata: null,
+                        })
+                      }
+                    />
+                  ) : null}
                   <Text style={styles.videoPreviewTitle}>Video saved on device</Text>
                   <Text style={styles.videoPreviewMeta} numberOfLines={2}>
                     {mediaPreviewUri.split("/").pop()}
@@ -568,6 +595,9 @@ const styles = StyleSheet.create({
   previewBox: {
     gap: spacing.xs,
   },
+  photoPreviewWrap: {
+    position: "relative",
+  },
   photoPreview: {
     width: "100%",
     height: 180,
@@ -581,6 +611,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.chalk,
     padding: spacing.md,
     justifyContent: "center",
+    position: "relative",
   },
   videoPreviewTitle: {
     fontFamily: fonts.medium,
