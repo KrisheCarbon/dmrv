@@ -4,19 +4,18 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
-  Pressable,
-  Image,
-  View,
 } from "react-native";
 import { ScreenShell } from "../components/ScreenHeader";
 import FormPicker from "../components/FormPicker";
 import FormDateField from "../components/FormDateField";
 import PrimaryButton from "../components/PrimaryButton";
 import FarmerPicker from "../components/FarmerPicker";
+import PhotoSlot from "../components/PhotoSlot";
 import { saveConsentLocal } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import { processSyncQueue } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import { usePersistedForm } from "../hooks/usePersistedForm";
 
 const AGREEMENT_TYPES = [
   { value: "Farmer consent", label: "Farmer consent" },
@@ -31,21 +30,38 @@ function todayPlusYears(years: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+const EMPTY_CONSENT = {
+  selectedFarmerId: "",
+  agreement_type: "Farmer consent",
+  consent_date: new Date().toISOString().slice(0, 10),
+  valid_to: todayPlusYears(1),
+  photos: [] as string[],
+};
+
 export default function ConsentFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
-  const [selectedFarmerId, setSelectedFarmerId] = useState(paramFarmerId);
-  const farmerId = selectedFarmerId;
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({
-    agreement_type: "Farmer consent",
-    consent_date: new Date().toISOString().slice(0, 10),
+  const [capturing, setCapturing] = useState(false);
+  const {
+    value: form,
+    setValue: setForm,
+    hydrated,
+    restoredFromDraft,
+    clearDraft,
+  } = usePersistedForm("consent-form", {
+    ...EMPTY_CONSENT,
+    selectedFarmerId: paramFarmerId,
     valid_to: todayPlusYears(1),
-    photos: [] as string[],
+    consent_date: new Date().toISOString().slice(0, 10),
   });
+  const farmerId = form.selectedFarmerId;
 
   useEffect(() => {
-    if (paramFarmerId) setSelectedFarmerId(paramFarmerId);
-  }, [paramFarmerId]);
+    if (!hydrated || restoredFromDraft) return;
+    if (paramFarmerId) {
+      setForm((prev) => ({ ...prev, selectedFarmerId: paramFarmerId }));
+    }
+  }, [paramFarmerId, hydrated, restoredFromDraft, setForm]);
 
   async function addPhoto() {
     try {
@@ -53,6 +69,7 @@ export default function ConsentFormScreen({ route, navigation }) {
         Alert.alert("Limit", "Maximum 2 document photos.");
         return;
       }
+      setCapturing(true);
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
       setForm((prev) => {
@@ -64,22 +81,16 @@ export default function ConsentFormScreen({ route, navigation }) {
       });
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturing(false);
     }
   }
 
   function removePhoto(uri: string) {
-    Alert.alert("Remove photo", "Remove this document photo?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: () =>
-          setForm((prev) => ({
-            ...prev,
-            photos: prev.photos.filter((photo) => photo !== uri),
-          })),
-      },
-    ]);
+    setForm((prev) => ({
+      ...prev,
+      photos: prev.photos.filter((photo) => photo !== uri),
+    }));
   }
 
   async function handleSave() {
@@ -113,6 +124,7 @@ export default function ConsentFormScreen({ route, navigation }) {
         consentStatus: "active",
       });
       processSyncQueue();
+      await clearDraft();
       Alert.alert("Saved", "Farmer consent recorded.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
@@ -121,6 +133,10 @@ export default function ConsentFormScreen({ route, navigation }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (!hydrated) {
+    return <ScreenShell />;
   }
 
   return (
@@ -134,7 +150,10 @@ export default function ConsentFormScreen({ route, navigation }) {
           Signed date, expiry, and photos.
         </Text>
 
-        <FarmerPicker value={farmerId} onChange={setSelectedFarmerId} />
+        <FarmerPicker
+          value={farmerId}
+          onChange={(id) => setForm((prev) => ({ ...prev, selectedFarmerId: id }))}
+        />
 
         <FormPicker
           label="Document type"
@@ -153,21 +172,21 @@ export default function ConsentFormScreen({ route, navigation }) {
           onChange={(t) => setForm((p) => ({ ...p, valid_to: t }))}
         />
 
-        <Text style={styles.section}>Document photos *</Text>
-        {form.photos.length < MAX_PHOTOS ? (
-          <Pressable style={styles.locBtn} onPress={addPhoto}>
-            <Text style={styles.locBtnText}>Upload / take photo</Text>
-          </Pressable>
-        ) : (
-          <Text style={styles.hint}>Maximum of 2 photos added.</Text>
-        )}
-        <View style={styles.photoRow}>
-          {form.photos.map((uri) => (
-            <Pressable key={uri} onPress={() => removePhoto(uri)}>
-              <Image source={{ uri }} style={styles.thumb} />
-            </Pressable>
-          ))}
-        </View>
+        <PhotoSlot
+          label="Document photos"
+          required
+          uris={form.photos}
+          max={MAX_PHOTOS}
+          capturing={capturing}
+          onAdd={addPhoto}
+          onRemove={removePhoto}
+          addLabel={
+            form.photos.length >= MAX_PHOTOS
+              ? "Maximum 2 photos"
+              : `Upload / take photo (${form.photos.length}/${MAX_PHOTOS})`
+          }
+          hint="1–2 photos. Tap to view. Use × to remove."
+        />
 
         <PrimaryButton title="Save farmer consent" onPress={handleSave} loading={loading} />
       </ScrollView>

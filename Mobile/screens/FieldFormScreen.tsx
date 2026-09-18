@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Alert,
   Pressable,
-  Image,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import {
@@ -45,6 +44,8 @@ import { persistFarmFile } from "../utils/farmLocalFiles";
 import { isLocalMediaUri } from "../utils/farmerNetworkPhotoUpload";
 import { processSyncQueue } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import PhotoSlot from "../components/PhotoSlot";
+import { usePersistedForm } from "../hooks/usePersistedForm";
 
 const OWNERSHIP = [
   { value: "Owned", label: "Owned" },
@@ -59,6 +60,30 @@ const SEASONS = FIELD_SEASONS.map((value) => ({
 }));
 
 const CROP_PICKER = CROP_OPTIONS.map((crop) => ({ value: crop, label: crop }));
+
+const EMPTY_FIELD = {
+  ownershipType: "Owned",
+  landReference: "",
+  leaseStart: "",
+  leaseEnd: "",
+  latitude: null as number | null,
+  longitude: null as number | null,
+  calculatedArea: "",
+  waterSource: "Rainfed",
+  photos: [] as string[],
+  notes: "",
+  cropName: (CROP_OPTIONS[0] || "Cotton") as string,
+  season: "Monsoon",
+  sowingDate: "",
+  harvestDate: "",
+  cropPhotos: [] as string[],
+};
+
+type FieldFormDraft = {
+  selectedFarmerId: string;
+  field: typeof EMPTY_FIELD;
+  boundaryPoints: GeoPoint[];
+};
 
 function isMediaUri(value: string): boolean {
   return /^(file:|content:|https?:)/i.test(value) || isLocalMediaUri(value);
@@ -80,30 +105,75 @@ function fileNameFromUri(uri: string): string {
 export default function FieldFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
   const fieldId = route.params?.fieldId ?? null;
-  const [selectedFarmerId, setSelectedFarmerId] = useState(paramFarmerId);
   const [loading, setLoading] = useState(false);
   const [land, setLand] = useState({ cap: 0, used: 0, remaining: 0 });
   const [existingFields, setExistingFields] = useState<FarmField[]>([]);
   const [farmerName, setFarmerName] = useState("");
-  const [field, setField] = useState({
-    ownershipType: "Owned",
-    landReference: "",
-    leaseStart: "",
-    leaseEnd: "",
-    latitude: null as number | null,
-    longitude: null as number | null,
-    calculatedArea: "",
-    waterSource: "Rainfed",
-    photos: [] as string[],
-    notes: "",
-    cropName: (CROP_OPTIONS[0] || "Cotton") as string,
-    season: "Monsoon",
-    sowingDate: "",
-    harvestDate: "",
-    cropPhotos: [] as string[],
-  });
-  const [boundaryPoints, setBoundaryPoints] = useState<GeoPoint[]>([]);
   const [polygonMapVisible, setPolygonMapVisible] = useState(false);
+  const [capturing, setCapturing] = useState<"field" | "crop" | "doc" | null>(
+    null,
+  );
+  const {
+    value: draft,
+    setValue: setDraft,
+    hydrated,
+    restoredFromDraft,
+    clearDraft,
+  } = usePersistedForm<FieldFormDraft>(
+    fieldId ? `field-form:${fieldId}` : "field-form:new",
+    {
+      selectedFarmerId: paramFarmerId,
+      field: EMPTY_FIELD,
+      boundaryPoints: [],
+    },
+  );
+  const selectedFarmerId = draft.selectedFarmerId;
+  const field = {
+    ...EMPTY_FIELD,
+    ...draft.field,
+    photos: Array.isArray(draft.field?.photos) ? draft.field.photos : [],
+    cropPhotos: Array.isArray(draft.field?.cropPhotos)
+      ? draft.field.cropPhotos
+      : [],
+  };
+  const boundaryPoints = Array.isArray(draft.boundaryPoints)
+    ? draft.boundaryPoints
+    : [];
+
+  function setSelectedFarmerId(next: string) {
+    setDraft((prev) => ({ ...prev, selectedFarmerId: next }));
+  }
+
+  function setField(
+    next:
+      | typeof EMPTY_FIELD
+      | ((prev: typeof EMPTY_FIELD) => typeof EMPTY_FIELD),
+  ) {
+    setDraft((prev) => {
+      const current = {
+        ...EMPTY_FIELD,
+        ...prev.field,
+        photos: Array.isArray(prev.field?.photos) ? prev.field.photos : [],
+        cropPhotos: Array.isArray(prev.field?.cropPhotos)
+          ? prev.field.cropPhotos
+          : [],
+      };
+      return {
+        ...prev,
+        field: typeof next === "function" ? next(current) : next,
+      };
+    });
+  }
+
+  function setBoundaryPoints(
+    next: GeoPoint[] | ((prev: GeoPoint[]) => GeoPoint[]),
+  ) {
+    setDraft((prev) => ({
+      ...prev,
+      boundaryPoints:
+        typeof next === "function" ? next(prev.boundaryPoints) : next,
+    }));
+  }
 
   const farmerId = selectedFarmerId;
   const areaNum = Number(field.calculatedArea) || 0;
@@ -121,8 +191,9 @@ export default function FieldFormScreen({ route, navigation }) {
   }, [land]);
 
   useEffect(() => {
+    if (!hydrated || restoredFromDraft) return;
     if (paramFarmerId) setSelectedFarmerId(paramFarmerId);
-  }, [paramFarmerId]);
+  }, [paramFarmerId, hydrated, restoredFromDraft]);
 
   const loadFarmerContext = useCallback(async () => {
     if (!farmerId) {
@@ -146,17 +217,20 @@ export default function FieldFormScreen({ route, navigation }) {
   }, [loadFarmerContext]);
 
   const applyBoundary = useCallback((points: GeoPoint[]) => {
-    setBoundaryPoints(points);
     const centroid = polygonCentroid(points);
-    setField((prev) => ({
+    setDraft((prev) => ({
       ...prev,
-      latitude: centroid?.latitude ?? null,
-      longitude: centroid?.longitude ?? null,
+      boundaryPoints: points,
+      field: {
+        ...prev.field,
+        latitude: centroid?.latitude ?? null,
+        longitude: centroid?.longitude ?? null,
+      },
     }));
-  }, []);
+  }, [setDraft]);
 
   const loadExisting = useCallback(async () => {
-    if (!fieldId) return;
+    if (!fieldId || restoredFromDraft) return;
     const f = await getFieldById(fieldId);
     setSelectedFarmerId(f.farmerId);
     const points = parseBoundaryGeojson(f.boundaryGeojson);
@@ -179,13 +253,14 @@ export default function FieldFormScreen({ route, navigation }) {
       cropPhotos: f.cropPhotos || [],
     });
     setBoundaryPoints(points);
-  }, [fieldId]);
+  }, [fieldId, restoredFromDraft]);
 
   useEffect(() => {
+    if (!hydrated) return;
     loadExisting().catch((err) =>
       Alert.alert("Error", err instanceof Error ? err.message : String(err)),
     );
-  }, [loadExisting]);
+  }, [loadExisting, hydrated]);
 
   async function openPolygonMapper() {
     const canOpen = await openMapPickerIfOnline(() => {
@@ -199,6 +274,7 @@ export default function FieldFormScreen({ route, navigation }) {
 
   async function addPhoto(target: "field" | "crop") {
     try {
+      setCapturing(target);
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
       if (target === "field") {
@@ -220,26 +296,20 @@ export default function FieldFormScreen({ route, navigation }) {
       }
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturing(null);
     }
   }
 
   function removePhoto(target: "field" | "crop", uri: string) {
-    Alert.alert("Remove photo", "Remove this photograph?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: () =>
-          setField((prev) =>
-            target === "field"
-              ? { ...prev, photos: prev.photos.filter((item) => item !== uri) }
-              : {
-                  ...prev,
-                  cropPhotos: prev.cropPhotos.filter((item) => item !== uri),
-                },
-          ),
-      },
-    ]);
+    setField((prev) =>
+      target === "field"
+        ? { ...prev, photos: prev.photos.filter((item) => item !== uri) }
+        : {
+            ...prev,
+            cropPhotos: prev.cropPhotos.filter((item) => item !== uri),
+          },
+    );
   }
 
   async function pickLandDocument() {
@@ -261,11 +331,14 @@ export default function FieldFormScreen({ route, navigation }) {
 
   async function photographLandDocument() {
     try {
+      setCapturing("doc");
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
       setField((prev) => ({ ...prev, landReference: captured.uri }));
     } catch (err) {
       Alert.alert("Document", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturing(null);
     }
   }
 
@@ -347,6 +420,7 @@ export default function FieldFormScreen({ route, navigation }) {
       }
 
       processSyncQueue();
+      await clearDraft();
 
       if (addAnother && !fieldId) {
         setField((prev) => ({
@@ -380,6 +454,7 @@ export default function FieldFormScreen({ route, navigation }) {
 
   return (
     <ScreenShell>
+      {!hydrated ? null : (
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -454,7 +529,17 @@ export default function FieldFormScreen({ route, navigation }) {
         {field.landReference ? (
           <View style={styles.docBox}>
             {isImageUri(field.landReference) ? (
-              <Image source={{ uri: field.landReference }} style={styles.docThumb} />
+              <PhotoSlot
+                label="Document photo"
+                uris={[field.landReference]}
+                capturing={capturing === "doc"}
+                onAdd={photographLandDocument}
+                onRemove={() =>
+                  setField((prev) => ({ ...prev, landReference: "" }))
+                }
+                addLabel="Retake photo"
+                hint="Tap to view. Use × to remove."
+              />
             ) : (
               <Text style={styles.hint}>
                 {isMediaUri(field.landReference)
@@ -462,11 +547,13 @@ export default function FieldFormScreen({ route, navigation }) {
                   : field.landReference}
               </Text>
             )}
-            <Pressable
-              onPress={() => setField((prev) => ({ ...prev, landReference: "" }))}
-            >
-              <Text style={styles.linkMuted}>Remove document</Text>
-            </Pressable>
+            {!isImageUri(field.landReference) ? (
+              <Pressable
+                onPress={() => setField((prev) => ({ ...prev, landReference: "" }))}
+              >
+                <Text style={styles.linkMuted}>Remove document</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -550,26 +637,21 @@ export default function FieldFormScreen({ route, navigation }) {
           onValueChange={(v) => setField((p) => ({ ...p, waterSource: v }))}
         />
 
-        <Text style={styles.section}>Farm photographs * (1 required, max 5)</Text>
-        <Text style={styles.hint}>At least 1 photo, max 5. Tap to remove.</Text>
-        <Pressable
-          style={styles.locBtn}
-          onPress={() => addPhoto("field")}
-          disabled={field.photos.length >= 5}
-        >
-          <Text style={styles.locBtnText}>
-            {field.photos.length >= 5
+        <PhotoSlot
+          label="Farm photographs"
+          required
+          uris={field.photos}
+          max={5}
+          capturing={capturing === "field"}
+          onAdd={() => addPhoto("field")}
+          onRemove={(uri) => removePhoto("field", uri)}
+          addLabel={
+            field.photos.length >= 5
               ? "Maximum 5 farm photos"
-              : `Take farm photo (${field.photos.length}/5)`}
-          </Text>
-        </Pressable>
-        <View style={styles.photoRow}>
-          {field.photos.map((uri) => (
-            <Pressable key={uri} onPress={() => removePhoto("field", uri)}>
-              <Image source={{ uri }} style={styles.thumb} />
-            </Pressable>
-          ))}
-        </View>
+              : `Take farm photo (${field.photos.length}/5)`
+          }
+          hint="At least 1 photo, max 5. Tap to view. Use × to remove."
+        />
 
         <Text style={styles.section}>Crop on this farm</Text>
         <FormPicker
@@ -594,28 +676,20 @@ export default function FieldFormScreen({ route, navigation }) {
           value={field.harvestDate}
           onChange={(t) => setField((p) => ({ ...p, harvestDate: t }))}
         />
-        <Text style={styles.section}>Crop photograph</Text>
-        <Text style={styles.hint}>
-          Optional. Only if already sown. Max 5.
-        </Text>
-        <Pressable
-          style={styles.locBtn}
-          onPress={() => addPhoto("crop")}
-          disabled={field.cropPhotos.length >= 5}
-        >
-          <Text style={styles.locBtnText}>
-            {field.cropPhotos.length >= 5
+        <PhotoSlot
+          label="Crop photograph"
+          uris={field.cropPhotos}
+          max={5}
+          capturing={capturing === "crop"}
+          onAdd={() => addPhoto("crop")}
+          onRemove={(uri) => removePhoto("crop", uri)}
+          addLabel={
+            field.cropPhotos.length >= 5
               ? "Maximum 5 crop photos"
-              : `Take crop photo (${field.cropPhotos.length}/5)`}
-          </Text>
-        </Pressable>
-        <View style={styles.photoRow}>
-          {field.cropPhotos.map((uri) => (
-            <Pressable key={uri} onPress={() => removePhoto("crop", uri)}>
-              <Image source={{ uri }} style={styles.thumb} />
-            </Pressable>
-          ))}
-        </View>
+              : `Take crop photo (${field.cropPhotos.length}/5)`
+          }
+          hint="Optional. Only if already sown. Max 5. Tap to view. Use × to remove."
+        />
 
         <PrimaryButton title="Save farm" onPress={() => handleSave(false)} loading={loading} />
         {!fieldId ? (
@@ -627,6 +701,7 @@ export default function FieldFormScreen({ route, navigation }) {
           />
         ) : null}
       </ScrollView>
+      )}
       <PolygonMapperModal
         visible={polygonMapVisible}
         initialLatitude={field.latitude}

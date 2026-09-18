@@ -351,7 +351,11 @@ export default function FarmerForm({
         required={mode === "create"}
         uri={form.farmer_photo_uri || form.farmer_photo_url}
         onChange={(uri) =>
-          setForm((prev) => ({ ...prev, farmer_photo_uri: uri }))
+          setForm((prev) => ({
+            ...prev,
+            farmer_photo_uri: uri,
+            farmer_photo_url: uri ? prev.farmer_photo_url : null,
+          }))
         }
       />
 

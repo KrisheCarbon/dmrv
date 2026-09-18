@@ -29,7 +29,37 @@ import { startLocationCache } from "../services/locationCache";
 import { CROP_OPTIONS } from "../constants/crops";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import FarmerPhotoField from "../components/FarmerPhotoField";
+import { usePersistedForm } from "../hooks/usePersistedForm";
 import type { ClusterVillageRecord, FarmerCrop } from "@krishecarbon/shared";
+
+const EMPTY_FORM = {
+  farmer_name: "",
+  father_spouse_name: "",
+  agri_id: "",
+  mobile_number: "",
+  address: "",
+  village: "",
+  mandal: "",
+  district: "",
+  state: "",
+  cluster_id: "",
+  cluster_village_id: "",
+  cluster_name: "",
+  latitude: null as number | null,
+  longitude: null as number | null,
+  farmer_photo_uri: null as string | null,
+  farmer_photo_url: null as string | null,
+  total_land_size: "",
+  owned_land_size: "",
+  leased_land_size: "",
+  crop_name: (CROP_OPTIONS[0] || "Cotton") as string,
+  crop_area: "",
+  sowing_date: "",
+  harvest_date: "",
+  interested_in_biochar: false,
+  prior_biochar_exp: false,
+  prior_biochar_acreage: "",
+};
 
 function ToggleRow({
   label,
@@ -75,34 +105,13 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
   const [villages, setVillages] = useState<ClusterVillageRecord[]>([]);
   const [villagesLoading, setVillagesLoading] = useState(true);
   const [existingCrops, setExistingCrops] = useState<FarmerCrop[]>([]);
-  const [form, setForm] = useState({
-    farmer_name: "",
-    father_spouse_name: "",
-    agri_id: "",
-    mobile_number: "",
-    address: "",
-    village: "",
-    mandal: "",
-    district: "",
-    state: "",
-    cluster_id: "",
-    cluster_village_id: "",
-    cluster_name: "",
-    latitude: null as number | null,
-    longitude: null as number | null,
-    farmer_photo_uri: null as string | null,
-    farmer_photo_url: null as string | null,
-    total_land_size: "",
-    owned_land_size: "",
-    leased_land_size: "",
-    crop_name: (CROP_OPTIONS[0] || "Cotton") as string,
-    crop_area: "",
-    sowing_date: "",
-    harvest_date: "",
-    interested_in_biochar: false,
-    prior_biochar_exp: false,
-    prior_biochar_acreage: "",
-  });
+  const {
+    value: form,
+    setValue: setForm,
+    hydrated,
+    restoredFromDraft,
+    clearDraft,
+  } = usePersistedForm(farmerId ? `edit-farmer:${farmerId}` : "new-farmer", EMPTY_FORM);
 
   function setField(key: string, value: string | number | boolean | null) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -126,7 +135,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    if (!farmerId) return;
+    if (!farmerId || !hydrated) return;
     let cancelled = false;
     (async () => {
       try {
@@ -142,6 +151,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         if (cancelled) return;
         const crops = Array.isArray(farmer.crops) ? farmer.crops : [];
         setExistingCrops(crops);
+        if (restoredFromDraft) return;
         const first = crops[0];
         setForm((prev) => ({
           ...prev,
@@ -191,7 +201,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
     return () => {
       cancelled = true;
     };
-  }, [farmerId, navigation]);
+  }, [farmerId, navigation, hydrated, restoredFromDraft, setForm]);
 
   async function captureGps() {
     try {
@@ -310,6 +320,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       );
 
       processSyncQueue();
+      await clearDraft();
 
       Alert.alert(
         isEdit ? "Farmer updated" : "Farmer saved",
@@ -345,7 +356,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
     }
   }
 
-  if (fetching) {
+  if (fetching || !hydrated) {
     return <ScreenShell />;
   }
 
@@ -370,7 +381,13 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         <FarmerPhotoField
           required={!isEdit}
           uri={form.farmer_photo_uri || form.farmer_photo_url}
-          onChange={(uri) => setField("farmer_photo_uri", uri)}
+          onChange={(uri) =>
+            setForm((prev) => ({
+              ...prev,
+              farmer_photo_uri: uri,
+              farmer_photo_url: uri ? prev.farmer_photo_url : null,
+            }))
+          }
         />
         <FormInput
           label="Father's / spouse's name"

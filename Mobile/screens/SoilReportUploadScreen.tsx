@@ -1,12 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View,
   Text,
   StyleSheet,
   ScrollView,
   Alert,
   Pressable,
-  Image,
 } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { soilTestStatusLabel } from "@krishecarbon/shared";
@@ -22,13 +20,24 @@ import { getFarmerByIdLocal } from "../services/farmerService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import { processSyncQueue } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import PhotoSlot from "../components/PhotoSlot";
+import { usePersistedForm } from "../hooks/usePersistedForm";
 
 export default function SoilReportUploadScreen({ navigation }) {
   const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
-  const [sampleId, setSampleId] = useState("");
-  const [documentUri, setDocumentUri] = useState("");
-  const [documentKind, setDocumentKind] = useState<"pdf" | "photo" | "">("");
   const [loading, setLoading] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const {
+    value,
+    setValue,
+    hydrated,
+    clearDraft,
+  } = usePersistedForm("soil-report", {
+    sampleId: "",
+    documentUri: "",
+    documentKind: "" as "pdf" | "photo" | "",
+  });
+  const { sampleId, documentUri, documentKind } = value;
 
   const load = useCallback(async () => {
     const tests = await listReportableSoilSamples();
@@ -42,16 +51,19 @@ export default function SoilReportUploadScreen({ navigation }) {
       }),
     );
     setOptions(mapped);
-    setSampleId((current) =>
-      current && mapped.some((item) => item.value === current)
-        ? current
-        : mapped[0]?.value || "",
-    );
-  }, []);
+    setValue((current) => ({
+      ...current,
+      sampleId:
+        current.sampleId && mapped.some((item) => item.value === current.sampleId)
+          ? current.sampleId
+          : mapped[0]?.value || current.sampleId,
+    }));
+  }, [setValue]);
 
   useEffect(() => {
+    if (!hydrated) return;
     load().catch(() => {});
-  }, [load]);
+  }, [load, hydrated]);
 
   async function pickPdf() {
     try {
@@ -60,8 +72,11 @@ export default function SoilReportUploadScreen({ navigation }) {
         copyToCacheDirectory: true,
       });
       if (result.canceled || !result.assets?.[0]?.uri) return;
-      setDocumentUri(result.assets[0].uri);
-      setDocumentKind("pdf");
+      setValue((prev) => ({
+        ...prev,
+        documentUri: result.assets[0].uri,
+        documentKind: "pdf",
+      }));
     } catch (err) {
       Alert.alert("PDF", err instanceof Error ? err.message : String(err));
     }
@@ -69,12 +84,18 @@ export default function SoilReportUploadScreen({ navigation }) {
 
   async function takePhoto() {
     try {
+      setCapturing(true);
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
-      setDocumentUri(captured.uri);
-      setDocumentKind("photo");
+      setValue((prev) => ({
+        ...prev,
+        documentUri: captured.uri,
+        documentKind: "photo",
+      }));
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturing(false);
     }
   }
 
@@ -97,6 +118,7 @@ export default function SoilReportUploadScreen({ navigation }) {
         documentUri,
       });
       processSyncQueue();
+      await clearDraft();
       Alert.alert("Saved", "Soil report uploaded.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
@@ -105,6 +127,10 @@ export default function SoilReportUploadScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (!hydrated) {
+    return <ScreenShell />;
   }
 
   return (
@@ -123,7 +149,9 @@ export default function SoilReportUploadScreen({ navigation }) {
             label="Soil sample *"
             value={sampleId}
             options={options}
-            onValueChange={setSampleId}
+            onValueChange={(next) =>
+              setValue((prev) => ({ ...prev, sampleId: next }))
+            }
             placeholder="Select sample…"
           />
         ) : (
@@ -135,14 +163,37 @@ export default function SoilReportUploadScreen({ navigation }) {
         <Pressable style={styles.locBtn} onPress={pickPdf}>
           <Text style={styles.locBtnText}>Upload PDF</Text>
         </Pressable>
-        <Pressable style={styles.locBtn} onPress={takePhoto}>
-          <Text style={styles.locBtnText}>Take photo of results</Text>
-        </Pressable>
-
-        {documentUri && documentKind === "photo" ? (
-          <Image source={{ uri: documentUri }} style={styles.photo} />
-        ) : documentUri ? (
-          <Text style={styles.hint}>PDF selected.</Text>
+        <PhotoSlot
+          label="Results photo"
+          uris={documentKind === "photo" && documentUri ? [documentUri] : []}
+          capturing={capturing}
+          onAdd={takePhoto}
+          onRemove={() =>
+            setValue((prev) => ({
+              ...prev,
+              documentUri: "",
+              documentKind: "",
+            }))
+          }
+          addLabel={
+            documentKind === "photo" && documentUri
+              ? "Retake photo of results"
+              : "Take photo of results"
+          }
+          hint="Photograph the lab sheet, or upload a PDF above."
+        />
+        {documentKind === "pdf" && documentUri ? (
+          <Pressable
+            onPress={() =>
+              setValue((prev) => ({
+                ...prev,
+                documentUri: "",
+                documentKind: "",
+              }))
+            }
+          >
+            <Text style={styles.hint}>PDF selected. Tap to remove.</Text>
+          </Pressable>
         ) : null}
 
         <PrimaryButton title="Save report" onPress={handleSave} loading={loading} />

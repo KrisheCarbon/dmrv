@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Alert,
   Pressable,
-  Image,
   View,
 } from "react-native";
 import {
@@ -25,11 +24,12 @@ import {
   saveSoilTestLocal,
 } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
-import { formatWatermarkTime } from "../services/fieldPhoto";
 import { getUserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
 import { generateId } from "../database/sqlHelpers";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import PhotoSlot from "../components/PhotoSlot";
+import { usePersistedForm } from "../hooks/usePersistedForm";
 
 function relabelSites(sites: SoilSampleSite[]): SoilSampleSite[] {
   return sites.map((site, index) => ({
@@ -38,15 +38,9 @@ function relabelSites(sites: SoilSampleSite[]): SoilSampleSite[] {
   }));
 }
 
-export default function SoilTestFormScreen({ route, navigation }) {
-  const paramFarmerId = route.params?.farmerId ?? "";
-  const [selectedFarmerId, setSelectedFarmerId] = useState(paramFarmerId);
-  const farmerId = selectedFarmerId;
-  const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState("");
-  const [userId, setUserId] = useState("");
-  const [fields, setFields] = useState<{ value: string; label: string }[]>([]);
-  const [form, setForm] = useState({
+function emptySoilForm(farmerId: string) {
+  return {
+    selectedFarmerId: farmerId,
     fieldIds: [] as string[],
     sampleDate: new Date().toISOString().slice(0, 10),
     sampleLat: null as number | null,
@@ -54,11 +48,31 @@ export default function SoilTestFormScreen({ route, navigation }) {
     samplePhotoUri: "" as string,
     sampleCapturedAt: "" as string,
     sampleSites: createSoilSampleSites(),
-  });
+  };
+}
+
+export default function SoilTestFormScreen({ route, navigation }) {
+  const paramFarmerId = route.params?.farmerId ?? "";
+  const [loading, setLoading] = useState(false);
+  const [role, setRole] = useState("");
+  const [userId, setUserId] = useState("");
+  const [fields, setFields] = useState<{ value: string; label: string }[]>([]);
+  const [capturingKey, setCapturingKey] = useState<string | null>(null);
+  const {
+    value: form,
+    setValue: setForm,
+    hydrated,
+    restoredFromDraft,
+    clearDraft,
+  } = usePersistedForm("soil-test", emptySoilForm(paramFarmerId));
+  const farmerId = form.selectedFarmerId;
 
   useEffect(() => {
-    if (paramFarmerId) setSelectedFarmerId(paramFarmerId);
-  }, [paramFarmerId]);
+    if (!hydrated || restoredFromDraft) return;
+    if (paramFarmerId) {
+      setForm((prev) => ({ ...prev, selectedFarmerId: paramFarmerId }));
+    }
+  }, [paramFarmerId, hydrated, restoredFromDraft, setForm]);
 
   useEffect(() => {
     getUserProfile()
@@ -71,7 +85,10 @@ export default function SoilTestFormScreen({ route, navigation }) {
 
   const isSupervisor =
     role === "supervisor" || role === "admin" || role === "manager";
-  const completedSites = completedSoilSampleSites(form.sampleSites).length;
+  const sampleSites = Array.isArray(form.sampleSites)
+    ? form.sampleSites
+    : createSoilSampleSites();
+  const completedSites = completedSoilSampleSites(sampleSites).length;
 
   const loadFields = useCallback(async () => {
     if (!farmerId) {
@@ -94,11 +111,13 @@ export default function SoilTestFormScreen({ route, navigation }) {
   }, [farmerId]);
 
   useEffect(() => {
+    if (!hydrated) return;
     loadFields().catch(() => {});
-  }, [loadFields]);
+  }, [loadFields, hydrated]);
 
   async function captureSitePhoto(siteId: string) {
     try {
+      setCapturingKey(siteId);
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
       setForm((prev) => ({
@@ -117,11 +136,32 @@ export default function SoilTestFormScreen({ route, navigation }) {
       }));
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturingKey(null);
     }
+  }
+
+  function removeSitePhoto(siteId: string) {
+    setForm((prev) => ({
+      ...prev,
+      sampleSites: prev.sampleSites.map((site) =>
+        site.id === siteId
+          ? {
+              ...site,
+              photo_uri: null,
+              photo_url: null,
+              latitude: null,
+              longitude: null,
+              captured_at: null,
+            }
+          : site,
+      ),
+    }));
   }
 
   async function captureMixedSamplePhoto() {
     try {
+      setCapturingKey("mixed");
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
       setForm((p) => ({
@@ -133,6 +173,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
       }));
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturingKey(null);
     }
   }
 
@@ -198,7 +240,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
         sampleLat: form.sampleLat,
         sampleLng: form.sampleLng,
         samplePhotoUri: form.samplePhotoUri,
-        sampleSites: form.sampleSites,
+        sampleSites: sampleSites,
         submittedToSupervisorId: isSupervisor ? userId : null,
         submittedToSupervisorName: isSupervisor ? "Self" : null,
         collectedBy: userId,
@@ -206,6 +248,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
         status: isSupervisor ? "accepted" : "collected",
       });
       processSyncQueue();
+      await clearDraft();
       Alert.alert(
         "Saved",
         isSupervisor
@@ -218,6 +261,10 @@ export default function SoilTestFormScreen({ route, navigation }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (!hydrated) {
+    return <ScreenShell />;
   }
 
   return (
@@ -233,7 +280,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
 
         <FarmerPicker
           value={farmerId}
-          onChange={setSelectedFarmerId}
+          onChange={(id) => setForm((prev) => ({ ...prev, selectedFarmerId: id }))}
           requireFields
         />
 
@@ -265,36 +312,32 @@ export default function SoilTestFormScreen({ route, navigation }) {
           Photograph each dig spot. Minimum {MIN_SOIL_SAMPLE_SITES}.
         </Text>
 
-        {form.sampleSites.map((site) => {
+        {sampleSites.map((site) => {
           const photoUri = site.photo_uri || site.photo_url;
           return (
             <View key={site.id} style={styles.siteCard}>
-              <Text style={styles.siteTitle}>{site.name}</Text>
-              <Pressable
-                style={styles.locBtn}
-                onPress={() => captureSitePhoto(site.id)}
-              >
-                <Text style={styles.locBtnText}>
-                  {photoUri ? `Retake ${site.name} photo` : `Take ${site.name} GPS photo`}
-                </Text>
-              </Pressable>
-              {photoUri ? (
-                <View style={styles.photoWrap}>
-                  <Image source={{ uri: photoUri }} style={styles.sitePhoto} />
-                  {site.latitude != null && site.longitude != null ? (
-                    <Text style={styles.hint}>
-                      GPS {Number(site.latitude).toFixed(6)},{" "}
-                      {Number(site.longitude).toFixed(6)}
-                    </Text>
-                  ) : null}
-                  {site.captured_at ? (
-                    <Text style={styles.hint}>
-                      Time {formatWatermarkTime(site.captured_at)}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-              {form.sampleSites.length > MIN_SOIL_SAMPLE_SITES ? (
+              <PhotoSlot
+                label={site.name}
+                required
+                uris={photoUri ? [photoUri] : []}
+                capturing={capturingKey === site.id}
+                onAdd={() => captureSitePhoto(site.id)}
+                onRemove={() => removeSitePhoto(site.id)}
+                addLabel={photoUri ? `Retake ${site.name} photo` : `Take ${site.name} GPS photo`}
+                hint="Photograph this dig spot. GPS is stored on the photo."
+                metadata={
+                  photoUri
+                    ? [
+                        {
+                          latitude: site.latitude,
+                          longitude: site.longitude,
+                          captured_at: site.captured_at,
+                        },
+                      ]
+                    : undefined
+                }
+              />
+              {sampleSites.length > MIN_SOIL_SAMPLE_SITES ? (
                 <Pressable onPress={() => removeSamplingPoint(site.id)}>
                   <Text style={styles.linkMuted}>Remove {site.name}</Text>
                 </Pressable>
@@ -307,33 +350,39 @@ export default function SoilTestFormScreen({ route, navigation }) {
           <Text style={styles.locBtnText}>Add another sampling point</Text>
         </Pressable>
 
-        <Text style={styles.section}>Mixed sample photo *</Text>
-        <Text style={styles.hint}>
-          Mix the soil, then photograph the mixed sample.
-        </Text>
-        <Pressable style={styles.locBtn} onPress={captureMixedSamplePhoto}>
-          <Text style={styles.locBtnText}>
-            {form.samplePhotoUri
+        <PhotoSlot
+          label="Mixed sample photo"
+          required
+          uris={form.samplePhotoUri ? [form.samplePhotoUri] : []}
+          capturing={capturingKey === "mixed"}
+          onAdd={captureMixedSamplePhoto}
+          onRemove={() =>
+            setForm((p) => ({
+              ...p,
+              samplePhotoUri: "",
+              sampleLat: null,
+              sampleLng: null,
+              sampleCapturedAt: "",
+            }))
+          }
+          addLabel={
+            form.samplePhotoUri
               ? "Retake mixed sample photo"
-              : "Take mixed sample photo *"}
-          </Text>
-        </Pressable>
-        {form.samplePhotoUri ? (
-          <View style={styles.photoWrap}>
-            <Image source={{ uri: form.samplePhotoUri }} style={styles.photo} />
-            {form.sampleLat != null ? (
-              <Text style={styles.hint}>
-                GPS {Number(form.sampleLat).toFixed(6)},{" "}
-                {Number(form.sampleLng).toFixed(6)}
-              </Text>
-            ) : null}
-            {form.sampleCapturedAt ? (
-              <Text style={styles.hint}>
-                Time {formatWatermarkTime(form.sampleCapturedAt)}
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
+              : "Take mixed sample photo"
+          }
+          hint="Mix the soil, then photograph the mixed sample."
+          metadata={
+            form.samplePhotoUri
+              ? [
+                  {
+                    latitude: form.sampleLat,
+                    longitude: form.sampleLng,
+                    captured_at: form.sampleCapturedAt,
+                  },
+                ]
+              : undefined
+          }
+        />
 
         {isSupervisor ? (
           <Text style={styles.hint}>Saved as accepted.</Text>
