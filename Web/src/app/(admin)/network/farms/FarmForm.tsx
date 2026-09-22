@@ -13,6 +13,7 @@ import {
   CROP_BIOMASS_RATES,
   CROP_OPTIONS,
   calculateEstimatedBiomass,
+  isHarvestAfterSowing,
   matchClusterVillage,
   validateMobileNumber,
   type ClusterVillageRecord,
@@ -254,6 +255,11 @@ export default function FarmForm({
       setError(
         `Total crop area (${areaSoFar + areaNum} acres) cannot exceed the total land size (${totalLandSize} acres).`,
       );
+      return;
+    }
+
+    if (!isHarvestAfterSowing(sowingDate, harvestDate)) {
+      setError("Harvest date must be after the sowing date.");
       return;
     }
 

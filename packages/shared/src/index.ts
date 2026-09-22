@@ -10,6 +10,7 @@ export {
   findLoginEmailForPhone,
 } from "./authLogin";
 export type { LoginIdentifier } from "./authLogin";
+import { isHarvestAfterSowing } from "./farmersNetwork";
 export {
   USER_ROLES,
   ROLE_LABELS,
@@ -270,7 +271,7 @@ export function validateFarmerForm(form: FarmerForm): string[] {
       if (
         crop.sowing_date &&
         crop.harvest_date &&
-        new Date(crop.harvest_date) <= new Date(crop.sowing_date)
+        !isHarvestAfterSowing(crop.sowing_date, crop.harvest_date)
       ) {
         errors.push(`${label}: harvest date must be after sowing date.`);
       }
@@ -324,6 +325,34 @@ export {
   isKontikkiWorkflowSectionUnlocked,
   kontikkiWorkflowProgress,
 } from "./pyrolysis";
+export {
+  PRODUCER_REGISTRIES,
+  PYROLYSIS_PROTOCOLS,
+  isProducerRegistry,
+  pyrolysisProtocolForRegistry,
+  producerRegistryLabel,
+} from "./producerRegistry";
+export type { ProducerRegistry, PyrolysisProtocol } from "./producerRegistry";
+export {
+  RAINBOW_MOISTURE_READING_COUNT,
+  RAINBOW_KONTIKKI_SECTIONS,
+  emptyRainbowMoistureReadings,
+  isRainbowMoistureComplete,
+  isRainbowBiomassLoadComplete,
+  isRainbowProductionComplete,
+  rainbowWorkflowSectionLabel,
+  rainbowWorkflowSectionSubtitle,
+  isRainbowSectionCompleted,
+  isRainbowSectionUnlocked,
+  rainbowKontikkiWorkflowProgress,
+  protocolForKontikkiRegistry,
+} from "./rainbowPyrolysis";
+export type {
+  RainbowKontikkiWorkflowSection,
+  RainbowBiomassLoad,
+  RainbowPyrolysisBatchRecord,
+  RainbowWorkflowFlags,
+} from "./rainbowPyrolysis";
 export {
   kontikkiDataToFlatRow,
   flatRowToKontikkiData,
@@ -458,6 +487,7 @@ export {
   roundAcres,
   farmAreaToleranceAcres,
   farmAreasAreNearby,
+  isHarvestAfterSowing,
   parseKmlCoordinates,
   parseBoundaryFileText,
   MIN_SOIL_SAMPLE_SITES,

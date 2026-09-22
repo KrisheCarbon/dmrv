@@ -27,6 +27,7 @@ import FarmerPhotoField from "./FarmerPhotoField";
 import VillagePicker from "./VillagePicker";
 import { loadClusterVillages } from "../services/clusterVillageService";
 import {
+  isHarvestAfterSowing,
   matchClusterVillage,
   type ClusterVillageRecord,
 } from "@krishecarbon/shared";
@@ -274,6 +275,11 @@ export default function FarmerForm({
         "Crop",
         "Enter a valid guesstimated biomass (tonnes/acre) for this crop."
       );
+      return;
+    }
+
+    if (!isHarvestAfterSowing(formatDate(sowingDate), formatDate(harvestDate))) {
+      Alert.alert("Crop dates", "Harvest date must be after the sowing date.");
       return;
     }
 
@@ -587,6 +593,15 @@ export default function FarmerForm({
               setShowHarvestPicker(Platform.OS === "ios");
               if (date) setHarvestDate(date);
             }}
+            minimumDate={
+              sowingDate
+                ? new Date(
+                    sowingDate.getFullYear(),
+                    sowingDate.getMonth(),
+                    sowingDate.getDate() + 1,
+                  )
+                : undefined
+            }
           />
         )}
 

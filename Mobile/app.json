@@ -27,6 +27,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
       "usesCleartextTraffic": true,
       "package": "com.krishecarbon.dmrv",
       "permissions": [

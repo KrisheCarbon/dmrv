@@ -17,6 +17,7 @@ interface FormInputProps {
   editable?: boolean;
   multiline?: boolean;
   error?: string;
+  onFocus?: () => void;
 }
 
 export default function FormInput({
@@ -28,6 +29,7 @@ export default function FormInput({
   editable = true,
   multiline = false,
   error,
+  onFocus,
 }: FormInputProps) {
   const [focused, setFocused] = useState(false);
 
@@ -38,6 +40,7 @@ export default function FormInput({
         placeholder={placeholder}
         style={[
           styles.input,
+          multiline && styles.inputMultiline,
           focused && editable && styles.inputFocused,
           !editable && styles.inputDisabled,
           error && styles.inputError,
@@ -47,8 +50,12 @@ export default function FormInput({
         keyboardType={keyboardType}
         editable={editable}
         multiline={multiline}
+        textAlignVertical={multiline ? "top" : "center"}
         placeholderTextColor={colors.smokeLight}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          onFocus?.();
+        }}
         onBlur={() => setFocused(false)}
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -75,6 +82,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 16,
     color: colors.text,
+  },
+  inputMultiline: {
+    minHeight: 96,
+    paddingTop: spacing.md,
   },
   inputFocused: {
     backgroundColor: colors.white,

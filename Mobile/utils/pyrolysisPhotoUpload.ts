@@ -129,6 +129,42 @@ export async function uploadPyrolysisBatchPhotos(
     );
   }
 
-  await applyBatchPayload(localBatchId, next);
+  if (localBatchId) {
+    await applyBatchPayload(localBatchId, next);
+  }
   return next;
+}
+
+export async function uploadRainbowPhotos(
+  serverBatchId: string,
+  data: PyrolysisKontikkiData,
+  loads: Array<{
+    id: string;
+    sequence: number;
+    photo_local_uri?: string | null;
+    photo_url?: string | null;
+    photo_metadata?: PyrolysisKontikkiData["feedstock_photo_metadata"];
+    captured_at?: string | null;
+    note?: string | null;
+  }>,
+): Promise<{
+  data: PyrolysisKontikkiData;
+  loads: typeof loads;
+}> {
+  const next = await uploadPyrolysisBatchPhotos(serverBatchId, "", data);
+  const nextLoads = await Promise.all(
+    loads.map(async (load, index) => {
+      if (!load.photo_local_uri) return load;
+      const photoUrl = await uploadLocalPhoto(
+        load.photo_local_uri,
+        load.photo_url,
+        buildPyrolysisPhotoPath(serverBatchId, "biomass_load", {
+          index: load.sequence || index + 1,
+          ext: photoExt(load.photo_local_uri),
+        }),
+      );
+      return { ...load, photo_url: photoUrl };
+    }),
+  );
+  return { data: next, loads: nextLoads };
 }

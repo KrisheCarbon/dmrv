@@ -16,6 +16,7 @@ import {
   farmAreasAreNearby,
   fieldSeasonLabel,
   formatHectaresFromAcres,
+  isHarvestAfterSowing,
   normalizeFieldSeason,
   parseBoundaryGeojson,
   polygonAreaAcres,
@@ -367,17 +368,18 @@ export default function FieldFormScreen({ route, navigation }) {
       return;
     }
     if (areaMismatch) {
-      const confirmed = await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          "Area does not match map",
-          `You entered ${areaNum} acres. The map shape is about ${mappedArea} acres. Check the number or redraw the boundary.`,
-          [
-            { text: "Check again", style: "cancel", onPress: () => resolve(false) },
-            { text: "Save anyway", onPress: () => resolve(true) },
-          ],
-        );
-      });
-      if (!confirmed) return;
+      Alert.alert(
+        "Area does not match map",
+        `You entered ${areaNum} acres. The map shape is about ${mappedArea} acres. Change the acres or redraw the boundary so they match. This farm cannot be saved until they match.`,
+      );
+      return;
+    }
+    if (!isHarvestAfterSowing(field.sowingDate, field.harvestDate)) {
+      Alert.alert(
+        "Crop dates",
+        "Harvest date must be after the sowing date.",
+      );
+      return;
     }
 
     try {
@@ -669,12 +671,28 @@ export default function FieldFormScreen({ route, navigation }) {
         <FormDateField
           label="Estimated sowing date"
           value={field.sowingDate}
-          onChange={(t) => setField((p) => ({ ...p, sowingDate: t }))}
+          onChange={(t) =>
+            setField((p) => ({
+              ...p,
+              sowingDate: t,
+              harvestDate:
+                p.harvestDate && p.harvestDate <= t ? "" : p.harvestDate,
+            }))
+          }
+          maximumDate={field.harvestDate || undefined}
         />
         <FormDateField
           label="Estimated harvest date"
           value={field.harvestDate}
           onChange={(t) => setField((p) => ({ ...p, harvestDate: t }))}
+          afterDate={field.sowingDate || undefined}
+          error={
+            field.sowingDate &&
+            field.harvestDate &&
+            !isHarvestAfterSowing(field.sowingDate, field.harvestDate)
+              ? "Harvest date must be after sowing date."
+              : undefined
+          }
         />
         <PhotoSlot
           label="Crop photograph"

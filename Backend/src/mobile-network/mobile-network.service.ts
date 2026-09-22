@@ -29,6 +29,7 @@ export interface MobileNetworkProducer {
   status?: string | null;
   contact_name?: string | null;
   mobile_number?: string | null;
+  registry?: string | null;
 }
 
 export interface MobileNetworkKontikki {
@@ -75,7 +76,8 @@ const PRODUCER_SELECT = `
   producer_code,
   status,
   contact_name,
-  mobile_number
+  mobile_number,
+  registry
 `;
 
 const KONTIKKI_SELECT = `
@@ -91,7 +93,8 @@ const KONTIKKI_SELECT = `
     producer_code,
     status,
     contact_name,
-    mobile_number
+    mobile_number,
+    registry
   ),
   kontikki_operators (
     operator_id,

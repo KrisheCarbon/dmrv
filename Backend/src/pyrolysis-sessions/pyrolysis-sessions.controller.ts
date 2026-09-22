@@ -73,6 +73,25 @@ export class PyrolysisSessionsController {
     return this.pyrolysisSessionsService.updateBatch(user, id, batchId, payload);
   }
 
+  @Patch(':id/rainbow-batches/:batchId')
+  updateRainbowBatch(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('batchId') batchId: string,
+    @Body() payload: Partial<import('@krishecarbon/shared').RainbowPyrolysisBatchRecord>,
+  ) {
+    return this.pyrolysisSessionsService.updateRainbowBatch(user, id, batchId, payload);
+  }
+
+  @Delete(':id/rainbow-batches/:batchId')
+  deleteRainbowBatch(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('batchId') batchId: string,
+  ) {
+    return this.pyrolysisSessionsService.deleteRainbowBatch(user, id, batchId);
+  }
+
   @Delete(':id/batches/:batchId')
   deleteBatch(
     @AuthUser() user: AuthenticatedUser,

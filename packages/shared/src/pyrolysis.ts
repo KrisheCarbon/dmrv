@@ -1,5 +1,6 @@
 import type { LocationValue } from "./index";
 import type { PyrolysisBatchFlatRow } from "./pyrolysisBatchFlat";
+import type { RainbowPyrolysisBatchRecord } from "./rainbowPyrolysis";
 
 export const PYROLYSIS_SESSION_STATUS = [
   "active",
@@ -104,6 +105,7 @@ export interface PyrolysisKontikkiOption {
   biochar_producer_id?: string | null;
   producer_name?: string | null;
   capacity?: number | null;
+  producer_registry?: string | null;
 }
 
 export interface StartPyrolysisSessionPayload {
@@ -135,6 +137,7 @@ export interface PyrolysisSessionRecord {
   status: PyrolysisSessionStatus;
   current_step: PyrolysisStep;
   batches: PyrolysisBatchRecord[];
+  rainbow_batches?: RainbowPyrolysisBatchRecord[];
   created_at?: string;
   updated_at?: string;
 }

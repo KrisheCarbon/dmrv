@@ -11,23 +11,33 @@ import {
 import {
   MOISTURE_READING_COUNT,
   PYROLYSIS_KONTIKKI_SECTIONS,
+  RAINBOW_KONTIKKI_SECTIONS,
+  RAINBOW_MOISTURE_READING_COUNT,
   emptyMoistureReadings,
+  emptyRainbowMoistureReadings,
   isKontikkiWorkflowSectionCompleted,
   isKontikkiWorkflowSectionUnlocked,
   isPyrolysisStageKey,
+  isRainbowSectionCompleted,
+  isRainbowSectionUnlocked,
   kontikkiWorkflowProgress,
   normalizeStagePhotos,
   normalizeStageSavedAt,
   pyrolysisWorkflowSectionLabel,
+  rainbowKontikkiWorkflowProgress,
+  rainbowWorkflowSectionLabel,
   type FieldPhotoMetadata,
   type PyrolysisKontikkiData,
   type PyrolysisKontikkiWorkflowSection,
   type PyrolysisStageKey,
   type PyrolysisStagePhotos,
+  type RainbowBiomassLoad,
+  type RainbowKontikkiWorkflowSection,
 } from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
+import KeyboardSafeScroll from "../components/KeyboardSafeScroll";
 import PyrolysisCollapsibleSection from "../components/PyrolysisCollapsibleSection";
 import PyrolysisPhotoSlot from "../components/PyrolysisPhotoSlot";
 import { LocationUnavailableError } from "../services/fieldPhoto";
@@ -36,6 +46,14 @@ import {
   autoSaveKontikkiSectionLocal,
   getSessionKontikkis,
 } from "../services/pyrolysisService";
+import {
+  saveRainbowBiomassLoadsLocal,
+  saveRainbowInfoLocal,
+  saveRainbowMoistureLocal,
+  saveRainbowSampleLocal,
+  saveRainbowYieldLocal,
+} from "../services/rainbowPyrolysisService";
+import { generateId } from "../database/sqlHelpers";
 import { waitForLocation } from "../services/locationCache";
 import {
   fetchMobileNetworkOverview,
@@ -53,7 +71,28 @@ function kontikkiFlags(row: SessionKontikkiView) {
   };
 }
 
-function firstOpenSection(row: SessionKontikkiView): PyrolysisKontikkiWorkflowSection {
+function rainbowFlags(row: SessionKontikkiView) {
+  return {
+    infoCompleted: row.infoCompleted,
+    moistureCompleted: row.moistureCompleted,
+    productionCompleted: Boolean(row.productionCompleted),
+    yieldCompleted: Boolean(row.yieldCompleted),
+    sampleCompleted: row.sampleCompleted,
+  };
+}
+
+function firstOpenSection(row: SessionKontikkiView): PyrolysisKontikkiWorkflowSection | RainbowKontikkiWorkflowSection {
+  if (row.standard === "rainbow") {
+    for (const section of RAINBOW_KONTIKKI_SECTIONS) {
+      if (
+        isRainbowSectionUnlocked(rainbowFlags(row), section) &&
+        !isRainbowSectionCompleted(rainbowFlags(row), row.biomassLoads ?? [], section)
+      ) {
+        return section;
+      }
+    }
+    return "info";
+  }
   for (const section of PYROLYSIS_KONTIKKI_SECTIONS) {
     if (
       isKontikkiWorkflowSectionUnlocked(kontikkiFlags(row), row.payload, section) &&
@@ -102,9 +141,9 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   const [kontikki, setKontikki] = useState<SessionKontikkiView | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedSection, setExpandedSection] =
-    useState<PyrolysisKontikkiWorkflowSection>("info");
+    useState<PyrolysisKontikkiWorkflowSection | RainbowKontikkiWorkflowSection>("info");
   const [savingSection, setSavingSection] =
-    useState<PyrolysisKontikkiWorkflowSection | null>(null);
+    useState<PyrolysisKontikkiWorkflowSection | RainbowKontikkiWorkflowSection | null>(null);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
   const [feedstockOptions, setFeedstockOptions] = useState<NetworkFeedstock[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(true);
@@ -114,6 +153,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   const [expandedMoistureIndex, setExpandedMoistureIndex] = useState(0);
   const [locationLoading, setLocationLoading] = useState(false);
   const [stagePhotos, setStagePhotos] = useState<PyrolysisStagePhotos>({});
+  const [biomassLoads, setBiomassLoads] = useState<RainbowBiomassLoad[]>([]);
   const [yieldDraft, setYieldDraft] = useState({
     yield_percent: null as number | null,
     comment: "",
@@ -127,6 +167,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
   const draftLoadedFor = useRef<string | null>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const scrollRef = useRef<ScrollView>(null);
   const sampleIdManuallyEdited = useRef(false);
 
   const loadKontikki = useCallback(async () => {
@@ -199,10 +240,16 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       feedstock_size_photo_metadata: payload.feedstock_size_photo_metadata ?? null,
       info_saved_at: payload.info_saved_at ?? null,
     });
+    const expectedMoisture =
+      kontikki.standard === "rainbow"
+        ? RAINBOW_MOISTURE_READING_COUNT
+        : MOISTURE_READING_COUNT;
     const moisture =
-      payload.moisture_readings?.length === MOISTURE_READING_COUNT
+      payload.moisture_readings?.length === expectedMoisture
         ? payload.moisture_readings
-        : emptyMoistureReadings();
+        : kontikki.standard === "rainbow"
+          ? emptyRainbowMoistureReadings()
+          : emptyMoistureReadings();
     setMoistureDraft(moisture);
     const firstIncompleteMoisture = moisture.findIndex(
       (reading) => !isMoistureReadingCompleted(reading),
@@ -211,6 +258,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       firstIncompleteMoisture === -1 ? moisture.length - 1 : firstIncompleteMoisture,
     );
     setStagePhotos(normalizeStagePhotos(payload.stage_photos));
+    setBiomassLoads(kontikki.biomassLoads ?? []);
     setYieldDraft({
       yield_percent: payload.yield_percent ?? null,
       comment: payload.comment ?? "",
@@ -265,15 +313,20 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     [feedstockOptions],
   );
 
+  const isRainbow = kontikki?.standard === "rainbow";
   const progress = useMemo(() => {
     if (!kontikki) return 0;
+    if (kontikki.standard === "rainbow") {
+      return rainbowKontikkiWorkflowProgress(rainbowFlags(kontikki), kontikki.biomassLoads ?? []);
+    }
     return kontikkiWorkflowProgress(kontikkiFlags(kontikki), kontikki.payload);
   }, [kontikki]);
 
   const queueAutoSave = useCallback(
     (
-      section: PyrolysisKontikkiWorkflowSection,
+      section: PyrolysisKontikkiWorkflowSection | RainbowKontikkiWorkflowSection,
       payload: Partial<PyrolysisKontikkiData>,
+      loads?: RainbowBiomassLoad[],
     ) => {
       if (saveTimers.current[section]) {
         clearTimeout(saveTimers.current[section]);
@@ -282,23 +335,57 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       saveTimers.current[section] = setTimeout(async () => {
         try {
           setSavingSection(section);
-          await autoSaveKontikkiSectionLocal(sessionId, kontikkiRowId, section, payload);
+          if (isRainbow) {
+            if (section === "info") await saveRainbowInfoLocal(kontikkiRowId, { ...infoDraft, ...payload });
+            else if (section === "moisture") {
+              await saveRainbowMoistureLocal(
+                kontikkiRowId,
+                payload.moisture_readings ?? moistureDraft,
+              );
+            } else if (section === "biomass_loads") {
+              await saveRainbowBiomassLoadsLocal(kontikkiRowId, loads ?? biomassLoads);
+            } else if (section === "yield") {
+              await saveRainbowYieldLocal(kontikkiRowId, { ...yieldDraft, ...payload });
+            } else if (section === "sample") {
+              await saveRainbowSampleLocal(kontikkiRowId, { ...sampleDraft, ...payload });
+            }
+          } else if (section !== "biomass_loads") {
+            await autoSaveKontikkiSectionLocal(sessionId, kontikkiRowId, section, payload);
+          }
           const refreshed = await loadKontikki();
           if (refreshed) {
-            const flags = kontikkiFlags(refreshed);
-            const completed = isKontikkiWorkflowSectionCompleted(
-              flags,
-              refreshed.payload,
-              section,
-            );
-            if (completed) {
-              const next = PYROLYSIS_KONTIKKI_SECTIONS.find(
-                (item) =>
-                  item !== section &&
-                  isKontikkiWorkflowSectionUnlocked(flags, refreshed.payload, item) &&
-                  !isKontikkiWorkflowSectionCompleted(flags, refreshed.payload, item),
+            if (refreshed.standard === "rainbow") {
+              const flags = rainbowFlags(refreshed);
+              const completed = isRainbowSectionCompleted(
+                flags,
+                refreshed.biomassLoads ?? [],
+                section as RainbowKontikkiWorkflowSection,
               );
-              if (next) setExpandedSection(next);
+              if (completed) {
+                const next = RAINBOW_KONTIKKI_SECTIONS.find(
+                  (item) =>
+                    item !== section &&
+                    isRainbowSectionUnlocked(flags, item) &&
+                    !isRainbowSectionCompleted(flags, refreshed.biomassLoads ?? [], item),
+                );
+                if (next) setExpandedSection(next);
+              }
+            } else if (section !== "biomass_loads") {
+              const flags = kontikkiFlags(refreshed);
+              const completed = isKontikkiWorkflowSectionCompleted(
+                flags,
+                refreshed.payload,
+                section,
+              );
+              if (completed) {
+                const next = PYROLYSIS_KONTIKKI_SECTIONS.find(
+                  (item) =>
+                    item !== section &&
+                    isKontikkiWorkflowSectionUnlocked(flags, refreshed.payload, item) &&
+                    !isKontikkiWorkflowSectionCompleted(flags, refreshed.payload, item),
+                );
+                if (next) setExpandedSection(next);
+              }
             }
           }
         } catch (err) {
@@ -311,7 +398,17 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         }
       }, 450);
     },
-    [sessionId, kontikkiRowId, loadKontikki],
+    [
+      sessionId,
+      kontikkiRowId,
+      loadKontikki,
+      isRainbow,
+      infoDraft,
+      moistureDraft,
+      biomassLoads,
+      yieldDraft,
+      sampleDraft,
+    ],
   );
 
   const reviewCapturedPhoto = useCallback(
@@ -401,6 +498,46 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         stage_photos: nextStagePhotos,
       });
     });
+  }
+
+  async function handleBiomassLoadPhoto(loadId: string) {
+    await reviewCapturedPhoto(`biomass-${loadId}`, async (photo) => {
+      const next = biomassLoads.map((load) =>
+        load.id === loadId
+          ? {
+              ...load,
+              photo_local_uri: photo.uri,
+              photo_metadata: photo.metadata,
+              captured_at: photo.metadata.captured_at,
+            }
+          : load,
+      );
+      setBiomassLoads(next);
+      queueAutoSave("biomass_loads", {}, next);
+    });
+  }
+
+  function addBiomassLoad() {
+    const next = [
+      ...biomassLoads,
+      {
+        id: generateId(),
+        sequence: biomassLoads.length + 1,
+        photo_local_uri: null,
+        photo_url: null,
+        note: "",
+      },
+    ];
+    setBiomassLoads(next);
+    queueAutoSave("biomass_loads", {}, next);
+  }
+
+  function removeBiomassLoad(loadId: string) {
+    const next = biomassLoads
+      .filter((load) => load.id !== loadId)
+      .map((load, index) => ({ ...load, sequence: index + 1 }));
+    setBiomassLoads(next);
+    queueAutoSave("biomass_loads", {}, next);
   }
 
   async function handleSamplePhoto() {
@@ -543,11 +680,10 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         onBack={() => navigation.goBack()}
       />
 
-      <ScrollView
+      <KeyboardSafeScroll
+        ref={scrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.metaCard}>
           <View style={styles.metaRow}>
@@ -598,23 +734,30 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
           </View>
         ) : null}
 
-        {PYROLYSIS_KONTIKKI_SECTIONS.map((section) => {
-          const completed = isKontikkiWorkflowSectionCompleted(
-            flags,
-            kontikki.payload,
-            section,
-          );
-          const unlocked = isKontikkiWorkflowSectionUnlocked(
-            flags,
-            kontikki.payload,
-            section,
-          );
-          const savedAt = sectionSavedAt(section);
+        {(isRainbow ? RAINBOW_KONTIKKI_SECTIONS : PYROLYSIS_KONTIKKI_SECTIONS).map((section) => {
+          const completed = isRainbow
+            ? isRainbowSectionCompleted(rainbowFlags(kontikki), biomassLoads, section as RainbowKontikkiWorkflowSection)
+            : isKontikkiWorkflowSectionCompleted(
+                flags,
+                kontikki.payload,
+                section as PyrolysisKontikkiWorkflowSection,
+              );
+          const unlocked = isRainbow
+            ? isRainbowSectionUnlocked(rainbowFlags(kontikki), section as RainbowKontikkiWorkflowSection)
+            : isKontikkiWorkflowSectionUnlocked(
+                flags,
+                kontikki.payload,
+                section as PyrolysisKontikkiWorkflowSection,
+              );
+          const savedAt = section === "biomass_loads" ? null : sectionSavedAt(section as PyrolysisKontikkiWorkflowSection);
+          const title = isRainbow
+            ? rainbowWorkflowSectionLabel(section as RainbowKontikkiWorkflowSection)
+            : pyrolysisWorkflowSectionLabel(section as PyrolysisKontikkiWorkflowSection);
 
           return (
             <PyrolysisCollapsibleSection
               key={section}
-              title={pyrolysisWorkflowSectionLabel(section)}
+              title={title}
               expanded={expandedSection === section}
               unlocked={unlocked}
               completed={completed}
@@ -774,6 +917,33 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                 </View>
               ) : null}
 
+              {section === "biomass_loads" ? (
+                <View style={styles.form}>
+                  {biomassLoads.length === 0 ? (
+                    <Text style={styles.savedAt}>
+                      Add a photo every time biomass is loaded into this kontikki.
+                    </Text>
+                  ) : null}
+                  {biomassLoads.map((load, index) => (
+                    <View key={load.id} style={styles.form}>
+                      <PyrolysisPhotoSlot
+                        label={`Biomass load ${index + 1}`}
+                        required
+                        localUri={load.photo_local_uri}
+                        remoteUrl={load.photo_url}
+                        metadata={load.photo_metadata}
+                        capturing={capturingKey === `biomass-${load.id}`}
+                        onCapture={() => handleBiomassLoadPhoto(load.id)}
+                        onRemove={() => removeBiomassLoad(load.id)}
+                      />
+                    </View>
+                  ))}
+                  <TouchableOpacity onPress={addBiomassLoad} style={styles.metaRetryWrap}>
+                    <Text style={styles.metaRetry}>+ Add biomass-in photo</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               {isPyrolysisStageKey(section) ? (
                 <View style={styles.form}>
                   <PyrolysisPhotoSlot
@@ -823,6 +993,11 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                       queueAutoSave("yield", next);
                     }}
                     multiline
+                    onFocus={() => {
+                      setTimeout(() => {
+                        scrollRef.current?.scrollToEnd({ animated: true });
+                      }, 250);
+                    }}
                   />
 
                   {savedAt ? (
@@ -835,12 +1010,17 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "sample" ? (
                 <View style={styles.form}>
-                  <FormInput
+          <FormInput
                     label="Sample ID"
                     value={sampleDraft.sample_id}
                     onChangeText={(text) => {
                       sampleIdManuallyEdited.current = true;
                       updateSampleDraft({ sample_id: text });
+                    }}
+                    onFocus={() => {
+                      setTimeout(() => {
+                        scrollRef.current?.scrollToEnd({ animated: true });
+                      }, 250);
                     }}
                   />
                   <PyrolysisPhotoSlot
@@ -864,7 +1044,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
             </PyrolysisCollapsibleSection>
           );
         })}
-      </ScrollView>
+      </KeyboardSafeScroll>
     </ScreenShell>
   );
 }
@@ -891,7 +1071,8 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: "row",
-    alignItems: "center",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     gap: spacing.sm,
   },
@@ -899,6 +1080,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 13,
     color: colors.brunswick,
+    flexShrink: 0,
   },
   metaValue: {
     fontFamily: fonts.medium,
@@ -928,6 +1110,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.brunswick,
     textDecorationLine: "underline",
+  },
+  metaRetryWrap: {
+    paddingVertical: spacing.sm,
   },
   optionsLoading: {
     flexDirection: "row",

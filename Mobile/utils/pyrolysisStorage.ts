@@ -7,7 +7,8 @@ export type PyrolysisPhotoKind =
   | "feedstock_size"
   | "moisture"
   | "stage"
-  | "sample";
+  | "sample"
+  | "biomass_load";
 
 export function buildPyrolysisPhotoPath(
   batchId: string,
@@ -28,6 +29,10 @@ export function buildPyrolysisPhotoPath(
     return `${base}/stages/${stage}.${ext}`;
   }
   if (kind === "sample") return `${base}/sample.${ext}`;
+  if (kind === "biomass_load") {
+    const index = options?.index ?? 1;
+    return `${base}/biomass_loads/${index}.${ext}`;
+  }
 
   return `${base}/photo_${Date.now()}.${ext}`;
 }

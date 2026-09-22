@@ -8,7 +8,10 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import type { PyrolysisKontikkiOption } from "@krishecarbon/shared";
+import {
+  producerRegistryLabel,
+  type PyrolysisKontikkiOption,
+} from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import PrimaryButton from "../components/PrimaryButton";
 import { getStoredAuthUser } from "../services/auth";
@@ -45,7 +48,12 @@ function KontikkiRow({
       <View style={styles.rowLeft}>
         <Text style={styles.rowTitle}>{item.kontikki_code}</Text>
         {item.producer_name ? (
-          <Text style={styles.rowMeta}>{item.producer_name}</Text>
+          <Text style={styles.rowMeta}>
+            {item.producer_name}
+            {item.producer_registry
+              ? ` · ${producerRegistryLabel(item.producer_registry)}`
+              : ""}
+          </Text>
         ) : null}
         {item.capacity != null ? (
           <Text style={styles.rowMeta}>Capacity: {item.capacity}</Text>

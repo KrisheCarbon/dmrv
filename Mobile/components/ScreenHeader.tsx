@@ -78,10 +78,11 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
   title: {
-    fontSize: 28,
+    fontSize: 24,
+    lineHeight: 30,
     fontFamily: fonts.bold,
     color: colors.brunswick,
-    letterSpacing: -0.5
+    letterSpacing: -0.4,
   },
   subtitle: {
     fontSize: 14,

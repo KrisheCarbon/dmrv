@@ -1499,3 +1499,276 @@ export function encryptedBatchToRow(
     created_at: batch.createdAt ?? Date.now(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// rainbow_pyrolysis_batches / moisture / biomass_loads
+// ---------------------------------------------------------------------------
+
+export interface RainbowPyrolysisBatch {
+  id: string;
+  sessionId: string;
+  serverId: string | null;
+  kontikkiId: string;
+  kontikkiCode: string;
+  producerId: string | null;
+  producerName: string | null;
+  batchNumber: string | null;
+  feedstockQuantity: number | null;
+  avgFeedstockSizeCm: number | null;
+  feedstockId: string | null;
+  feedstockName: string | null;
+  locationLat: number | null;
+  locationLng: number | null;
+  locationAddress: string | null;
+  feedstockPhotoLocalUri: string | null;
+  feedstockPhotoUrl: string | null;
+  feedstockSizePhotoLocalUri: string | null;
+  feedstockSizePhotoUrl: string | null;
+  feedstockPhotoMetadataJson: string | null;
+  feedstockSizePhotoMetadataJson: string | null;
+  infoCompleted: boolean;
+  moistureCompleted: boolean;
+  productionCompleted: boolean;
+  yieldCompleted: boolean;
+  sampleCompleted: boolean;
+  infoSavedAt: string | null;
+  moistureSavedAt: string | null;
+  productionSavedAt: string | null;
+  yieldSavedAt: string | null;
+  yieldPercent: number | null;
+  comment: string | null;
+  sampleId: string | null;
+  samplePhotoLocalUri: string | null;
+  samplePhotoUrl: string | null;
+  samplePhotoMetadataJson: string | null;
+  sampleSavedAt: string | null;
+  reviewStatus: string | null;
+  reviewerNotes: string | null;
+  submissionStatus: string;
+  uploadStatus: string;
+  syncError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface RainbowPyrolysisBatchRowRaw {
+  id: string;
+  session_id: string;
+  server_id: string | null;
+  kontikki_id: string;
+  kontikki_code: string;
+  producer_id: string | null;
+  producer_name: string | null;
+  batch_number: string | null;
+  feedstock_quantity: number | null;
+  avg_feedstock_size_cm: number | null;
+  feedstock_id: string | null;
+  feedstock_name: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  location_address: string | null;
+  feedstock_photo_local_uri: string | null;
+  feedstock_photo_url: string | null;
+  feedstock_size_photo_local_uri: string | null;
+  feedstock_size_photo_url: string | null;
+  feedstock_photo_metadata_json: string | null;
+  feedstock_size_photo_metadata_json: string | null;
+  info_completed: number;
+  moisture_completed: number;
+  production_completed: number;
+  yield_completed: number;
+  sample_completed: number;
+  info_saved_at: string | null;
+  moisture_saved_at: string | null;
+  production_saved_at: string | null;
+  yield_saved_at: string | null;
+  yield_percent: number | null;
+  comment: string | null;
+  sample_id: string | null;
+  sample_photo_local_uri: string | null;
+  sample_photo_url: string | null;
+  sample_photo_metadata_json: string | null;
+  sample_saved_at: string | null;
+  review_status: string | null;
+  reviewer_notes: string | null;
+  submission_status: string;
+  sync_status: string;
+  sync_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export function rowToRainbowPyrolysisBatch(row: RainbowPyrolysisBatchRowRaw): RainbowPyrolysisBatch {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    serverId: row.server_id,
+    kontikkiId: row.kontikki_id,
+    kontikkiCode: row.kontikki_code,
+    producerId: row.producer_id,
+    producerName: row.producer_name,
+    batchNumber: row.batch_number,
+    feedstockQuantity: row.feedstock_quantity,
+    avgFeedstockSizeCm: row.avg_feedstock_size_cm,
+    feedstockId: row.feedstock_id,
+    feedstockName: row.feedstock_name,
+    locationLat: row.location_lat,
+    locationLng: row.location_lng,
+    locationAddress: row.location_address,
+    feedstockPhotoLocalUri: row.feedstock_photo_local_uri,
+    feedstockPhotoUrl: row.feedstock_photo_url,
+    feedstockSizePhotoLocalUri: row.feedstock_size_photo_local_uri,
+    feedstockSizePhotoUrl: row.feedstock_size_photo_url,
+    feedstockPhotoMetadataJson: row.feedstock_photo_metadata_json,
+    feedstockSizePhotoMetadataJson: row.feedstock_size_photo_metadata_json,
+    infoCompleted: fromSqliteBool(row.info_completed),
+    moistureCompleted: fromSqliteBool(row.moisture_completed),
+    productionCompleted: fromSqliteBool(row.production_completed),
+    yieldCompleted: fromSqliteBool(row.yield_completed),
+    sampleCompleted: fromSqliteBool(row.sample_completed),
+    infoSavedAt: row.info_saved_at,
+    moistureSavedAt: row.moisture_saved_at,
+    productionSavedAt: row.production_saved_at,
+    yieldSavedAt: row.yield_saved_at,
+    yieldPercent: row.yield_percent,
+    comment: row.comment,
+    sampleId: row.sample_id,
+    samplePhotoLocalUri: row.sample_photo_local_uri,
+    samplePhotoUrl: row.sample_photo_url,
+    samplePhotoMetadataJson: row.sample_photo_metadata_json,
+    sampleSavedAt: row.sample_saved_at,
+    reviewStatus: row.review_status,
+    reviewerNotes: row.reviewer_notes,
+    submissionStatus: row.submission_status,
+    uploadStatus: row.sync_status,
+    syncError: row.sync_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function rainbowPyrolysisBatchToRow(
+  batch: Omit<RainbowPyrolysisBatch, "id">,
+): Record<string, unknown> {
+  return {
+    session_id: batch.sessionId,
+    server_id: batch.serverId,
+    kontikki_id: batch.kontikkiId,
+    kontikki_code: batch.kontikkiCode,
+    producer_id: batch.producerId,
+    producer_name: batch.producerName,
+    batch_number: batch.batchNumber,
+    feedstock_quantity: batch.feedstockQuantity,
+    avg_feedstock_size_cm: batch.avgFeedstockSizeCm,
+    feedstock_id: batch.feedstockId,
+    feedstock_name: batch.feedstockName,
+    location_lat: batch.locationLat,
+    location_lng: batch.locationLng,
+    location_address: batch.locationAddress,
+    feedstock_photo_local_uri: batch.feedstockPhotoLocalUri,
+    feedstock_photo_url: batch.feedstockPhotoUrl,
+    feedstock_size_photo_local_uri: batch.feedstockSizePhotoLocalUri,
+    feedstock_size_photo_url: batch.feedstockSizePhotoUrl,
+    feedstock_photo_metadata_json: batch.feedstockPhotoMetadataJson,
+    feedstock_size_photo_metadata_json: batch.feedstockSizePhotoMetadataJson,
+    info_completed: toSqliteBool(batch.infoCompleted),
+    moisture_completed: toSqliteBool(batch.moistureCompleted),
+    production_completed: toSqliteBool(batch.productionCompleted),
+    yield_completed: toSqliteBool(batch.yieldCompleted),
+    sample_completed: toSqliteBool(batch.sampleCompleted),
+    info_saved_at: batch.infoSavedAt,
+    moisture_saved_at: batch.moistureSavedAt,
+    production_saved_at: batch.productionSavedAt,
+    yield_saved_at: batch.yieldSavedAt,
+    yield_percent: batch.yieldPercent,
+    comment: batch.comment,
+    sample_id: batch.sampleId,
+    sample_photo_local_uri: batch.samplePhotoLocalUri,
+    sample_photo_url: batch.samplePhotoUrl,
+    sample_photo_metadata_json: batch.samplePhotoMetadataJson,
+    sample_saved_at: batch.sampleSavedAt,
+    review_status: batch.reviewStatus,
+    reviewer_notes: batch.reviewerNotes,
+    submission_status: batch.submissionStatus,
+    sync_status: batch.uploadStatus,
+    sync_error: batch.syncError,
+    created_at: batch.createdAt,
+    updated_at: batch.updatedAt,
+  };
+}
+
+export interface RainbowMoistureRow {
+  id: string;
+  batchId: string;
+  slot: number;
+  reading: number | null;
+  photoLocalUri: string | null;
+  photoUrl: string | null;
+  photoMetadataJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function rowToRainbowMoisture(row: {
+  id: string;
+  batch_id: string;
+  slot: number;
+  reading: number | null;
+  photo_local_uri: string | null;
+  photo_url: string | null;
+  photo_metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+}): RainbowMoistureRow {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    slot: row.slot,
+    reading: row.reading,
+    photoLocalUri: row.photo_local_uri,
+    photoUrl: row.photo_url,
+    photoMetadataJson: row.photo_metadata_json,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export interface RainbowBiomassLoadRow {
+  id: string;
+  batchId: string;
+  sequence: number;
+  photoLocalUri: string | null;
+  photoUrl: string | null;
+  photoMetadataJson: string | null;
+  capturedAt: string | null;
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function rowToRainbowBiomassLoad(row: {
+  id: string;
+  batch_id: string;
+  sequence: number;
+  photo_local_uri: string | null;
+  photo_url: string | null;
+  photo_metadata_json: string | null;
+  captured_at: string | null;
+  note: string | null;
+  created_at: number;
+  updated_at: number;
+}): RainbowBiomassLoadRow {
+  return {
+    id: row.id,
+    batchId: row.batch_id,
+    sequence: row.sequence,
+    photoLocalUri: row.photo_local_uri,
+    photoUrl: row.photo_url,
+    photoMetadataJson: row.photo_metadata_json,
+    capturedAt: row.captured_at,
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+

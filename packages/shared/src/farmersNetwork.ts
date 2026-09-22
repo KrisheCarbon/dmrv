@@ -220,6 +220,17 @@ export function farmAreasAreNearby(
   );
 }
 
+/** True when harvest is after sowing, or either date is still empty. */
+export function isHarvestAfterSowing(
+  sowingDate?: string | null,
+  harvestDate?: string | null,
+): boolean {
+  const sowing = String(sowingDate || "").trim();
+  const harvest = String(harvestDate || "").trim();
+  if (!sowing || !harvest) return true;
+  return harvest > sowing;
+}
+
 /** Approximate plot area in acres from a drawn / KML polygon. */
 export function polygonAreaAcres(points: GeoPoint[]): number {
   const hectares = polygonAreaSquareMeters(points) / 10000;

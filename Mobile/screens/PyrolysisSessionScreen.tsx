@@ -15,6 +15,7 @@ import {
   deleteSessionKontikkiLocal,
   getPyrolysisSession,
   getSessionKontikkis,
+  isKontikkiReadyToSubmit,
   kontikkiSectionProgress,
   refreshPyrolysisReviewStatuses,
   submitSelectedKontikkisLocal,
@@ -41,9 +42,8 @@ function KontikkiCard({
   onDelete?: () => void;
 }) {
   const progress = kontikkiSectionProgress(row);
-  const allDone =
-    row.infoCompleted && row.moistureCompleted && row.pyrolysisCompleted;
-  const isComplete = allDone && row.sampleCompleted;
+  const isComplete = isKontikkiReadyToSubmit(row);
+  const allDone = isComplete;
   const savedStages = normalizeStageSavedAt(row.payload?.stage_saved_at);
   const isDraft = row.submissionStatus !== "submitted";
   const canSelect = isDraft && isComplete && Boolean(onToggleSelect);
@@ -86,24 +86,37 @@ function KontikkiCard({
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
         <View style={styles.stepRow}>
-          <Text style={styles.stepChip}>Info {row.infoCompleted ? "✓" : "·"}</Text>
-          <Text style={styles.stepChip}>
-            Moisture {row.moistureCompleted ? "✓" : "·"}
-          </Text>
-          {PYROLYSIS_STAGE_KEYS.map((stage) => (
-            <Text key={stage} style={styles.stepChip}>
-              {stage === "initial"
-                ? "Init"
-                : stage === "middle"
-                  ? "Mid"
-                  : stage === "final"
-                    ? "Fin"
-                    : "Qnch"}{" "}
-              {savedStages[stage] ? "✓" : "·"}
-            </Text>
+          {(row.standard === "rainbow"
+            ? [
+                { key: "info", label: `Info ${row.infoCompleted ? "✓" : "·"}` },
+                { key: "moisture", label: `Moisture ${row.moistureCompleted ? "✓" : "·"}` },
+                { key: "loads", label: `Loads ${row.productionCompleted ? "✓" : "·"}` },
+                { key: "yield", label: `Yield ${row.yieldCompleted ? "✓" : "·"}` },
+                { key: "sample", label: `Sample ${row.sampleCompleted ? "✓" : "·"}` },
+              ]
+            : [
+                { key: "info", label: `Info ${row.infoCompleted ? "✓" : "·"}` },
+                { key: "moisture", label: `Moisture ${row.moistureCompleted ? "✓" : "·"}` },
+                ...PYROLYSIS_STAGE_KEYS.map((stage) => ({
+                  key: stage,
+                  label: `${
+                    stage === "initial"
+                      ? "Init"
+                      : stage === "middle"
+                        ? "Mid"
+                        : stage === "final"
+                          ? "Fin"
+                          : "Quench"
+                  } ${savedStages[stage] ? "✓" : "·"}`,
+                })),
+                { key: "yield", label: `Yield ${row.pyrolysisCompleted ? "✓" : "·"}` },
+                { key: "sample", label: `Sample ${row.sampleCompleted ? "✓" : "·"}` },
+              ]
+          ).map((step) => (
+            <View key={step.key} style={styles.stepChip}>
+              <Text style={styles.stepChipText}>{step.label}</Text>
+            </View>
           ))}
-          <Text style={styles.stepChip}>Yield {row.pyrolysisCompleted ? "✓" : "·"}</Text>
-          <Text style={styles.stepChip}>Sample {row.sampleCompleted ? "✓" : "·"}</Text>
         </View>
         {row.payload?.batch_number?.trim() ? (
           <Text style={styles.sampleMeta}>Batch ID: {row.payload.batch_number.trim()}</Text>
@@ -190,13 +203,7 @@ export default function PyrolysisSessionScreen({ route, navigation }) {
   );
   const submittableRows = useMemo(
     () =>
-      draftRows.filter(
-        (row) =>
-          row.infoCompleted &&
-          row.moistureCompleted &&
-          row.pyrolysisCompleted &&
-          row.sampleCompleted,
-      ),
+      draftRows.filter((row) => isKontikkiReadyToSubmit(row)),
     [draftRows],
   );
 
@@ -424,6 +431,7 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     alignSelf: "flex-start",
+    marginTop: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.error,
@@ -439,6 +447,7 @@ const styles = StyleSheet.create({
   incompleteHint: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: 17,
     color: colors.warning,
     fontStyle: "italic",
   },
@@ -482,11 +491,17 @@ const styles = StyleSheet.create({
   stepRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
+    gap: 6,
   },
   stepChip: {
+    backgroundColor: colors.chalk,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  stepChipText: {
     fontFamily: fonts.regular,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.smoke,
   },
   sampleMeta: {

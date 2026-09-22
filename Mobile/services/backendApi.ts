@@ -282,6 +282,7 @@ export interface NetworkProducer {
   status?: string | null;
   contact_name?: string | null;
   mobile_number?: string | null;
+  registry?: string | null;
 }
 
 export interface NetworkKontikki {

@@ -11,6 +11,7 @@ import {
   FIELD_WATER_SOURCES,
   fieldSeasonLabel,
   formatHectaresFromAcres,
+  isHarvestAfterSowing,
   normalizeFieldSeason,
   type FarmFieldRecord,
 } from "@krishecarbon/shared";
@@ -77,6 +78,10 @@ export default function FarmPlotForm({
     }
     if (areaNum > remaining + 0.0001) {
       setError(`Area cannot exceed remaining cultivated land (${remaining} acres).`);
+      return;
+    }
+    if (!isHarvestAfterSowing(sowing, harvest)) {
+      setError("Harvest date must be after the sowing date.");
       return;
     }
 

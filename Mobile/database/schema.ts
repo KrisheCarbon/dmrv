@@ -1,6 +1,6 @@
 // Plain SQLite DDL replacing the WatermelonDB schema/migrations. Fresh start:
 // this creates the final (v11-equivalent) shape directly, no historical replay.
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS farmers (
@@ -378,4 +378,80 @@ export const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_encrypted_batches_kontikki_id ON encrypted_batches(kontikki_id);`,
   `CREATE INDEX IF NOT EXISTS idx_encrypted_batches_source_filename ON encrypted_batches(source_filename);`,
   `CREATE INDEX IF NOT EXISTS idx_encrypted_batches_is_synced ON encrypted_batches(is_synced);`,
+
+  `CREATE TABLE IF NOT EXISTS rainbow_pyrolysis_batches (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    server_id TEXT,
+    kontikki_id TEXT NOT NULL,
+    kontikki_code TEXT NOT NULL,
+    producer_id TEXT,
+    producer_name TEXT,
+    batch_number TEXT,
+    feedstock_quantity REAL,
+    avg_feedstock_size_cm REAL,
+    feedstock_id TEXT,
+    feedstock_name TEXT,
+    location_lat REAL,
+    location_lng REAL,
+    location_address TEXT,
+    feedstock_photo_local_uri TEXT,
+    feedstock_photo_url TEXT,
+    feedstock_size_photo_local_uri TEXT,
+    feedstock_size_photo_url TEXT,
+    feedstock_photo_metadata_json TEXT,
+    feedstock_size_photo_metadata_json TEXT,
+    info_completed INTEGER NOT NULL,
+    moisture_completed INTEGER NOT NULL,
+    production_completed INTEGER NOT NULL,
+    yield_completed INTEGER NOT NULL,
+    sample_completed INTEGER NOT NULL,
+    info_saved_at TEXT,
+    moisture_saved_at TEXT,
+    production_saved_at TEXT,
+    yield_saved_at TEXT,
+    yield_percent REAL,
+    comment TEXT,
+    sample_id TEXT,
+    sample_photo_local_uri TEXT,
+    sample_photo_url TEXT,
+    sample_photo_metadata_json TEXT,
+    sample_saved_at TEXT,
+    review_status TEXT,
+    reviewer_notes TEXT,
+    submission_status TEXT NOT NULL DEFAULT 'draft',
+    sync_status TEXT NOT NULL,
+    sync_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_rainbow_pyrolysis_batches_session_id ON rainbow_pyrolysis_batches(session_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_rainbow_pyrolysis_batches_kontikki_id ON rainbow_pyrolysis_batches(kontikki_id);`,
+
+  `CREATE TABLE IF NOT EXISTS rainbow_pyrolysis_moisture (
+    id TEXT PRIMARY KEY NOT NULL,
+    batch_id TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    reading REAL,
+    photo_local_uri TEXT,
+    photo_url TEXT,
+    photo_metadata_json TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_rainbow_pyrolysis_moisture_batch_id ON rainbow_pyrolysis_moisture(batch_id);`,
+
+  `CREATE TABLE IF NOT EXISTS rainbow_pyrolysis_biomass_loads (
+    id TEXT PRIMARY KEY NOT NULL,
+    batch_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    photo_local_uri TEXT,
+    photo_url TEXT,
+    photo_metadata_json TEXT,
+    captured_at TEXT,
+    note TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_rainbow_pyrolysis_biomass_loads_batch_id ON rainbow_pyrolysis_biomass_loads(batch_id);`,
 ];

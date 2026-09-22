@@ -30,7 +30,11 @@ import { CROP_OPTIONS } from "../constants/crops";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import FarmerPhotoField from "../components/FarmerPhotoField";
 import { usePersistedForm } from "../hooks/usePersistedForm";
-import type { ClusterVillageRecord, FarmerCrop } from "@krishecarbon/shared";
+import {
+  isHarvestAfterSowing,
+  type ClusterVillageRecord,
+  type FarmerCrop,
+} from "@krishecarbon/shared";
 
 const EMPTY_FORM = {
   farmer_name: "",
@@ -256,6 +260,13 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         return;
       }
     }
+    if (!isHarvestAfterSowing(form.sowing_date, form.harvest_date)) {
+      Alert.alert(
+        "Crop dates",
+        "Harvest date must be after the sowing date.",
+      );
+      return;
+    }
 
     try {
       setLoading(true);
@@ -467,12 +478,30 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         <FormDateField
           label="Estimated sowing date"
           value={form.sowing_date}
-          onChange={(t) => setField("sowing_date", t)}
+          onChange={(t) =>
+            setForm((prev) => ({
+              ...prev,
+              sowing_date: t,
+              harvest_date:
+                prev.harvest_date && prev.harvest_date <= t
+                  ? ""
+                  : prev.harvest_date,
+            }))
+          }
+          maximumDate={form.harvest_date || undefined}
         />
         <FormDateField
           label="Estimated harvest date"
           value={form.harvest_date}
           onChange={(t) => setField("harvest_date", t)}
+          afterDate={form.sowing_date || undefined}
+          error={
+            form.sowing_date &&
+            form.harvest_date &&
+            !isHarvestAfterSowing(form.sowing_date, form.harvest_date)
+              ? "Harvest date must be after sowing date."
+              : undefined
+          }
         />
 
         <Text style={styles.section}>Biochar</Text>

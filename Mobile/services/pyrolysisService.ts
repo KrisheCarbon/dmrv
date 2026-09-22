@@ -1,11 +1,15 @@
 import {
   kontikkiWorkflowProgress,
+  pyrolysisProtocolForRegistry,
+  rainbowKontikkiWorkflowProgress,
   type PyrolysisBatchRecord,
   type PyrolysisKontikkiOption,
   type PyrolysisKontikkiWorkflowSection,
   type PyrolysisSessionRecord,
   type PyrolysisStep,
   type PyrolysisKontikkiData,
+  type PyrolysisProtocol,
+  type RainbowBiomassLoad,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
@@ -29,7 +33,19 @@ import {
   assembleBatchPayload,
   batchToApiRecord,
 } from "./batchData";
-import { uploadPyrolysisBatchPhotos } from "../utils/pyrolysisPhotoUpload";
+import { uploadPyrolysisBatchPhotos, uploadRainbowPhotos } from "../utils/pyrolysisPhotoUpload";
+import {
+  insertRainbowBatchLocal,
+  listRainbowBatchesForSession,
+  loadRainbowDraft,
+  rainbowDraftToKontikkiData,
+  saveRainbowBiomassLoadsLocal,
+  saveRainbowInfoLocal,
+  saveRainbowMoistureLocal,
+  saveRainbowSampleLocal,
+  saveRainbowYieldLocal,
+  toRainbowApiRecord,
+} from "./rainbowPyrolysisService";
 import {
   isInfoSectionComplete,
   isMoistureSectionComplete,
@@ -48,10 +64,14 @@ export type SessionKontikkiView = {
   kontikkiId: string;
   kontikkiCode: string;
   producerName: string | null;
+  standard: PyrolysisProtocol;
   infoCompleted: boolean;
   moistureCompleted: boolean;
   pyrolysisCompleted: boolean;
   sampleCompleted: boolean;
+  productionCompleted?: boolean;
+  yieldCompleted?: boolean;
+  biomassLoads?: RainbowBiomassLoad[];
   payload: PyrolysisKontikkiData;
   submissionStatus: string;
   uploadStatus: string;
@@ -70,6 +90,7 @@ function toView(batch: PyrolysisBatch, payload: PyrolysisKontikkiData): SessionK
     kontikkiId: batch.kontikkiId,
     kontikkiCode: batch.kontikkiCode,
     producerName: batch.producerName,
+    standard: "csi",
     infoCompleted: batch.infoCompleted,
     moistureCompleted: batch.moistureCompleted,
     pyrolysisCompleted: batch.pyrolysisCompleted,
@@ -121,6 +142,7 @@ export function mapNetworkKontikki(row: NetworkKontikki): PyrolysisKontikkiOptio
     status: row.status,
     biochar_producer_id: row.biochar_producer_id,
     producer_name: row.producer?.name ?? null,
+    producer_registry: row.producer?.registry ?? null,
     capacity: row.capacity ?? null,
   };
 }
@@ -150,8 +172,14 @@ export async function getLocallyOccupiedKontikkiIds(): Promise<Set<string>> {
      FROM pyrolysis_batches b
      JOIN pyrolysis_sessions s ON s.id = b.session_id
      WHERE s.status = ?
+       AND NOT (b.submission_status = ? AND b.sync_status = ?)
+     UNION
+     SELECT b.kontikki_id as kontikki_id
+     FROM rainbow_pyrolysis_batches b
+     JOIN pyrolysis_sessions s ON s.id = b.session_id
+     WHERE s.status = ?
        AND NOT (b.submission_status = ? AND b.sync_status = ?)`,
-    ["active", "submitted", "synced"],
+    ["active", "submitted", "synced", "active", "submitted", "synced"],
   );
 
   return new Set(rows.map((row) => row.kontikki_id));
@@ -183,7 +211,37 @@ export async function getSessionKontikkis(sessionId: string): Promise<SessionKon
     const payload = await assembleBatchPayload(batch.id);
     views.push(toView(batch, payload));
   }
-  return views;
+
+  const rainbowBatches = await listRainbowBatchesForSession(sessionId);
+  for (const batch of rainbowBatches) {
+    const draft = await loadRainbowDraft(batch.id);
+    views.push({
+      id: batch.id,
+      sessionId: batch.sessionId,
+      serverId: batch.serverId,
+      kontikkiId: batch.kontikkiId,
+      kontikkiCode: batch.kontikkiCode,
+      producerName: batch.producerName,
+      standard: "rainbow",
+      infoCompleted: batch.infoCompleted,
+      moistureCompleted: batch.moistureCompleted,
+      pyrolysisCompleted: batch.yieldCompleted,
+      sampleCompleted: batch.sampleCompleted,
+      productionCompleted: batch.productionCompleted,
+      yieldCompleted: batch.yieldCompleted,
+      biomassLoads: draft.biomassLoads,
+      payload: rainbowDraftToKontikkiData(draft),
+      submissionStatus: batch.submissionStatus,
+      uploadStatus: batch.uploadStatus,
+      syncError: batch.syncError,
+      reviewStatus: batch.reviewStatus,
+      reviewerNotes: batch.reviewerNotes,
+      createdAt: batch.createdAt,
+      updatedAt: batch.updatedAt,
+    });
+  }
+
+  return views.sort((a, b) => a.kontikkiCode.localeCompare(b.kontikkiCode));
 }
 
 export async function refreshPyrolysisReviewStatuses() {
@@ -244,6 +302,11 @@ export async function createPyrolysisSessionLocal(
     await db.runAsync(sessionInsert.sql, sessionInsert.args);
 
     for (const kontikki of selected) {
+      if (pyrolysisProtocolForRegistry(kontikki.producer_registry) === "rainbow") {
+        await insertRainbowBatchLocal(sessionId, kontikki, now, db);
+        continue;
+      }
+
       const batchRow = pyrolysisBatchToRow({
         sessionId,
         serverId: null,
@@ -501,14 +564,22 @@ export async function submitSelectedKontikkisLocal(
         "UPDATE pyrolysis_batches SET submission_status = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ? AND session_id = ?",
         ["submitted", "pending", now, batchRowId, sessionId],
       );
+      await db.runAsync(
+        "UPDATE rainbow_pyrolysis_batches SET submission_status = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ? AND session_id = ?",
+        ["submitted", "pending", now, batchRowId, sessionId],
+      );
     }
 
-    const remainingDrafts = await db.getFirstAsync<{ count: number }>(
+    const remainingCsi = await db.getFirstAsync<{ count: number }>(
       "SELECT COUNT(*) as count FROM pyrolysis_batches WHERE session_id = ? AND submission_status = ?",
       [sessionId, "draft"],
     );
+    const remainingRainbow = await db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM rainbow_pyrolysis_batches WHERE session_id = ? AND submission_status = ?",
+      [sessionId, "draft"],
+    );
 
-    if ((remainingDrafts?.count ?? 0) === 0) {
+    if ((remainingCsi?.count ?? 0) + (remainingRainbow?.count ?? 0) === 0) {
       await db.runAsync(
         "UPDATE pyrolysis_sessions SET status = ?, current_step = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
         ["completed", "complete", "pending", now, sessionId],
@@ -535,38 +606,63 @@ export async function deleteSessionKontikkiLocal(
   batchRowId: string,
 ): Promise<{ sessionDeleted: boolean }> {
   const db = await getDb();
-  const batch = await findBatchOrThrow(batchRowId);
+  const csiRow = await db.getFirstAsync<any>(
+    "SELECT * FROM pyrolysis_batches WHERE id = ?",
+    [batchRowId],
+  );
+  const rainbowRow = csiRow
+    ? null
+    : await db.getFirstAsync<any>(
+        "SELECT * FROM rainbow_pyrolysis_batches WHERE id = ?",
+        [batchRowId],
+      );
 
-  if (batch.sessionId !== sessionId) {
+  if (!csiRow && !rainbowRow) {
+    throw new Error(`Pyrolysis batch with id ${batchRowId} not found`);
+  }
+
+  const sessionMatch = (csiRow?.session_id ?? rainbowRow?.session_id) === sessionId;
+  if (!sessionMatch) {
     throw new Error("This kontikki does not belong to this batch.");
   }
-  if (batch.submissionStatus === "submitted") {
+  const submissionStatus = csiRow?.submission_status ?? rainbowRow?.submission_status;
+  if (submissionStatus === "submitted") {
     throw new Error("This kontikki has already been submitted and can't be deleted.");
   }
 
-  if (batch.serverId) {
+  const serverId = csiRow?.server_id ?? rainbowRow?.server_id;
+  if (serverId) {
     try {
       const session = await findSessionOrThrow(sessionId);
       if (session.serverId) {
-        await backendFetch(
-          `/pyrolysis-sessions/${session.serverId}/batches/${batch.serverId}`,
-          { method: "DELETE" },
-        );
+        const path = csiRow
+          ? `/pyrolysis-sessions/${session.serverId}/batches/${serverId}`
+          : `/pyrolysis-sessions/${session.serverId}/rainbow-batches/${serverId}`;
+        await backendFetch(path, { method: "DELETE" });
       }
     } catch {
-      // Best-effort — the kontikki is freed locally either way; a stale
-      // draft row on the server will simply be ignored on the next sync.
+      // Best-effort — the kontikki is freed locally either way.
     }
   }
 
-  await db.runAsync("DELETE FROM pyrolysis_batches WHERE id = ?", [batchRowId]);
+  if (csiRow) {
+    await db.runAsync("DELETE FROM pyrolysis_batches WHERE id = ?", [batchRowId]);
+  } else {
+    await db.runAsync("DELETE FROM rainbow_pyrolysis_moisture WHERE batch_id = ?", [batchRowId]);
+    await db.runAsync("DELETE FROM rainbow_pyrolysis_biomass_loads WHERE batch_id = ?", [batchRowId]);
+    await db.runAsync("DELETE FROM rainbow_pyrolysis_batches WHERE id = ?", [batchRowId]);
+  }
 
-  const remaining = await db.getFirstAsync<{ count: number }>(
+  const remainingCsi = await db.getFirstAsync<{ count: number }>(
     "SELECT COUNT(*) as count FROM pyrolysis_batches WHERE session_id = ?",
     [sessionId],
   );
+  const remainingRainbow = await db.getFirstAsync<{ count: number }>(
+    "SELECT COUNT(*) as count FROM rainbow_pyrolysis_batches WHERE session_id = ?",
+    [sessionId],
+  );
 
-  if ((remaining?.count ?? 0) === 0) {
+  if ((remainingCsi?.count ?? 0) + (remainingRainbow?.count ?? 0) === 0) {
     await db.runAsync(
       "DELETE FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
       [sessionId, "pyrolysis_session"],
@@ -578,7 +674,37 @@ export async function deleteSessionKontikkiLocal(
   return { sessionDeleted: false };
 }
 
+export function isKontikkiReadyToSubmit(row: SessionKontikkiView): boolean {
+  if (row.standard === "rainbow") {
+    return (
+      row.infoCompleted &&
+      row.moistureCompleted &&
+      Boolean(row.productionCompleted) &&
+      Boolean(row.yieldCompleted) &&
+      row.sampleCompleted
+    );
+  }
+  return (
+    row.infoCompleted &&
+    row.moistureCompleted &&
+    row.pyrolysisCompleted &&
+    row.sampleCompleted
+  );
+}
+
 export function kontikkiSectionProgress(row: SessionKontikkiView): number {
+  if (row.standard === "rainbow") {
+    return rainbowKontikkiWorkflowProgress(
+      {
+        infoCompleted: row.infoCompleted,
+        moistureCompleted: row.moistureCompleted,
+        productionCompleted: Boolean(row.productionCompleted),
+        yieldCompleted: Boolean(row.yieldCompleted),
+        sampleCompleted: row.sampleCompleted,
+      },
+      row.biomassLoads ?? [],
+    );
+  }
   return kontikkiWorkflowProgress(
     {
       infoCompleted: row.infoCompleted,
@@ -675,7 +801,10 @@ async function resolveServerPyrolysisSession(
     const list = await backendFetch<PyrolysisSessionRecord[]>("/pyrolysis-sessions");
     const resumed = list.find((row) => {
       if (row.status !== "active") return false;
-      const ids = new Set(row.batches.map((batch) => batch.kontikki_id));
+      const ids = new Set([
+        ...row.batches.map((batch) => batch.kontikki_id),
+        ...(row.rainbow_batches ?? []).map((batch) => batch.kontikki_id),
+      ]);
       return kontikkiIds.every((id) => ids.has(id));
     });
 
@@ -723,15 +852,31 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     [session.id],
   );
   const batches = batchRows.map(rowToPyrolysisBatch);
+  const rainbowBatches = await listRainbowBatchesForSession(session.id);
 
   const { serverSession, serverBatchesByKontikki } =
-    await resolveServerPyrolysisSession(session, batches);
+    await resolveServerPyrolysisSession(session, [
+      ...batches,
+      ...rainbowBatches.map((row) => ({ kontikkiId: row.kontikkiId } as PyrolysisBatch)),
+    ]);
 
   const serverId = serverSession.id;
   await persistServerSessionMapping(session, batches, serverSession, serverBatchesByKontikki);
 
-  // Draft (not-yet-submitted) kontikkis stay local-only — only submitted
-  // ones get their data uploaded and marked synced.
+  const rainbowByKontikki = new Map(
+    (serverSession.rainbow_batches ?? []).map((row) => [row.kontikki_id, row] as const),
+  );
+  await db.withTransactionAsync(async () => {
+    for (const localBatch of rainbowBatches) {
+      const serverBatch = rainbowByKontikki.get(localBatch.kontikkiId);
+      if (!serverBatch) continue;
+      await db.runAsync(
+        "UPDATE rainbow_pyrolysis_batches SET server_id = ?, updated_at = ? WHERE id = ?",
+        [serverBatch.id, Date.now(), localBatch.id],
+      );
+    }
+  });
+
   const submittedBatches = batches.filter((batch) => batch.submissionStatus === "submitted");
 
   for (const localBatch of submittedBatches) {
@@ -771,7 +916,53 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     );
   }
 
-  const hasRemainingDrafts = batches.some((batch) => batch.submissionStatus !== "submitted");
+  const submittedRainbow = rainbowBatches.filter((batch) => batch.submissionStatus === "submitted");
+  for (const localBatch of submittedRainbow) {
+    const serverBatch = rainbowByKontikki.get(localBatch.kontikkiId);
+    const serverBatchId = serverBatch?.id;
+    if (!serverBatchId) {
+      throw new Error(`Server Rainbow batch missing for kontikki ${localBatch.kontikkiCode}.`);
+    }
+
+    const draft = await loadRainbowDraft(localBatch.id);
+    const { data: uploaded, loads } = await uploadRainbowPhotos(
+      serverBatchId,
+      rainbowDraftToKontikkiData(draft),
+      draft.biomassLoads,
+    );
+    await saveRainbowInfoLocal(localBatch.id, uploaded);
+    await saveRainbowMoistureLocal(localBatch.id, uploaded.moisture_readings ?? []);
+    await saveRainbowBiomassLoadsLocal(localBatch.id, loads);
+    await saveRainbowYieldLocal(localBatch.id, uploaded);
+    await saveRainbowSampleLocal(localBatch.id, uploaded);
+
+    const refreshed = await loadRainbowDraft(localBatch.id);
+    const apiRecord = toRainbowApiRecord(refreshed);
+    apiRecord.submission_status = "submitted";
+
+    await backendFetch(`/pyrolysis-sessions/${serverId}/rainbow-batches/${serverBatchId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...apiRecord,
+        id: undefined,
+        session_id: undefined,
+        kontikki_id: undefined,
+        kontikki_code: undefined,
+        protocol: undefined,
+        created_at: undefined,
+        updated_at: undefined,
+      }),
+    });
+
+    await db.runAsync(
+      "UPDATE rainbow_pyrolysis_batches SET server_id = ?, sync_status = ?, sync_error = NULL, review_status = COALESCE(review_status, ?), updated_at = ? WHERE id = ?",
+      [serverBatchId, "synced", "pending", Date.now(), localBatch.id],
+    );
+  }
+
+  const hasRemainingDrafts =
+    batches.some((batch) => batch.submissionStatus !== "submitted") ||
+    rainbowBatches.some((batch) => batch.submissionStatus !== "submitted");
 
   if (!hasRemainingDrafts && serverSession.status !== "completed") {
     await backendFetch(`/pyrolysis-sessions/${serverId}/step`, {

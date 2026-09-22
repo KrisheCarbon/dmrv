@@ -57,16 +57,16 @@ export default function PyrolysisCollapsibleSection({
               </View>
             ) : null}
           </View>
+          {statusLabel ? (
+            <Text style={[styles.statusLabel, savedLocally && styles.statusLabelDone]}>
+              {statusLabel}
+            </Text>
+          ) : null}
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
           {!unlocked ? (
             <Text style={styles.lockedHint}>Complete the section above first</Text>
           ) : null}
         </View>
-        {statusLabel ? (
-          <Text style={[styles.statusLabel, savedLocally && styles.statusLabelDone]}>
-            {statusLabel}
-          </Text>
-        ) : null}
         <Text style={styles.chevron}>{expanded ? "▾" : "▸"}</Text>
       </TouchableOpacity>
 
@@ -90,23 +90,28 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     padding: spacing.md,
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   headerLeft: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
+    paddingRight: spacing.xs,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
   title: {
+    flexShrink: 1,
     fontFamily: fonts.bold,
     fontSize: 15,
+    lineHeight: 20,
     color: colors.brunswick,
   },
   completeDot: {
@@ -116,6 +121,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   completeDotText: {
     color: colors.white,
@@ -137,6 +143,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
     color: colors.smoke,
+    marginTop: 2,
   },
   statusLabelDone: {
     color: colors.success,
@@ -145,6 +152,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.smoke,
     fontFamily: fonts.medium,
+    marginTop: 2,
+    flexShrink: 0,
   },
   body: {
     paddingHorizontal: spacing.md,

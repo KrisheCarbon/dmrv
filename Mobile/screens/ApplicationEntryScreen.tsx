@@ -18,6 +18,7 @@ import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
 import PrimaryButton from "../components/PrimaryButton";
+import KeyboardSafeScroll from "../components/KeyboardSafeScroll";
 import { PhotoRemoveBadge } from "../components/PhotoSlot";
 import { captureApplicationVideo, LocationUnavailableError } from "../services/fieldPhoto";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
@@ -41,6 +42,7 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 export default function ApplicationEntryScreen({ navigation, route }) {
   const entryId = route.params?.entryId as string;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -297,10 +299,10 @@ export default function ApplicationEntryScreen({ navigation, route }) {
   return (
     <ScreenShell>
       <ScreenHeader title="Application entry" onBack={() => navigation.goBack()} />
-      <ScrollView
+      <KeyboardSafeScroll
+        ref={scrollRef}
         style={styles.container}
         contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Entry started</Text>
@@ -493,6 +495,11 @@ export default function ApplicationEntryScreen({ navigation, route }) {
             onChangeText={(text) => queueAutoSave({ comment: text || null })}
             multiline
             editable={isEditable}
+            onFocus={() => {
+              setTimeout(() => {
+                scrollRef.current?.scrollToEnd({ animated: true });
+              }, 250);
+            }}
           />
         </View>
 
@@ -515,7 +522,7 @@ export default function ApplicationEntryScreen({ navigation, route }) {
             )}
           </View>
         )}
-      </ScrollView>
+      </KeyboardSafeScroll>
 
       <LocationPickerModal
         visible={mapVisible}
@@ -542,7 +549,7 @@ const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
     gap: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.xxl + 32,
   },
   centered: {
     flex: 1,
