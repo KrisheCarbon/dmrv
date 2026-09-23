@@ -11,8 +11,18 @@ import {
 import { WebView } from "react-native-webview";
 import type { GeoPoint } from "@krishecarbon/shared";
 import PrimaryButton from "./PrimaryButton";
-import { getInitialMapCoordinate } from "../utils/location";
-import { buildMapboxPolygonHtml, getMapboxToken } from "../utils/mapbox";
+import MapMyLocationButton from "./MapMyLocationButton";
+import {
+  getInitialMapCoordinate,
+  readDeviceCoordinate,
+  type MapOpenCoordinate,
+} from "../utils/location";
+import {
+  buildMapboxPolygonHtml,
+  getMapboxToken,
+  userLocationUpdateScript,
+} from "../utils/mapbox";
+import { useLiveUserDot } from "../utils/useLiveUserDot";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
 type Props = {
@@ -47,10 +57,9 @@ export default function PolygonMapperModal({
   const [loading, setLoading] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
-  const [center, setCenter] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const [locationNote, setLocationNote] = useState("");
+  const [locatingUser, setLocatingUser] = useState(false);
+  const [center, setCenter] = useState<MapOpenCoordinate | null>(null);
   const [seedPoints, setSeedPoints] = useState<GeoPoint[]>([]);
   const [points, setPoints] = useState<GeoPoint[]>([]);
 
@@ -59,6 +68,7 @@ export default function PolygonMapperModal({
       setLoading(true);
       setMapReady(false);
       setMapError("");
+      setLocationNote("");
       setCenter(null);
       return;
     }
@@ -70,6 +80,7 @@ export default function PolygonMapperModal({
       setLoading(true);
       setMapReady(false);
       setMapError("");
+      setLocationNote("");
 
       const seed = (snapshot.points || []).filter(
         (point) =>
@@ -86,6 +97,11 @@ export default function PolygonMapperModal({
       setSeedPoints(seed);
       setPoints(seed);
       setCenter(coord);
+      if (!coord.hasUserFix) {
+        setLocationNote(
+          "Location is off, so the map may not be centered on you. Allow location, then tap the blue target.",
+        );
+      }
       setLoading(false);
     }
 
@@ -102,8 +118,37 @@ export default function PolygonMapperModal({
       latitude: center.latitude,
       longitude: center.longitude,
       points: seedPoints,
+      userLatitude: center.userLatitude,
+      userLongitude: center.userLongitude,
+      accuracy: center.accuracy,
     });
   }, [center, mapboxToken, seedPoints]);
+
+  useLiveUserDot(visible && mapReady, webViewRef);
+
+  async function recenterOnUser() {
+    try {
+      setLocatingUser(true);
+      const user = await readDeviceCoordinate();
+      if (!user) {
+        setLocationNote(
+          "Allow location access, then tap the target to see where you are.",
+        );
+        return;
+      }
+      setLocationNote("");
+      webViewRef.current?.injectJavaScript(
+        userLocationUpdateScript(
+          user.latitude,
+          user.longitude,
+          user.accuracy,
+          true,
+        ),
+      );
+    } finally {
+      setLocatingUser(false);
+    }
+  }
 
   function inject(script: string) {
     webViewRef.current?.injectJavaScript(`${script}; true;`);
@@ -161,9 +206,12 @@ export default function PolygonMapperModal({
         </View>
 
         <Text style={styles.hint}>
-          Tap satellite imagery to draw the farm boundary. The plot area is
-          calculated from this shape. Pan and pinch to move the map.
+          The map opens on you. The blue dot is where you are standing. Tap the
+          satellite image to draw the farm boundary. Pan and pinch to move.
         </Text>
+        {locationNote ? (
+          <Text style={styles.locationNote}>{locationNote}</Text>
+        ) : null}
 
         {!mapboxToken ? (
           <View style={styles.errorBox}>
@@ -191,7 +239,12 @@ export default function PolygonMapperModal({
               <View style={styles.mapOverlay}>
                 <ActivityIndicator size="large" color={colors.brunswick} />
               </View>
-            ) : null}
+            ) : (
+              <MapMyLocationButton
+                onPress={recenterOnUser}
+                loading={locatingUser}
+              />
+            )}
           </View>
         )}
 
@@ -267,6 +320,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
     lineHeight: 18,
+  },
+  locationNote: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.warning,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    lineHeight: 17,
   },
   mapWrap: {
     flex: 1,

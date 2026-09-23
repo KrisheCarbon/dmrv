@@ -35,18 +35,205 @@ export async function mapboxReverseGeocode(
   return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 }
 
+function jsNumber(value: number | null | undefined): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "null";
+}
+
+/** Mapbox GL helpers: a WhatsApp-style blue dot for the person holding the phone. */
+function userLocationRuntime(
+  userLatitude?: number | null,
+  userLongitude?: number | null,
+  accuracy?: number | null,
+): string {
+  const lat = jsNumber(userLatitude);
+  const lng = jsNumber(userLongitude);
+  const acc = jsNumber(accuracy) === "null" ? "40" : jsNumber(accuracy);
+
+  return `
+      var userLng = ${lng};
+      var userLat = ${lat};
+      var userAcc = ${lat === "null" || lng === "null" ? "40" : acc};
+      var userLocationReady = false;
+      var pendingUser = null;
+      var userPulseTimer = null;
+
+      function circleRing(lng, lat, radiusMeters) {
+        var steps = 48;
+        var ring = [];
+        var latRad = lat * Math.PI / 180;
+        var metersPerDegLat = 111320;
+        var metersPerDegLng = Math.max(Math.cos(latRad) * 111320, 1);
+        var i;
+        for (i = 0; i <= steps; i++) {
+          var angle = (i / steps) * Math.PI * 2;
+          ring.push([
+            lng + (radiusMeters * Math.cos(angle)) / metersPerDegLng,
+            lat + (radiusMeters * Math.sin(angle)) / metersPerDegLat
+          ]);
+        }
+        return ring;
+      }
+
+      function userLocationData(lng, lat, accuracyMeters) {
+        var radius = accuracyMeters && accuracyMeters > 0 ? accuracyMeters : 30;
+        if (radius > 80) radius = 80;
+        return {
+          type: 'FeatureCollection',
+          features: [
+            {
+              type: 'Feature',
+              properties: { kind: 'accuracy' },
+              geometry: { type: 'Polygon', coordinates: [circleRing(lng, lat, radius)] }
+            },
+            {
+              type: 'Feature',
+              properties: { kind: 'dot' },
+              geometry: { type: 'Point', coordinates: [lng, lat] }
+            }
+          ]
+        };
+      }
+
+      function ensureUserLocationLayers() {
+        if (!map || map.getSource('user-location')) return;
+        map.addSource('user-location', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+        map.addLayer({
+          id: 'user-accuracy',
+          type: 'fill',
+          source: 'user-location',
+          filter: ['==', ['get', 'kind'], 'accuracy'],
+          paint: { 'fill-color': '#2F80ED', 'fill-opacity': 0.16 }
+        });
+        map.addLayer({
+          id: 'user-accuracy-line',
+          type: 'line',
+          source: 'user-location',
+          filter: ['==', ['get', 'kind'], 'accuracy'],
+          paint: { 'line-color': '#2F80ED', 'line-width': 1, 'line-opacity': 0.45 }
+        });
+        map.addLayer({
+          id: 'user-dot-halo',
+          type: 'circle',
+          source: 'user-location',
+          filter: ['==', ['get', 'kind'], 'dot'],
+          paint: {
+            'circle-radius': 14,
+            'circle-color': '#2F80ED',
+            'circle-opacity': 0.25
+          }
+        });
+        map.addLayer({
+          id: 'user-dot',
+          type: 'circle',
+          source: 'user-location',
+          filter: ['==', ['get', 'kind'], 'dot'],
+          paint: {
+            'circle-radius': 7,
+            'circle-color': '#1A73E8',
+            'circle-stroke-width': 3,
+            'circle-stroke-color': '#ffffff'
+          }
+        });
+        if (!userPulseTimer) {
+          userPulseTimer = setInterval(function () {
+            if (!map.getLayer('user-dot-halo')) return;
+            var wave = (Math.sin(Date.now() / 280) + 1) / 2;
+            map.setPaintProperty('user-dot-halo', 'circle-radius', 11 + wave * 9);
+            map.setPaintProperty('user-dot-halo', 'circle-opacity', 0.28 - wave * 0.16);
+          }, 80);
+        }
+      }
+
+      function applyUserLocation(lng, lat, accuracyMeters, recenter) {
+        ensureUserLocationLayers();
+        var source = map.getSource('user-location');
+        if (source) source.setData(userLocationData(lng, lat, accuracyMeters));
+        if (recenter) {
+          map.easeTo({
+            center: [lng, lat],
+            zoom: Math.max(map.getZoom(), 16),
+            duration: 650
+          });
+        }
+      }
+
+      function setUserLocation(lng, lat, accuracyMeters, recenter) {
+        if (!isFinite(lng) || !isFinite(lat)) return;
+        userLng = lng;
+        userLat = lat;
+        userAcc = accuracyMeters || userAcc;
+        if (!userLocationReady || !map) {
+          pendingUser = {
+            lng: lng,
+            lat: lat,
+            accuracy: accuracyMeters,
+            recenter: !!recenter
+          };
+          return;
+        }
+        applyUserLocation(lng, lat, accuracyMeters, recenter);
+      }
+
+      function flyToUser() {
+        if (!isFinite(userLng) || !isFinite(userLat)) return;
+        setUserLocation(userLng, userLat, userAcc, true);
+      }
+
+      function flushPendingUser() {
+        userLocationReady = true;
+        if (pendingUser) {
+          var next = pendingUser;
+          pendingUser = null;
+          applyUserLocation(next.lng, next.lat, next.accuracy, next.recenter);
+          return;
+        }
+        if (isFinite(userLng) && isFinite(userLat)) {
+          applyUserLocation(userLng, userLat, userAcc, false);
+        }
+      }
+  `;
+}
+
+export function userLocationUpdateScript(
+  latitude: number,
+  longitude: number,
+  accuracy: number | null | undefined,
+  recenter: boolean,
+): string {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  const acc =
+    accuracy == null || !Number.isFinite(Number(accuracy)) ? 0 : Number(accuracy);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "true;";
+  return `setUserLocation(${lng}, ${lat}, ${acc}, ${recenter ? "true" : "false"}); true;`;
+}
+
 export function buildMapboxPickerHtml({
   token,
   latitude,
   longitude,
+  userLatitude,
+  userLongitude,
+  accuracy,
 }: {
   token: string;
   latitude: number;
   longitude: number;
+  userLatitude?: number | null;
+  userLongitude?: number | null;
+  accuracy?: number | null;
 }) {
   const safeToken = token.replace(/'/g, "\\'");
   const lat = Number(latitude);
   const lng = Number(longitude);
+  const userLat = Number(userLatitude);
+  const userLng = Number(userLongitude);
+  const centerLat = Number.isFinite(userLat) ? userLat : lat;
+  const centerLng = Number.isFinite(userLng) ? userLng : lng;
 
   return `<!DOCTYPE html>
 <html>
@@ -69,13 +256,14 @@ export function buildMapboxPickerHtml({
   <body>
     <div id="map"></div>
     <script>
+      ${userLocationRuntime(userLatitude, userLongitude, accuracy)}
       mapboxgl.accessToken = '${safeToken}';
 
       var map = new mapboxgl.Map({
         container: 'map',
         style: 'mapbox://styles/mapbox/streets-v12',
-        center: [${lng}, ${lat}],
-        zoom: 14
+        center: [${centerLng}, ${centerLat}],
+        zoom: 16
       });
 
       var marker = new mapboxgl.Marker({ color: '#8CC63E', draggable: true })
@@ -103,7 +291,16 @@ export function buildMapboxPickerHtml({
         sendPin(event.lngLat);
       });
 
+      function movePin(lng, lat, recenter) {
+        marker.setLngLat([lng, lat]);
+        sendPin({ lng: lng, lat: lat });
+        if (recenter) {
+          map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 16), duration: 650 });
+        }
+      }
+
       map.on('load', function () {
+        flushPendingUser();
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
         }
@@ -129,15 +326,26 @@ export function buildMapboxPolygonHtml({
   latitude,
   longitude,
   points,
+  userLatitude,
+  userLongitude,
+  accuracy,
 }: {
   token: string;
   latitude: number;
   longitude: number;
   points: Array<{ latitude: number; longitude: number }>;
+  userLatitude?: number | null;
+  userLongitude?: number | null;
+  accuracy?: number | null;
 }) {
   const safeToken = token.replace(/'/g, "\\'");
   const lat = Number(latitude);
   const lng = Number(longitude);
+  const userLat = Number(userLatitude);
+  const userLng = Number(userLongitude);
+  const hasUser = Number.isFinite(userLat) && Number.isFinite(userLng);
+  const centerLat = hasUser ? userLat : lat;
+  const centerLng = hasUser ? userLng : lng;
   const initial = JSON.stringify(
     (points || [])
       .filter(
@@ -182,6 +390,7 @@ export function buildMapboxPolygonHtml({
     <div id="map"></div>
     <div id="hint">Tap the map to clip each field corner. Pan and pinch to move.</div>
     <script>
+      ${userLocationRuntime(userLatitude, userLongitude, accuracy)}
       mapboxgl.accessToken = '${safeToken}';
       var points = ${initial};
       var dragging = false;
@@ -189,7 +398,7 @@ export function buildMapboxPolygonHtml({
       var map = new mapboxgl.Map({
         container: 'map',
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
-        center: [${lng}, ${lat}],
+        center: [${centerLng}, ${centerLat}],
         zoom: 16,
         doubleClickZoom: false
       });
@@ -305,12 +514,22 @@ export function buildMapboxPolygonHtml({
           }
         });
 
-        if (points.length >= 2) {
+        var showSavedShape = points.length >= 2;
+        if (showSavedShape && isFinite(userLat) && isFinite(userLng)) {
+          var dLat = (points[0][1] - userLat) * 111320;
+          var dLng = (points[0][0] - userLng) *
+            111320 * Math.max(Math.cos(userLat * Math.PI / 180), 0.2);
+          if (Math.sqrt(dLat * dLat + dLng * dLng) > 20000) {
+            showSavedShape = false;
+          }
+        }
+        if (showSavedShape) {
           var bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
           points.forEach(function (pair) { bounds.extend(pair); });
           map.fitBounds(bounds, { padding: 48, maxZoom: 18 });
         }
 
+        flushPendingUser();
         render();
         send({ type: 'ready' });
       });

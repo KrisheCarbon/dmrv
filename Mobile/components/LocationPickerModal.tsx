@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,12 +12,20 @@ import {
 import { WebView } from "react-native-webview";
 import NetInfo from "@react-native-community/netinfo";
 import PrimaryButton from "./PrimaryButton";
-import { getInitialMapCoordinate } from "../utils/location";
+import MapMyLocationButton from "./MapMyLocationButton";
+import {
+  getInitialMapCoordinate,
+  isUsableMapCoordinate,
+  readDeviceCoordinate,
+  type MapOpenCoordinate
+} from "../utils/location";
 import {
   buildMapboxPickerHtml,
   getMapboxToken,
-  mapboxReverseGeocode
+  mapboxReverseGeocode,
+  userLocationUpdateScript
 } from "../utils/mapbox";
+import { useLiveUserDot } from "../utils/useLiveUserDot";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
 export default function LocationPickerModal({
@@ -28,17 +36,28 @@ export default function LocationPickerModal({
   onConfirm
 }) {
   const mapboxToken = getMapboxToken();
-  const [pin, setPin] = useState(null);
+  const webViewRef = useRef<WebView>(null);
+  const [pin, setPin] = useState<{ latitude: number; longitude: number } | null>(
+    null
+  );
+  const [mapSeed, setMapSeed] = useState<MapOpenCoordinate | null>(null);
+  const [mapSession, setMapSession] = useState(0);
   const [loading, setLoading] = useState(true);
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState("");
+  const [locationNote, setLocationNote] = useState("");
+  const [locatingUser, setLocatingUser] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [manualLat, setManualLat] = useState("");
   const [manualLng, setManualLng] = useState("");
   const [showManual, setShowManual] = useState(false);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setMapSeed(null);
+      setMapReady(false);
+      return;
+    }
 
     let cancelled = false;
 
@@ -46,6 +65,7 @@ export default function LocationPickerModal({
       setLoading(true);
       setMapReady(false);
       setMapError("");
+      setLocationNote("");
 
       const coord = await getInitialMapCoordinate(
         initialLatitude,
@@ -54,9 +74,16 @@ export default function LocationPickerModal({
 
       if (cancelled) return;
 
-      setPin(coord);
+      setMapSeed(coord);
+      setMapSession((current) => current + 1);
+      setPin({ latitude: coord.latitude, longitude: coord.longitude });
       setManualLat(String(coord.latitude));
       setManualLng(String(coord.longitude));
+      if (!coord.hasUserFix) {
+        setLocationNote(
+          "Location is off, so the map may not be centered on you. Allow location, then tap the blue target."
+        );
+      }
       setLoading(false);
     }
 
@@ -67,14 +94,19 @@ export default function LocationPickerModal({
   }, [visible, initialLatitude, initialLongitude]);
 
   const mapHtml = useMemo(() => {
-    if (!pin || !mapboxToken) return null;
+    if (!mapSeed || !mapboxToken) return null;
 
     return buildMapboxPickerHtml({
       token: mapboxToken,
-      latitude: pin.latitude,
-      longitude: pin.longitude
+      latitude: mapSeed.latitude,
+      longitude: mapSeed.longitude,
+      userLatitude: mapSeed.userLatitude,
+      userLongitude: mapSeed.userLongitude,
+      accuracy: mapSeed.accuracy
     });
-  }, [pin?.latitude, pin?.longitude, mapboxToken]);
+  }, [mapSeed, mapboxToken]);
+
+  useLiveUserDot(visible && mapReady, webViewRef);
 
   function handleWebViewMessage(event) {
     try {
@@ -118,6 +150,56 @@ export default function LocationPickerModal({
 
     setMapError("");
     setPin({ latitude, longitude });
+    setManualLat(String(latitude));
+    setManualLng(String(longitude));
+
+    if (mapReady && webViewRef.current) {
+      webViewRef.current.injectJavaScript(
+        `movePin(${longitude}, ${latitude}, true); true;`
+      );
+      return;
+    }
+
+    setMapSeed((prev) =>
+      prev
+        ? { ...prev, latitude, longitude }
+        : {
+            latitude,
+            longitude,
+            accuracy: null,
+            userLatitude: null,
+            userLongitude: null,
+            hasUserFix: false
+          }
+    );
+    setMapSession((current) => current + 1);
+  }
+
+  async function recenterOnUser() {
+    try {
+      setLocatingUser(true);
+      const user = await readDeviceCoordinate();
+      if (!user) {
+        setLocationNote(
+          "Allow location access, then tap the target to see where you are."
+        );
+        return;
+      }
+
+      setLocationNote("");
+      const acc = user.accuracy ?? 0;
+      const moveSavedPin =
+        !pin || !isUsableMapCoordinate(pin.latitude, pin.longitude);
+      webViewRef.current?.injectJavaScript(
+        `${userLocationUpdateScript(user.latitude, user.longitude, acc, true)} ${
+          moveSavedPin
+            ? `movePin(${user.longitude}, ${user.latitude}, false);`
+            : ""
+        } true;`
+      );
+    } finally {
+      setLocatingUser(false);
+    }
   }
 
   async function handleConfirm() {
@@ -159,8 +241,12 @@ export default function LocationPickerModal({
         </View>
 
         <Text style={styles.hint}>
-          Tap the map or drag the pin. Requires internet and your Mapbox token.
+          The map opens on you. The blue dot is where you are standing. Drag the
+          green pin, or tap the map, to set the farm.
         </Text>
+        {locationNote ? (
+          <Text style={styles.locationNote}>{locationNote}</Text>
+        ) : null}
 
         {!mapboxToken ? (
           <View style={styles.errorBox}>
@@ -175,7 +261,8 @@ export default function LocationPickerModal({
         ) : (
           <View style={styles.mapWrap}>
             <WebView
-              key={`${pin.latitude.toFixed(5)}-${pin.longitude.toFixed(5)}`}
+              key={mapSession}
+              ref={webViewRef}
               source={{ html: mapHtml }}
               style={styles.map}
               originWhitelist={["*"]}
@@ -188,7 +275,12 @@ export default function LocationPickerModal({
               <View style={styles.mapOverlay}>
                 <ActivityIndicator size="large" color={colors.brunswick} />
               </View>
-            ) : null}
+            ) : (
+              <MapMyLocationButton
+                onPress={recenterOnUser}
+                loading={locatingUser}
+              />
+            )}
           </View>
         )}
 
@@ -303,6 +395,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
     lineHeight: 18
+  },
+  locationNote: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.warning,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    lineHeight: 17
   },
   mapWrap: {
     flex: 1,

@@ -87,38 +87,163 @@ export async function getCurrentFarmLocation() {
   return { latitude, longitude, address };
 }
 
-export async function getInitialMapCoordinate(existingLat, existingLng) {
-  if (existingLat != null && existingLng != null) {
-    return {
-      latitude: Number(existingLat),
-      longitude: Number(existingLng)
-    };
-  }
+/** Geographic center of India. Only used when the phone cannot provide a fix. */
+const FALLBACK_LATITUDE = 20.5937;
+const FALLBACK_LONGITUDE = 78.9629;
 
+export type DeviceCoordinate = {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+};
+
+export type MapOpenCoordinate = DeviceCoordinate & {
+  userLatitude: number | null;
+  userLongitude: number | null;
+  hasUserFix: boolean;
+};
+
+function toDeviceCoordinate(position: Location.LocationObject): DeviceCoordinate {
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy:
+      typeof position.coords.accuracy === "number"
+        ? position.coords.accuracy
+        : null,
+  };
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
+function apartMeters(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+) {
+  const dLat = (lat1 - lat2) * 111320;
+  const dLng =
+    (lng1 - lng2) *
+    111320 *
+    Math.max(Math.cos((lat1 * Math.PI) / 180), 0.2);
+  return Math.hypot(dLat, dLng);
+}
+
+/** True when a saved point is a real place, not 0,0 or the old India fallback. */
+export function isUsableMapCoordinate(latitude: unknown, longitude: unknown) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) < 0.000001 && Math.abs(lng) < 0.000001) return false;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+  if (
+    Math.abs(lat - FALLBACK_LATITUDE) < 0.0002 &&
+    Math.abs(lng - FALLBACK_LONGITUDE) < 0.0002
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Ask for location permission and return the phone's current GPS fix. */
+export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
   try {
-    const { status } = await Location.getForegroundPermissionsAsync();
-    if (status === "granted" && (await Location.hasServicesEnabledAsync())) {
-      let position = null;
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") return null;
 
-      try {
-        position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          mayShowUserSettingsDialog: false
-        });
-      } catch {
-        position = await Location.getLastKnownPositionAsync();
-      }
+    const servicesEnabled = await Location.hasServicesEnabledAsync();
+    if (!servicesEnabled) return null;
 
-      if (position) {
-        return {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        };
-      }
+    const last = await Location.getLastKnownPositionAsync();
+    const lastFresh =
+      last &&
+      Date.now() - last.timestamp < 2 * 60 * 1000 &&
+      (last.coords.accuracy == null || last.coords.accuracy <= 150)
+        ? last
+        : null;
+
+    const current = await withTimeout(
+      Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        mayShowUserSettingsDialog: true,
+      }),
+      lastFresh ? 5000 : 12000,
+    );
+
+    if (current) return toDeviceCoordinate(current);
+    if (lastFresh) return toDeviceCoordinate(lastFresh);
+    if (last && Date.now() - last.timestamp < 10 * 60 * 1000) {
+      return toDeviceCoordinate(last);
     }
+    return null;
   } catch {
-    // fall through to default
+    return null;
+  }
+}
+
+export async function watchDeviceCoordinate(
+  onUpdate: (coord: DeviceCoordinate) => void,
+): Promise<{ remove: () => void } | null> {
+  const { status } = await Location.getForegroundPermissionsAsync();
+  if (status !== "granted") return null;
+
+  const servicesEnabled = await Location.hasServicesEnabledAsync();
+  if (!servicesEnabled) return null;
+
+  return Location.watchPositionAsync(
+    {
+      accuracy: Location.Accuracy.High,
+      distanceInterval: 3,
+      timeInterval: 2000,
+    },
+    (position) => onUpdate(toDeviceCoordinate(position)),
+  );
+}
+
+export async function getInitialMapCoordinate(
+  existingLat?: number | null,
+  existingLng?: number | null,
+): Promise<MapOpenCoordinate> {
+  const user = await readDeviceCoordinate();
+  let hasExisting = isUsableMapCoordinate(existingLat, existingLng);
+  // A saved point in another region is the old default map, not this farm.
+  // Start the pin on the person instead of leaving it off-screen.
+  if (
+    hasExisting &&
+    user &&
+    apartMeters(
+      user.latitude,
+      user.longitude,
+      Number(existingLat),
+      Number(existingLng),
+    ) > 20000
+  ) {
+    hasExisting = false;
   }
 
-  return { latitude: 20.5937, longitude: 78.9629 };
+  return {
+    latitude: hasExisting ? Number(existingLat) : user?.latitude ?? FALLBACK_LATITUDE,
+    longitude: hasExisting
+      ? Number(existingLng)
+      : user?.longitude ?? FALLBACK_LONGITUDE,
+    accuracy: user?.accuracy ?? null,
+    userLatitude: user?.latitude ?? null,
+    userLongitude: user?.longitude ?? null,
+    hasUserFix: Boolean(user),
+  };
 }
