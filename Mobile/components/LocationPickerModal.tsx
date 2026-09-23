@@ -30,8 +30,6 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 
 export default function LocationPickerModal({
   visible,
-  initialLatitude,
-  initialLongitude,
   onClose,
   onConfirm
 }) {
@@ -51,6 +49,7 @@ export default function LocationPickerModal({
   const [manualLat, setManualLat] = useState("");
   const [manualLng, setManualLng] = useState("");
   const [showManual, setShowManual] = useState(false);
+  const [locateAttempt, setLocateAttempt] = useState(0);
 
   useEffect(() => {
     if (!visible) {
@@ -66,24 +65,26 @@ export default function LocationPickerModal({
       setMapReady(false);
       setMapError("");
       setLocationNote("");
+      setMapSeed(null);
 
-      const coord = await getInitialMapCoordinate(
-        initialLatitude,
-        initialLongitude
-      );
+      const coord = await getInitialMapCoordinate();
 
       if (cancelled) return;
+
+      if (!coord.hasUserFix) {
+        setPin(null);
+        setLocationNote(
+          "Couldn't read your GPS, so the map was not opened on a default place. Turn location on and tap Try again."
+        );
+        setLoading(false);
+        return;
+      }
 
       setMapSeed(coord);
       setMapSession((current) => current + 1);
       setPin({ latitude: coord.latitude, longitude: coord.longitude });
       setManualLat(String(coord.latitude));
       setManualLng(String(coord.longitude));
-      if (!coord.hasUserFix) {
-        setLocationNote(
-          "Location is off, so the map may not be centered on you. Allow location, then tap the blue target."
-        );
-      }
       setLoading(false);
     }
 
@@ -91,7 +92,7 @@ export default function LocationPickerModal({
     return () => {
       cancelled = true;
     };
-  }, [visible, initialLatitude, initialLongitude]);
+  }, [visible, locateAttempt]);
 
   const mapHtml = useMemo(() => {
     if (!mapSeed || !mapboxToken) return null;
@@ -254,9 +255,21 @@ export default function LocationPickerModal({
               Mapbox token missing. Add mapboxToken under extra in app.json.
             </Text>
           </View>
-        ) : loading || !pin || !mapHtml ? (
+        ) : loading || !mapHtml ? (
           <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color={colors.brunswick} />
+            {loading ? (
+              <>
+                <ActivityIndicator size="large" color={colors.brunswick} />
+                <Text style={styles.locatingText}>Finding your location…</Text>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => setLocateAttempt((current) => current + 1)}
+              >
+                <Text style={styles.retryText}>Try again</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={styles.mapWrap}>
@@ -426,7 +439,26 @@ const styles = StyleSheet.create({
   loadingWrap: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center"
+    justifyContent: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg
+  },
+  locatingText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.brunswick,
+    textAlign: "center"
+  },
+  retryBtn: {
+    backgroundColor: colors.brunswick,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    borderRadius: radius.sm
+  },
+  retryText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.white
   },
   errorBox: {
     marginHorizontal: spacing.lg,

@@ -62,6 +62,7 @@ export default function PolygonMapperModal({
   const [center, setCenter] = useState<MapOpenCoordinate | null>(null);
   const [seedPoints, setSeedPoints] = useState<GeoPoint[]>([]);
   const [points, setPoints] = useState<GeoPoint[]>([]);
+  const [locateAttempt, setLocateAttempt] = useState(0);
 
   useEffect(() => {
     if (!visible) {
@@ -81,27 +82,26 @@ export default function PolygonMapperModal({
       setMapReady(false);
       setMapError("");
       setLocationNote("");
+      setCenter(null);
 
       const seed = (snapshot.points || []).filter(
         (point) =>
           Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
       );
-      const fromPolygon = seed[0];
-      const coord = await getInitialMapCoordinate(
-        fromPolygon?.latitude ?? snapshot.latitude,
-        fromPolygon?.longitude ?? snapshot.longitude,
-      );
+      const coord = await getInitialMapCoordinate();
 
       if (cancelled) return;
 
       setSeedPoints(seed);
       setPoints(seed);
-      setCenter(coord);
       if (!coord.hasUserFix) {
         setLocationNote(
-          "Location is off, so the map may not be centered on you. Allow location, then tap the blue target.",
+          "Couldn't read your GPS, so the map was not opened on a default place. Turn location on and tap Try again.",
         );
+        setLoading(false);
+        return;
       }
+      setCenter(coord);
       setLoading(false);
     }
 
@@ -109,7 +109,7 @@ export default function PolygonMapperModal({
     return () => {
       cancelled = true;
     };
-  }, [visible]);
+  }, [visible, locateAttempt]);
 
   const mapHtml = useMemo(() => {
     if (!center || !mapboxToken) return null;
@@ -221,7 +221,19 @@ export default function PolygonMapperModal({
           </View>
         ) : loading || !center || !mapHtml ? (
           <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color={colors.brunswick} />
+            {loading ? (
+              <>
+                <ActivityIndicator size="large" color={colors.brunswick} />
+                <Text style={styles.locatingText}>Finding your location…</Text>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => setLocateAttempt((current) => current + 1)}
+              >
+                <Text style={styles.retryText}>Try again</Text>
+              </TouchableOpacity>
+            )}
           </View>
         ) : (
           <View style={styles.mapWrap}>
@@ -352,6 +364,25 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  locatingText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.brunswick,
+    textAlign: "center",
+  },
+  retryBtn: {
+    backgroundColor: colors.brunswick,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 12,
+    borderRadius: radius.sm,
+  },
+  retryText: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.white,
   },
   errorBox: {
     marginHorizontal: spacing.lg,

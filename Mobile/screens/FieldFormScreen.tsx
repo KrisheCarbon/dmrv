@@ -11,7 +11,11 @@ import * as DocumentPicker from "expo-document-picker";
 import {
   FIELD_SEASONS,
   FIELD_WATER_SOURCES,
+  formatFieldWaterSource,
+  parseFieldWaterSource,
   CROP_OPTIONS,
+  formatFieldCropName,
+  parseFieldCropName,
   boundaryPointsToGeojson,
   farmAreasAreNearby,
   fieldSeasonLabel,
@@ -25,6 +29,7 @@ import {
 } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
+import FormMultiSelectDropdown from "../components/FormMultiSelectDropdown";
 import FormPicker from "../components/FormPicker";
 import FormDateField from "../components/FormDateField";
 import PrimaryButton from "../components/PrimaryButton";
@@ -381,6 +386,20 @@ export default function FieldFormScreen({ route, navigation }) {
       );
       return;
     }
+    const water = parseFieldWaterSource(field.waterSource);
+    if (water.sources.length === 0) {
+      Alert.alert("Required", "Select at least one water source.");
+      return;
+    }
+    if (water.sources.includes("Other") && !water.other) {
+      Alert.alert("Required", "Write what the other water source is.");
+      return;
+    }
+    const crop = parseFieldCropName(field.cropName);
+    if (crop.crops.includes("Other") && !crop.other) {
+      Alert.alert("Required", "Write what the other crop is.");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -632,12 +651,43 @@ export default function FieldFormScreen({ route, navigation }) {
           ) : null}
         </View>
 
-        <FormPicker
+        <FormMultiSelectDropdown
           label="Water source"
-          value={field.waterSource}
+          placeholder="Select water sources"
+          values={parseFieldWaterSource(field.waterSource).sources}
           options={WATER}
-          onValueChange={(v) => setField((p) => ({ ...p, waterSource: v }))}
+          onChange={(sources) =>
+            setField((prev) => {
+              const current = parseFieldWaterSource(prev.waterSource);
+              return {
+                ...prev,
+                waterSource: formatFieldWaterSource(
+                  sources,
+                  sources.includes("Other") ? current.other : "",
+                ),
+              };
+            })
+          }
         />
+        {parseFieldWaterSource(field.waterSource).sources.includes("Other") ? (
+          <FormInput
+            label="Other water source *"
+            placeholder="Write what the other source is"
+            value={parseFieldWaterSource(field.waterSource).other}
+            onChangeText={(text) =>
+              setField((prev) => {
+                const current = parseFieldWaterSource(prev.waterSource);
+                const sources = current.sources.includes("Other")
+                  ? current.sources
+                  : [...current.sources, "Other"];
+                return {
+                  ...prev,
+                  waterSource: formatFieldWaterSource(sources, text),
+                };
+              })
+            }
+          />
+        ) : null}
 
         <PhotoSlot
           label="Farm photographs"
@@ -656,12 +706,43 @@ export default function FieldFormScreen({ route, navigation }) {
         />
 
         <Text style={styles.section}>Crop on this farm</Text>
-        <FormPicker
+        <FormMultiSelectDropdown
           label="Crop"
-          value={field.cropName}
+          placeholder="Select crops"
+          values={parseFieldCropName(field.cropName).crops}
           options={CROP_PICKER}
-          onValueChange={(v) => setField((p) => ({ ...p, cropName: v }))}
+          onChange={(crops) =>
+            setField((prev) => {
+              const current = parseFieldCropName(prev.cropName);
+              return {
+                ...prev,
+                cropName: formatFieldCropName(
+                  crops,
+                  crops.includes("Other") ? current.other : "",
+                ),
+              };
+            })
+          }
         />
+        {parseFieldCropName(field.cropName).crops.includes("Other") ? (
+          <FormInput
+            label="Other crop *"
+            placeholder="Write what the other crop is"
+            value={parseFieldCropName(field.cropName).other}
+            onChangeText={(text) =>
+              setField((prev) => {
+                const current = parseFieldCropName(prev.cropName);
+                const crops = current.crops.includes("Other")
+                  ? current.crops
+                  : [...current.crops, "Other"];
+                return {
+                  ...prev,
+                  cropName: formatFieldCropName(crops, text),
+                };
+              })
+            }
+          />
+        ) : null}
         <FormPicker
           label="Season"
           value={field.season}

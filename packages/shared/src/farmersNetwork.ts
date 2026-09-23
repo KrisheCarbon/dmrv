@@ -70,6 +70,55 @@ export const FIELD_WATER_SOURCES = [
   "Other",
 ] as const;
 
+export type ParsedFieldWaterSource = {
+  sources: string[];
+  other: string;
+};
+
+/** Read a stored water-source string, including older single values. */
+export function parseFieldWaterSource(
+  value: string | null | undefined,
+): ParsedFieldWaterSource {
+  const raw = (value || "").trim();
+  if (!raw) return { sources: [], other: "" };
+
+  const known = new Set<string>(FIELD_WATER_SOURCES);
+  let other = "";
+  let listPart = raw;
+  const otherIndex = raw.search(/(?:^|,\s*)Other:\s*/);
+  if (otherIndex >= 0) {
+    const match = raw.slice(otherIndex).match(/^(?:,\s*)?Other:\s*([\s\S]*)$/);
+    if (match) {
+      other = match[1].trim();
+      listPart = raw.slice(0, otherIndex).replace(/,\s*$/, "");
+    }
+  }
+
+  const sources: string[] = [];
+  for (const part of listPart
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)) {
+    if (part === "Other") {
+      if (!sources.includes("Other")) sources.push("Other");
+    } else if (known.has(part)) {
+      sources.push(part);
+    }
+  }
+  if (other && !sources.includes("Other")) sources.push("Other");
+  return { sources, other };
+}
+
+/** Store selected sources, with the typed Other label after "Other:". */
+export function formatFieldWaterSource(sources: string[], other: string): string {
+  const ordered = FIELD_WATER_SOURCES.filter(
+    (source) => sources.includes(source) && source !== "Other",
+  );
+  if (!sources.includes("Other")) return ordered.join(", ");
+  const text = other.trim();
+  return [...ordered, text ? `Other: ${text}` : "Other"].join(", ");
+}
+
 export const SOIL_TEST_STATUS_VALUES = [
   "collected",
   "submitted",

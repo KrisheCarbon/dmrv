@@ -51,6 +51,61 @@ export const CROP_OPTIONS = ["Cotton", "Chilli", "Corn Cobs", "Other"] as const;
 
 export type CropName = (typeof CROP_OPTIONS)[number];
 
+export type ParsedFieldCrop = {
+  crops: string[];
+  other: string;
+};
+
+/** Read a stored crop string, including a single older value such as "Cotton". */
+export function parseFieldCropName(
+  value: string | null | undefined,
+): ParsedFieldCrop {
+  const raw = (value || "").trim();
+  if (!raw) return { crops: [], other: "" };
+
+  const known = new Set<string>(CROP_OPTIONS);
+  let other = "";
+  let listPart = raw;
+  const otherIndex = raw.search(/(?:^|,\s*)Other:\s*/);
+  if (otherIndex >= 0) {
+    const match = raw.slice(otherIndex).match(/^(?:,\s*)?Other:\s*([\s\S]*)$/);
+    if (match) {
+      other = match[1].trim();
+      listPart = raw.slice(0, otherIndex).replace(/,\s*$/, "");
+    }
+  }
+
+  const crops: string[] = [];
+  const unknown: string[] = [];
+  for (const part of listPart
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)) {
+    if (part === "Other") {
+      if (!crops.includes("Other")) crops.push("Other");
+    } else if (known.has(part)) {
+      crops.push(part);
+    } else {
+      unknown.push(part);
+    }
+  }
+  if (unknown.length) {
+    if (!crops.includes("Other")) crops.push("Other");
+    other = [other, ...unknown].filter(Boolean).join(", ");
+  }
+  return { crops, other };
+}
+
+/** Store selected crops, with the typed Other name after "Other:". */
+export function formatFieldCropName(crops: string[], other: string): string {
+  const ordered = CROP_OPTIONS.filter(
+    (crop) => crops.includes(crop) && crop !== "Other",
+  );
+  if (!crops.includes("Other")) return ordered.join(", ");
+  const text = other.trim();
+  return [...ordered, text ? `Other: ${text}` : "Other"].join(", ");
+}
+
 /** Guesstimated biomass yield in tonnes/acre for each known crop. */
 export const CROP_BIOMASS_RATES: Record<string, number> = {
   Cotton: 1.5,
@@ -475,6 +530,8 @@ export {
   normalizeFieldSeason,
   fieldSeasonLabel,
   FIELD_WATER_SOURCES,
+  parseFieldWaterSource,
+  formatFieldWaterSource,
   SOIL_TEST_STATUS_VALUES,
   soilTestStatusLabel,
   soilSampleToneFromStatuses,

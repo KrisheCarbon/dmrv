@@ -130,20 +130,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
-function apartMeters(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number,
-) {
-  const dLat = (lat1 - lat2) * 111320;
-  const dLng =
-    (lng1 - lng2) *
-    111320 *
-    Math.max(Math.cos((lat1 * Math.PI) / 180), 0.2);
-  return Math.hypot(dLat, dLng);
-}
-
 /** True when a saved point is a real place, not 0,0 or the old India fallback. */
 export function isUsableMapCoordinate(latitude: unknown, longitude: unknown) {
   const lat = Number(latitude);
@@ -160,7 +146,10 @@ export function isUsableMapCoordinate(latitude: unknown, longitude: unknown) {
   return true;
 }
 
-/** Ask for location permission and return the phone's current GPS fix. */
+/**
+ * Ask for location permission and wait for a fresh GPS fix.
+ * A stale cached position is ignored so the map does not open in another city.
+ */
 export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -169,28 +158,65 @@ export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
     const servicesEnabled = await Location.hasServicesEnabledAsync();
     if (!servicesEnabled) return null;
 
-    const last = await Location.getLastKnownPositionAsync();
-    const lastFresh =
-      last &&
-      Date.now() - last.timestamp < 2 * 60 * 1000 &&
-      (last.coords.accuracy == null || last.coords.accuracy <= 150)
-        ? last
-        : null;
+    try {
+      await Location.enableNetworkProviderAsync();
+    } catch {
+      // iOS and some Android builds do not support this prompt.
+    }
+
+    const fresh = await new Promise<DeviceCoordinate | null>((resolve) => {
+      let settled = false;
+      let subscription: { remove: () => void } | null = null;
+      let best: DeviceCoordinate | null = null;
+
+      const finish = (value: DeviceCoordinate | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        subscription?.remove();
+        resolve(value);
+      };
+
+      const timer = setTimeout(() => finish(best), 20000);
+
+      Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 1000,
+          distanceInterval: 0,
+        },
+        (position) => {
+          // Ignore a cached fix from earlier. That is what opened the map
+          // in a different place.
+          if (Date.now() - position.timestamp > 20000) return;
+          const next = toDeviceCoordinate(position);
+          const nextAccuracy = next.accuracy ?? 99999;
+          const bestAccuracy = best?.accuracy ?? 99999;
+          if (!best || nextAccuracy < bestAccuracy) best = next;
+          if (nextAccuracy <= 80) finish(next);
+        },
+      )
+        .then((nextSubscription) => {
+          if (settled) {
+            nextSubscription.remove();
+            return;
+          }
+          subscription = nextSubscription;
+        })
+        .catch(() => finish(best));
+    });
+
+    if (fresh) return fresh;
 
     const current = await withTimeout(
       Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
         mayShowUserSettingsDialog: true,
       }),
-      lastFresh ? 5000 : 12000,
+      8000,
     );
-
-    if (current) return toDeviceCoordinate(current);
-    if (lastFresh) return toDeviceCoordinate(lastFresh);
-    if (last && Date.now() - last.timestamp < 10 * 60 * 1000) {
-      return toDeviceCoordinate(last);
-    }
-    return null;
+    if (!current || Date.now() - current.timestamp > 30000) return null;
+    return toDeviceCoordinate(current);
   } catch {
     return null;
   }
@@ -216,34 +242,28 @@ export async function watchDeviceCoordinate(
 }
 
 export async function getInitialMapCoordinate(
-  existingLat?: number | null,
-  existingLng?: number | null,
+  _existingLat?: number | null,
+  _existingLng?: number | null,
 ): Promise<MapOpenCoordinate> {
   const user = await readDeviceCoordinate();
-  let hasExisting = isUsableMapCoordinate(existingLat, existingLng);
-  // A saved point in another region is the old default map, not this farm.
-  // Start the pin on the person instead of leaving it off-screen.
-  if (
-    hasExisting &&
-    user &&
-    apartMeters(
-      user.latitude,
-      user.longitude,
-      Number(existingLat),
-      Number(existingLng),
-    ) > 20000
-  ) {
-    hasExisting = false;
+
+  if (!user) {
+    return {
+      latitude: FALLBACK_LATITUDE,
+      longitude: FALLBACK_LONGITUDE,
+      accuracy: null,
+      userLatitude: null,
+      userLongitude: null,
+      hasUserFix: false,
+    };
   }
 
   return {
-    latitude: hasExisting ? Number(existingLat) : user?.latitude ?? FALLBACK_LATITUDE,
-    longitude: hasExisting
-      ? Number(existingLng)
-      : user?.longitude ?? FALLBACK_LONGITUDE,
-    accuracy: user?.accuracy ?? null,
-    userLatitude: user?.latitude ?? null,
-    userLongitude: user?.longitude ?? null,
-    hasUserFix: Boolean(user),
+    latitude: user.latitude,
+    longitude: user.longitude,
+    accuracy: user.accuracy,
+    userLatitude: user.latitude,
+    userLongitude: user.longitude,
+    hasUserFix: true,
   };
 }

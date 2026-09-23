@@ -263,7 +263,7 @@ export function buildMapboxPickerHtml({
         container: 'map',
         style: 'mapbox://styles/mapbox/streets-v12',
         center: [${centerLng}, ${centerLat}],
-        zoom: 16
+        zoom: 17
       });
 
       var marker = new mapboxgl.Marker({ color: '#8CC63E', draggable: true })
@@ -399,7 +399,7 @@ export function buildMapboxPolygonHtml({
         container: 'map',
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
         center: [${centerLng}, ${centerLat}],
-        zoom: 16,
+        zoom: 17,
         doubleClickZoom: false
       });
 
@@ -514,16 +514,7 @@ export function buildMapboxPolygonHtml({
           }
         });
 
-        var showSavedShape = points.length >= 2;
-        if (showSavedShape && isFinite(userLat) && isFinite(userLng)) {
-          var dLat = (points[0][1] - userLat) * 111320;
-          var dLng = (points[0][0] - userLng) *
-            111320 * Math.max(Math.cos(userLat * Math.PI / 180), 0.2);
-          if (Math.sqrt(dLat * dLat + dLng * dLng) > 20000) {
-            showSavedShape = false;
-          }
-        }
-        if (showSavedShape) {
+        if (!(isFinite(userLat) && isFinite(userLng)) && points.length >= 2) {
           var bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
           points.forEach(function (pair) { bounds.extend(pair); });
           map.fitBounds(bounds, { padding: 48, maxZoom: 18 });
