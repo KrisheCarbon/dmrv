@@ -321,7 +321,7 @@ export default function BiocharProducerForm({
     setError(null);
 
     if (!registry) {
-      setError("Select a registry: CSI, Rainbow, or Both.");
+      setError("Select a registry: CSI or Rainbow.");
       setSaving(false);
       saveInFlight.current = false;
       return;
@@ -458,8 +458,9 @@ export default function BiocharProducerForm({
           <div className="space-y-1">
             <label className={labelClass}>Registry *</label>
             <select
-              className={inputClass}
+              className={`${inputClass} ${data?.registry ? "bg-neutral-50 text-neutral-700" : ""}`}
               value={registry}
+              disabled={Boolean(data?.registry)}
               onChange={(e) =>
                 setRegistry(e.target.value as ProducerRegistry | "")
               }
@@ -467,8 +468,15 @@ export default function BiocharProducerForm({
               <option value="">Select registry</option>
               <option value="csi">CSI</option>
               <option value="rainbow">Rainbow</option>
-              <option value="both">Both</option>
+              {registry === "both" ? (
+                <option value="both">CSI + Rainbow (legacy)</option>
+              ) : null}
             </select>
+            <p className="text-xs text-neutral-500">
+              {data?.registry
+                ? "Locked. CSI and Rainbow use different production tables, so this cannot be changed after registration."
+                : "Choose CSI or Rainbow now. This cannot be changed later because the two registries store different production data."}
+            </p>
           </div>
           <input
             placeholder="Registry producer ID (optional)"

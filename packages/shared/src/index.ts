@@ -382,12 +382,14 @@ export {
 } from "./pyrolysis";
 export {
   PRODUCER_REGISTRIES,
+  ASSIGNABLE_PRODUCER_REGISTRIES,
   PYROLYSIS_PROTOCOLS,
   isProducerRegistry,
+  isAssignableProducerRegistry,
   pyrolysisProtocolForRegistry,
   producerRegistryLabel,
 } from "./producerRegistry";
-export type { ProducerRegistry, PyrolysisProtocol } from "./producerRegistry";
+export type { ProducerRegistry, AssignableProducerRegistry, PyrolysisProtocol } from "./producerRegistry";
 export {
   RAINBOW_MOISTURE_READING_COUNT,
   RAINBOW_KONTIKKI_SECTIONS,

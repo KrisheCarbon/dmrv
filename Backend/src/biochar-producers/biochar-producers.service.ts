@@ -16,6 +16,7 @@ export type ProducerRegistry = 'csi' | 'rainbow' | 'both';
 export type BiocharProducerStatus = 'active' | 'inactive';
 
 const PRODUCER_REGISTRIES: ProducerRegistry[] = ['csi', 'rainbow', 'both'];
+const ASSIGNABLE_REGISTRIES: ProducerRegistry[] = ['csi', 'rainbow'];
 
 function normalizeRegistry(
   value: string | null | undefined,
@@ -24,7 +25,19 @@ function normalizeRegistry(
   if (PRODUCER_REGISTRIES.includes(value as ProducerRegistry)) {
     return value as ProducerRegistry;
   }
-  throw new BadRequestException('Registry must be CSI, Rainbow, or both.');
+  throw new BadRequestException('Registry must be CSI or Rainbow.');
+}
+
+function requireAssignableRegistry(
+  value: string | null | undefined,
+): ProducerRegistry {
+  const registry = normalizeRegistry(value);
+  if (!registry || !ASSIGNABLE_REGISTRIES.includes(registry)) {
+    throw new BadRequestException(
+      'Select CSI or Rainbow. This cannot be changed later because the two registries use different production data.',
+    );
+  }
+  return registry;
 }
 
 export interface AffiliationPayload {
@@ -268,7 +281,7 @@ export class BiocharProducersService {
       .insert({
         producer_code: this.generateProducerCode(),
         registry_producer_id: payload.registry_producer_id?.trim() || null,
-        registry: normalizeRegistry(payload.registry),
+        registry: requireAssignableRegistry(payload.registry),
         name: payload.name.trim(),
         producer_class: payload.producer_class ?? 'artisan_pro',
         status: payload.status ?? 'active',
@@ -318,7 +331,7 @@ export class BiocharProducersService {
     payload: UpdateProducerPayload,
   ) {
     this.assertCanManage(user);
-    await this.ensureProducerExists(id);
+    const existing = await this.ensureProducerExists(id);
 
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
@@ -329,7 +342,16 @@ export class BiocharProducersService {
         payload.registry_producer_id?.trim() || null;
     }
     if (payload.registry !== undefined) {
-      updates.registry = normalizeRegistry(payload.registry);
+      const nextRegistry = normalizeRegistry(payload.registry);
+      if (existing.registry) {
+        if (nextRegistry && nextRegistry !== existing.registry) {
+          throw new BadRequestException(
+            'Producer registry cannot be changed after it is set. CSI and Rainbow use different production tables.',
+          );
+        }
+      } else {
+        updates.registry = requireAssignableRegistry(payload.registry);
+      }
     }
     if (payload.name !== undefined) updates.name = payload.name.trim();
     if (payload.producer_class !== undefined) {
@@ -527,14 +549,21 @@ export class BiocharProducersService {
     }
   }
 
-  private async ensureProducerExists(id: string): Promise<void> {
+  private async ensureProducerExists(id: string): Promise<{
+    id: string;
+    registry: ProducerRegistry | null;
+  }> {
     const { data, error } = await this.supabase
       .from('biochar_producers')
-      .select('id')
+      .select('id, registry')
       .eq('id', id)
       .maybeSingle();
 
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Producer not found');
+    return {
+      id: data.id as string,
+      registry: (data.registry as ProducerRegistry | null) ?? null,
+    };
   }
 }

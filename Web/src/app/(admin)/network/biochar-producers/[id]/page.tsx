@@ -204,7 +204,12 @@ export default function BiocharProducerViewPage() {
           <DetailRow label="Name">{data.name}</DetailRow>
 
           <DetailRow label="Registry">
-            {formatProducerRegistry(data.registry)}
+            <span>{formatProducerRegistry(data.registry)}</span>
+            {data.registry ? (
+              <span className="mt-1 block text-xs text-neutral-500">
+                Locked at registration. CSI and Rainbow production data cannot be mixed.
+              </span>
+            ) : null}
           </DetailRow>
 
           <DetailRow label="Registry producer ID">

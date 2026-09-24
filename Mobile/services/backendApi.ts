@@ -21,16 +21,39 @@ function getMetroHost(): string | null {
   return host;
 }
 
+const PRODUCTION_BACKEND_URL = "https://krishecarbon-backend.onrender.com";
+
+function isLocalBackendUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return (
+      host === "127.0.0.1" ||
+      host === "localhost" ||
+      host === "10.0.2.2" ||
+      host.startsWith("192.168.") ||
+      host.startsWith("10.") ||
+      host.endsWith(".local")
+    );
+  } catch {
+    return true;
+  }
+}
+
 function getCandidateBackendUrls(): string[] {
   const raw =
     extra?.backendUrl ||
     process.env.EXPO_PUBLIC_BACKEND_URL ||
-    "http://127.0.0.1:3001,http://192.168.1.17:3001";
+    "";
 
   const fromConfig = raw
     .split(",")
     .map((url) => url.trim().replace("localhost", "127.0.0.1"))
     .filter(Boolean);
+
+  if (!__DEV__) {
+    const remote = fromConfig.filter((url) => !isLocalBackendUrl(url));
+    return [...new Set(remote.length > 0 ? remote : [PRODUCTION_BACKEND_URL])];
+  }
 
   const metroHost = getMetroHost();
   const dynamic = metroHost ? [`http://${metroHost}:3001`] : [];
@@ -46,7 +69,11 @@ function getCandidateBackendUrls(): string[] {
 }
 
 export function getBackendUrl(): string {
-  return cachedBackendUrl || getCandidateBackendUrls()[0] || "http://127.0.0.1:3001";
+  return (
+    cachedBackendUrl ||
+    getCandidateBackendUrls()[0] ||
+    (__DEV__ ? "http://127.0.0.1:3001" : PRODUCTION_BACKEND_URL)
+  );
 }
 
 async function probeBackendUrl(url: string): Promise<boolean> {

@@ -172,7 +172,7 @@ export function validateProducerCore(input: {
   if (!input.contactName.trim()) return "Contact name is required.";
   if (!input.email.trim()) return "Email is required.";
   if (!input.mobileNumber.trim()) return "Mobile number is required.";
-  if (!input.registry) return "Select a registry: CSI, Rainbow, or Both.";
+  if (!input.registry) return "Select a registry: CSI or Rainbow.";
   if (!isLocationComplete(input.producerLocation)) {
     return "Producer location is required.";
   }

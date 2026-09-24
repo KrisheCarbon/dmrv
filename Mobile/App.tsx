@@ -15,6 +15,7 @@ import { startSyncListener,
   processSyncQueue
 } from "./services/syncService";
 import { startLocationCache, stopLocationCache } from "./services/locationCache";
+import { applyExpoUpdateIfAvailable } from "./utils/applyExpoUpdate";
 import LoginScreen from "./screens/LoginScreen";
 import HomeScreen from "./screens/HomeScreen";
 import FarmersNetworkScreen from "./screens/FarmersNetworkScreen";
@@ -157,6 +158,8 @@ export default function App() {
   });
 
   useEffect(() => {
+    void applyExpoUpdateIfAvailable();
+
     supabase.auth.getSession().then(async ({ data }) => {
       const nextSession = data.session;
       if (nextSession && !(await assertActiveAccount(nextSession.user.id))) {
@@ -214,6 +217,7 @@ export default function App() {
     function handleAppStateChange(nextState: AppStateStatus) {
       if (nextState === "active") {
         void supabase.auth.startAutoRefresh();
+        void applyExpoUpdateIfAvailable();
       } else {
         void supabase.auth.stopAutoRefresh();
       }

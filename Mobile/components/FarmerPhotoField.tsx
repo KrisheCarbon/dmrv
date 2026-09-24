@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Alert } from "react-native";
+import type { FieldPhotoMetadata } from "@krishecarbon/shared";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import PhotoSlot from "./PhotoSlot";
 
@@ -13,12 +14,14 @@ export default function FarmerPhotoField({
   onChange: (uri: string | null) => void;
 }) {
   const [capturing, setCapturing] = useState(false);
+  const [metadata, setMetadata] = useState<FieldPhotoMetadata | null>(null);
 
   async function takePhoto() {
     try {
       setCapturing(true);
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
+      setMetadata(captured.metadata);
       onChange(captured.uri);
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
@@ -29,14 +32,18 @@ export default function FarmerPhotoField({
 
   return (
     <PhotoSlot
-      label={required ? "Farmer photo" : "Farmer photo"}
+      label="Farmer photo"
       required={required}
       uris={uri ? [uri] : []}
       capturing={capturing}
       onAdd={takePhoto}
-      onRemove={() => onChange(null)}
+      onRemove={() => {
+        setMetadata(null);
+        onChange(null);
+      }}
       addLabel={uri ? "Retake photo" : "Take photo"}
-      hint="Open the camera and photograph the farmer. Use the red × on the photo to remove it."
+      metadata={metadata ? [metadata] : undefined}
+      hint="GPS, time, and the KriSHE mark are stamped on the photo."
     />
   );
 }

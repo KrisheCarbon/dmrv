@@ -14,8 +14,8 @@ let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 // at a time, in the order they were called.
 let writeQueue: Promise<unknown> = Promise.resolve();
 
-const MAX_LOCK_RETRIES = 4;
-const LOCK_RETRY_DELAY_MS = 150;
+const MAX_LOCK_RETRIES = 8;
+const LOCK_RETRY_DELAY_MS = 200;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,7 +23,11 @@ function sleep(ms: number): Promise<void> {
 
 function isDatabaseLockedError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return /database is locked|SQLITE_BUSY/i.test(message);
+  const cause =
+    err instanceof Error && "cause" in err && err.cause != null
+      ? String(err.cause)
+      : "";
+  return /database is locked|SQLITE_BUSY|finalizeAsync/i.test(`${message}\n${cause}`);
 }
 
 /**
@@ -74,42 +78,53 @@ function serializeDbMethods(db: SQLite.SQLiteDatabase): SQLite.SQLiteDatabase {
   type AnyDb = Record<string, (...args: unknown[]) => Promise<unknown>>;
   const anyDb = db as unknown as AnyDb;
 
-  // Capture the *unwrapped* originals up front so nested calls made from
-  // inside a transaction's callback (see below) always hit the real driver
-  // directly, never the queued wrapper — that would deadlock, since the
-  // transaction itself is already occupying the one queue slot it would
-  // be waiting behind.
+  // Unwrapped driver methods. Every public call goes through `runSerialized`
+  // so two screens cannot use the connection at the same time.
   const original: AnyDb = {};
   for (const method of [...NON_TRANSACTION_METHODS, "withTransactionAsync"]) {
     const fn = anyDb[method];
     if (typeof fn === "function") original[method] = fn.bind(db);
   }
 
-  // True only for the exact duration of the single active transaction
-  // this queue is currently running. Because `runSerialized` guarantees at
-  // most one task executes at a time, this can never be true while some
-  // unrelated concurrent call (e.g. a delete fired from another screen)
-  // is the one actually running — those still queue normally.
-  let insideActiveTransaction = false;
+  // One native call at a time. A global "in a transaction" bypass let Save
+  // farm run a statement while sync still held the connection, and SQLite
+  // then rejected finalizeAsync with "database is locked".
+  let txnDepth = 0;
+  let txnIdle: Promise<void> = Promise.resolve();
 
   for (const method of NON_TRANSACTION_METHODS) {
     if (!original[method]) continue;
-    anyDb[method] = (...args: unknown[]) => {
-      if (insideActiveTransaction) return original[method](...args);
-      return runSerialized(() => original[method](...args));
-    };
+    anyDb[method] = (...args: unknown[]) =>
+      runSerialized(() => original[method](...args));
   }
 
   if (original.withTransactionAsync) {
-    anyDb.withTransactionAsync = (callback: () => Promise<void>) =>
-      runSerialized<unknown>(async () => {
-        insideActiveTransaction = true;
+    anyDb.withTransactionAsync = (callback: () => Promise<void>) => {
+      if (txnDepth > 0) return callback();
+
+      const previous = txnIdle;
+      let releaseIdle: () => void = () => undefined;
+      txnIdle = new Promise<void>((resolve) => {
+        releaseIdle = resolve;
+      });
+
+      return previous.then(async () => {
+        txnDepth += 1;
         try {
-          return await original.withTransactionAsync(callback);
+          await runSerialized(() => original.execAsync("BEGIN IMMEDIATE"));
+          try {
+            await callback();
+            await runSerialized(() => original.execAsync("COMMIT"));
+          } catch (err) {
+            await runSerialized(() => original.execAsync("ROLLBACK")).catch(() => undefined);
+            throw err;
+          }
         } finally {
-          insideActiveTransaction = false;
+          txnDepth -= 1;
+          releaseIdle();
         }
       });
+    };
   }
 
   return db;

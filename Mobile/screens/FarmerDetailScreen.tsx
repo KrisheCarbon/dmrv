@@ -198,6 +198,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
             <Image
               source={{ uri: farmer.farmer_photo_uri || farmer.farmer_photo_url }}
               style={styles.farmerPhoto}
+              resizeMode="contain"
             />
           ) : null}
           <DetailRow label="Mobile" value={farmer.mobile_number || "Not added"} />

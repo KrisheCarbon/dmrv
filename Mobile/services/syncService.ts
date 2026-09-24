@@ -206,6 +206,76 @@ function syncErrorMessage(err: unknown) {
   return String(err);
 }
 
+function isWaitingOnFarmerSync(message: string) {
+  return (
+    message.includes("Sync the farmer first") ||
+    message.includes("Sync the selected farms first")
+  );
+}
+
+/** Farmers flipped to pending by a farm save, with no open queue row, never upload. */
+async function requeueOrphanedFarmerAndFieldSyncs() {
+  const db = await getDb();
+  const now = Date.now();
+
+  const farmers = await db.getAllAsync<{ id: string; server_id: string | null }>(
+    `SELECT id, server_id FROM farmers
+     WHERE sync_status IN ('pending', 'error')
+       AND id NOT IN (
+         SELECT entity_local_id FROM sync_queue
+         WHERE entity_type = 'farmer' AND status IN ('pending', 'processing')
+       )`,
+  );
+  const fields = await db.getAllAsync<{ id: string; server_id: string | null }>(
+    `SELECT id, server_id FROM farm_fields
+     WHERE sync_status IN ('pending', 'error')
+       AND id NOT IN (
+         SELECT entity_local_id FROM sync_queue
+         WHERE entity_type = 'field' AND status IN ('pending', 'processing')
+       )`,
+  );
+
+  if (farmers.length === 0 && fields.length === 0) return;
+
+  await db.withTransactionAsync(async () => {
+    for (const farmer of farmers) {
+      const row = syncQueueItemToRow({
+        entityType: "farmer",
+        entityLocalId: farmer.id,
+        operation: farmer.server_id ? "update" : "create",
+        status: "pending",
+        retries: 0,
+        errorMessage: null,
+        createdAt: now,
+      });
+      const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+      await db.runAsync(sql, args);
+      await db.runAsync(
+        "UPDATE farmers SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", farmer.id],
+      );
+    }
+
+    for (const field of fields) {
+      const row = syncQueueItemToRow({
+        entityType: "field",
+        entityLocalId: field.id,
+        operation: field.server_id ? "update" : "create",
+        status: "pending",
+        retries: 0,
+        errorMessage: null,
+        createdAt: now,
+      });
+      const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+      await db.runAsync(sql, args);
+      await db.runAsync(
+        "UPDATE farm_fields SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", field.id],
+      );
+    }
+  });
+}
+
 async function runSyncQueue() {
   if (syncInProgress) return { synced: 0, failed: 0, skipped: true };
 
@@ -213,6 +283,7 @@ async function runSyncQueue() {
 
   try {
     await recoverStuckSyncItems();
+    await requeueOrphanedFarmerAndFieldSyncs();
 
     const net = await NetInfo.fetch();
     if (!isOnline(net)) {
@@ -234,6 +305,17 @@ async function runSyncQueue() {
     const pendingItems = await db.getAllAsync<any>(
       "SELECT * FROM sync_queue WHERE status = ? ORDER BY created_at ASC",
       ["pending"],
+    );
+    const syncOrder: Record<string, number> = {
+      farmer: 0,
+      field: 1,
+      consent: 2,
+      soil_test: 3,
+    };
+    pendingItems.sort(
+      (a, b) =>
+        (syncOrder[a.entity_type] ?? 9) - (syncOrder[b.entity_type] ?? 9) ||
+        a.created_at - b.created_at,
     );
 
     if (pendingItems.length > 0) {
@@ -461,7 +543,8 @@ async function processPendingSyncItems(pendingItems: any[], userId: string) {
           message,
         );
         failed += 1;
-        const retries = item.retries + 1;
+        const waitingOnFarmer = isWaitingOnFarmerSync(message);
+        const retries = waitingOnFarmer ? item.retries : item.retries + 1;
         const table =
           item.entity_type === "field"
             ? "farm_fields"
@@ -474,14 +557,14 @@ async function processPendingSyncItems(pendingItems: any[], userId: string) {
             [
               retries,
               message,
-              retries >= MAX_RETRIES ? "failed" : "pending",
+              !waitingOnFarmer && retries >= MAX_RETRIES ? "failed" : "pending",
               item.id,
             ],
           );
           await db.runAsync(
             `UPDATE ${table} SET sync_status = ?, sync_error = ? WHERE id = ?`,
             [
-              retries >= MAX_RETRIES ? "error" : "pending",
+              !waitingOnFarmer && retries >= MAX_RETRIES ? "error" : "pending",
               message,
               item.entity_local_id,
             ],

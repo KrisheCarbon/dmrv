@@ -405,6 +405,42 @@ export async function refreshFarmerLandAndCrops(farmerId: string): Promise<void>
       farmerId,
     ],
   );
+  await enqueueFarmerSync(farmerId);
+}
+
+/** Farm edits change the farmer row. Queue that farmer again or the badge stays pending. */
+async function enqueueFarmerSync(farmerId: string): Promise<void> {
+  const db = await getDb();
+  const farmer = await db.getFirstAsync<{ server_id: string | null }>(
+    "SELECT server_id FROM farmers WHERE id = ?",
+    [farmerId],
+  );
+  if (!farmer) return;
+
+  const operation = farmer.server_id ? "update" : "create";
+  const existing = await db.getFirstAsync<{ id: string }>(
+    "SELECT id FROM sync_queue WHERE entity_local_id = ? AND entity_type = ? AND status = ?",
+    [farmerId, "farmer", "pending"],
+  );
+  if (existing) {
+    await db.runAsync("UPDATE sync_queue SET operation = ? WHERE id = ?", [
+      operation,
+      existing.id,
+    ]);
+    return;
+  }
+
+  const row = syncQueueItemToRow({
+    entityType: "farmer",
+    entityLocalId: farmerId,
+    operation,
+    status: "pending",
+    retries: 0,
+    errorMessage: null,
+    createdAt: Date.now(),
+  });
+  const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...row });
+  await db.runAsync(sql, args);
 }
 
 // ---------------------------------------------------------------------------
