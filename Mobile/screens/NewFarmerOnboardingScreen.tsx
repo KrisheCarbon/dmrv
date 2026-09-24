@@ -250,6 +250,18 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       Alert.alert("Required", "Take a farmer photo.");
       return;
     }
+    if (
+      form.latitude == null ||
+      form.longitude == null ||
+      !Number.isFinite(Number(form.latitude)) ||
+      !Number.isFinite(Number(form.longitude))
+    ) {
+      Alert.alert(
+        "Required",
+        "Capture the meeting location with GPS or pick it on the map.",
+      );
+      return;
+    }
     if (form.prior_biochar_exp) {
       const acres = Number(form.prior_biochar_acreage);
       if (!form.prior_biochar_acreage.trim() || !Number.isFinite(acres) || acres <= 0) {
@@ -531,7 +543,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           />
         ) : null}
 
-        <Text style={styles.section}>Location</Text>
+        <Text style={styles.section}>Location *</Text>
         <View style={styles.locRow}>
           <Pressable style={styles.locBtn} onPress={captureGps}>
             <Text style={styles.locBtnText}>
@@ -559,7 +571,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           </Text>
         ) : (
           <Text style={styles.hint}>
-            GPS optional here. Capture it on farms if needed.
+            Location is required. Use current GPS or pick a point on the map.
           </Text>
         )}
 

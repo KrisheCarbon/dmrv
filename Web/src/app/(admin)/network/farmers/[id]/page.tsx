@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState, type ChangeEvent, type ReactNode } fr
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import Modal from "@/components/Modal";
+import FarmLocationMap, {
+  googleMapsUrl,
+} from "@/components/maps/FarmLocationMap";
 import SignedStorageLink from "@/components/SignedStorageLink";
 import { deleteFarm, getFarm } from "../../farms/actions";
 import { listFarmFields, updateFarmField } from "../../fields/actions";
@@ -31,6 +34,7 @@ import type { FarmDetail, FarmerCrop } from "@/types";
 import type {
   FarmerConsentRecord,
   FarmFieldRecord,
+  GeoPoint,
   SoilTestRecord,
 } from "@krishecarbon/shared";
 import {
@@ -41,6 +45,7 @@ import {
   fieldSeasonLabel,
 } from "@krishecarbon/shared";
 import { unwrapQuery } from "@/lib/queryResult";
+import { createSignedStorageUrl } from "@/lib/privateStorage";
 
 const TABS = [
   { key: "info", label: "Farmer info" },
@@ -77,11 +82,47 @@ function formatYesNo(value: boolean) {
 }
 
 function formatGps(lat?: number | null, lng?: number | null) {
+  const point = gpsPoint(lat, lng);
+  if (!point) return null;
+  return `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
+}
+
+function gpsPoint(lat?: number | null, lng?: number | null): GeoPoint | null {
   if (lat == null || lng == null) return null;
   const latitude = Number(lat);
   const longitude = Number(lng);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+  return { latitude, longitude };
+}
+
+function GpsLink({
+  latitude,
+  longitude,
+  onOpen,
+}: {
+  latitude: number;
+  longitude: number;
+  onOpen: () => void;
+}) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="font-medium text-brand-dark hover:underline"
+      >
+        {formatGps(latitude, longitude)}
+      </button>
+      <a
+        href={googleMapsUrl(latitude, longitude)}
+        target="_blank"
+        rel="noreferrer"
+        className="text-neutral-500 hover:text-neutral-800 hover:underline"
+      >
+        Open in Google Maps
+      </a>
+    </span>
+  );
 }
 
 function statusClass(status: string) {
@@ -93,6 +134,51 @@ function statusClass(status: string) {
     return "bg-amber-50 text-amber-800";
   }
   return "bg-neutral-100 text-neutral-600";
+}
+
+function PhotoThumb({ path, alt }: { path: string; alt: string }) {
+  const [href, setHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    createSignedStorageUrl(FARMER_NETWORK_PHOTOS_BUCKET, path).then((signed) => {
+      if (!cancelled) setHref(signed);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  if (!href) {
+    return <span className="inline-block h-20 w-20 rounded-lg bg-neutral-100" />;
+  }
+
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="block">
+      <img
+        src={href}
+        alt={alt}
+        className="h-20 w-20 rounded-lg object-cover ring-1 ring-neutral-200"
+      />
+    </a>
+  );
+}
+
+function PhotoPreviews({
+  paths,
+  label,
+}: {
+  paths?: string[] | null;
+  label: string;
+}) {
+  if (!paths?.length) return null;
+  return (
+    <span className="flex flex-wrap gap-2">
+      {paths.map((path, index) => (
+        <PhotoThumb key={path} path={path} alt={`${label} ${index + 1}`} />
+      ))}
+    </span>
+  );
 }
 
 function PhotoLinks({ paths }: { paths?: string[] | null }) {
@@ -139,6 +225,12 @@ export default function FarmerDetailPage() {
   const [receiveFile, setReceiveFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mapView, setMapView] = useState<{
+    title: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    points?: GeoPoint[];
+  } | null>(null);
 
   const loadFarmer = useCallback(async () => {
     if (!id) return;
@@ -395,9 +487,34 @@ export default function FarmerDetailPage() {
             <DetailRow label="Mandal / block">{data.mandal || "—"}</DetailRow>
             <DetailRow label="District">{data.district || "—"}</DetailRow>
             <DetailRow label="State">{data.state || "—"}</DetailRow>
-            <DetailRow label="Coordinates">
-              {formatGps(data.latitude, data.longitude) || "—"}
+            {gpsPoint(data.latitude, data.longitude) ? (
+            <DetailRow label="Meeting location">
+              {(() => {
+                const point = gpsPoint(data.latitude, data.longitude);
+                if (!point) return null;
+                return (
+                  <div className="space-y-3">
+                    <GpsLink
+                      latitude={point.latitude}
+                      longitude={point.longitude}
+                      onOpen={() =>
+                        setMapView({
+                          title: `${data.farmer_name} · meeting location`,
+                          latitude: point.latitude,
+                          longitude: point.longitude,
+                        })
+                      }
+                    />
+                    <FarmLocationMap
+                      latitude={point.latitude}
+                      longitude={point.longitude}
+                      className="h-52"
+                    />
+                  </div>
+                );
+              })()}
             </DetailRow>
+            ) : null}
             <DetailRow label="Cultivated land">{data.total_land_size} acres</DetailRow>
             <DetailRow label="Owned">{data.owned_land_size ?? "—"}</DetailRow>
             <DetailRow label="Leased">{data.leased_land_size ?? "—"}</DetailRow>
@@ -452,6 +569,29 @@ export default function FarmerDetailPage() {
               + Add farm
             </button>
           </div>
+          {gpsPoint(data.latitude, data.longitude) ? (
+            <div className="border-b border-neutral-100 px-6 py-4">
+              <p className="text-sm font-medium text-neutral-900">Meeting location</p>
+              <div className="mt-2 space-y-3">
+                <GpsLink
+                  latitude={Number(data.latitude)}
+                  longitude={Number(data.longitude)}
+                  onOpen={() =>
+                    setMapView({
+                      title: `${data.farmer_name} · meeting location`,
+                      latitude: data.latitude,
+                      longitude: data.longitude,
+                    })
+                  }
+                />
+                <FarmLocationMap
+                  latitude={data.latitude}
+                  longitude={data.longitude}
+                  className="h-52"
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-4 px-6 py-4">
             {fields.length === 0 ? (
               <p className="text-sm text-neutral-500">
@@ -480,6 +620,11 @@ export default function FarmerDetailPage() {
                         {field.status || "active"}
                       </span>
                     </div>
+                    {points.length >= 3 ? (
+                      <div className="mt-3">
+                        <FarmLocationMap points={points} className="h-56" />
+                      </div>
+                    ) : null}
                     <dl>
                       <DetailRow label="Area">
                         {field.calculated_area != null
@@ -501,15 +646,22 @@ export default function FarmerDetailPage() {
                         }
                       />
                       <OptionalRow
-                        label="GPS"
-                        value={formatGps(field.latitude, field.longitude)}
-                      />
-                      <OptionalRow
-                        label="Boundary"
+                        label="Farm boundary"
                         value={
-                          points.length
-                            ? `Mapped (${points.length} points)`
-                            : null
+                          points.length >= 3 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMapView({
+                                  title: `${field.field_code} · farm boundary`,
+                                  points,
+                                })
+                              }
+                              className="font-medium text-brand-dark hover:underline"
+                            >
+                              Mapped polygon ({points.length} points) · view larger
+                            </button>
+                          ) : null
                         }
                       />
                       <OptionalRow label="Land reference" value={field.land_reference} />
@@ -524,11 +676,13 @@ export default function FarmerDetailPage() {
                       <OptionalRow label="Notes" value={field.notes} />
                       <OptionalRow
                         label="Farm photos"
-                        value={<PhotoLinks paths={field.photos} />}
+                        value={<PhotoPreviews paths={field.photos} label="Farm photo" />}
                       />
                       <OptionalRow
                         label="Crop photos"
-                        value={<PhotoLinks paths={field.crop_photos} />}
+                        value={
+                          <PhotoPreviews paths={field.crop_photos} label="Crop photo" />
+                        }
                       />
                     </dl>
                     {field.status === "active" ? (
@@ -984,6 +1138,36 @@ export default function FarmerDetailPage() {
             await loadFarmer();
           }}
         />
+      </Modal>
+
+      <Modal
+        open={Boolean(mapView)}
+        onClose={() => setMapView(null)}
+        title={mapView?.title || "Location"}
+        footer={
+          gpsPoint(mapView?.latitude, mapView?.longitude) ? (
+            <a
+              href={googleMapsUrl(
+                Number(mapView?.latitude),
+                Number(mapView?.longitude),
+              )}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white"
+            >
+              Open in Google Maps
+            </a>
+          ) : null
+        }
+      >
+        {mapView ? (
+          <FarmLocationMap
+            latitude={mapView.latitude}
+            longitude={mapView.longitude}
+            points={mapView.points}
+            className="h-[28rem]"
+          />
+        ) : null}
       </Modal>
 
       <Modal
