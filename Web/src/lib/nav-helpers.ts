@@ -33,7 +33,10 @@ export function getNavForRole(role: string): NavEntry[] {
       if (!canAccessFarmersNetworkPortal(role)) return false;
       return true;
     }
-    if (entry.type === "item" && entry.href === "/carbon") {
+    if (
+      entry.type === "item" &&
+      (entry.href === "/carbon" || entry.href === "/verification-reports")
+    ) {
       return canAccessCarbon(role);
     }
     return true;
@@ -63,7 +66,7 @@ export function getDashboardSectionsForRole(role: string) {
     if (section.key === "network") {
       return canAccessNetwork(role) || canAccessFarmersNetworkPortal(role);
     }
-    if (section.key === "carbon") {
+    if (section.key === "carbon" || section.key === "verification-reports") {
       return canAccessCarbon(role);
     }
     return true;

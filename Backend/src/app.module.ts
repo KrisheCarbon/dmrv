@@ -20,6 +20,7 @@ import { KilnBatchesModule } from './kiln-batches/kiln-batches.module';
 import { TrainingsModule } from './trainings/trainings.module';
 import { FarmersNetworkModule } from './farmers-network/farmers-network.module';
 import { ClustersModule } from './clusters/clusters.module';
+import { VerificationReportsModule } from './verification-reports/verification-reports.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ClustersModule } from './clusters/clusters.module';
     TrainingsModule,
     FarmersNetworkModule,
     ClustersModule,
+    VerificationReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

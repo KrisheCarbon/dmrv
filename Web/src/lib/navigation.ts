@@ -30,6 +30,12 @@ export const MAIN_NAV: NavEntry[] = [
     icon: "/icons/overview.svg",
   },
   {
+    type: "item",
+    href: "/map",
+    label: "Map",
+    icon: "/icons/map.svg",
+  },
+  {
     type: "group",
     label: "Network",
     icon: "/icons/network.svg",
@@ -82,6 +88,12 @@ export const MAIN_NAV: NavEntry[] = [
   },
   {
     type: "item",
+    href: "/verification-reports",
+    label: "Verification Reports",
+    icon: "/icons/reports.svg",
+  },
+  {
+    type: "item",
     href: "/users",
     label: "Users",
     icon: "/icons/users.svg",
@@ -90,6 +102,13 @@ export const MAIN_NAV: NavEntry[] = [
 
 /** Flat list of all module links — useful for dashboard cards. */
 export const DASHBOARD_SECTIONS = [
+  {
+    key: "map",
+    title: "Map",
+    description: "India map of farm GPS points, with layers for pyrolysis and mixing.",
+    href: "/map",
+    links: [{ href: "/map", label: "Open map" }],
+  },
   {
     key: "network",
     title: "Network",
@@ -124,6 +143,13 @@ export const DASHBOARD_SECTIONS = [
     description: "Credits, removals, and MRV reporting.",
     href: "/carbon",
     links: [{ href: "/carbon", label: "Overview" }],
+  },
+  {
+    key: "verification-reports",
+    title: "Verification Reports",
+    description: "Download the CSI C-Sink package from submitted application records.",
+    href: "/verification-reports",
+    links: [{ href: "/verification-reports", label: "Download" }],
   },
   {
     key: "users",
