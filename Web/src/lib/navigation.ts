@@ -32,8 +32,8 @@ export const MAIN_NAV: NavEntry[] = [
   {
     type: "item",
     href: "/map",
-    label: "Map",
-    icon: "/icons/map.svg",
+    label: "Stats",
+    icon: "/icons/reports.svg",
   },
   {
     type: "group",
@@ -103,11 +103,11 @@ export const MAIN_NAV: NavEntry[] = [
 /** Flat list of all module links — useful for dashboard cards. */
 export const DASHBOARD_SECTIONS = [
   {
-    key: "map",
-    title: "Map",
-    description: "India map of farm GPS points, with layers for pyrolysis and mixing.",
+    key: "stats",
+    title: "Stats",
+    description: "Farmer totals by cluster, climapreneur, and supervisor, with a map of farm GPS points.",
     href: "/map",
-    links: [{ href: "/map", label: "Open map" }],
+    links: [{ href: "/map", label: "Open stats" }],
   },
   {
     key: "network",

@@ -8,6 +8,7 @@ import { listFarms } from "../network/farms/actions";
 import { listFarmFields } from "../network/fields/actions";
 import type { FarmDetail } from "@/types";
 import type { MapFarmPoint } from "./points";
+import FarmerStats from "./FarmerStats";
 
 const IndiaMap = dynamic(() => import("./IndiaMap"), {
   ssr: false,
@@ -102,10 +103,11 @@ function farmPoints(fields: FarmFieldRecord[], farms: FarmDetail[]): MapFarmPoin
 }
 
 export default function MapPage() {
+  const [view, setView] = useState<"map" | "stats">("stats");
   const [layer, setLayer] = useState<LayerId>("farmers");
   const [points, setPoints] = useState<MapFarmPoint[]>([]);
   const [fieldCount, setFieldCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -141,8 +143,9 @@ export default function MapPage() {
   }, []);
 
   useEffect(() => {
+    if (view !== "map") return;
     void load();
-  }, [load]);
+  }, [load, view]);
 
   const visiblePoints = useMemo(() => {
     if (layer !== "farmers") return [];
@@ -158,11 +161,24 @@ export default function MapPage() {
   const selected = visiblePoints.find((point) => point.id === selectedId) ?? null;
   const missingGps = Math.max(fieldCount - points.length, 0);
 
+  if (view === "stats") {
+    return <FarmerStats onShowMap={() => setView("map")} />;
+  }
+
   return (
     <div className="flex h-[calc(100svh-7rem)] min-h-[36rem] flex-col gap-4 lg:flex-row">
       <aside className="flex max-h-[46%] w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white lg:max-h-none lg:w-80">
         <div className="border-b border-gray-100 px-4 py-4">
-          <h1 className="text-xl Sbold tracking-tight text-gray-900">Map</h1>
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-xl Sbold tracking-tight text-gray-900">Map</h1>
+            <button
+              type="button"
+              onClick={() => setView("stats")}
+              className="rounded-lg border border-gray-200 px-2.5 py-1 text-xs Smedium text-gray-800 hover:bg-gray-50"
+            >
+              Stats
+            </button>
+          </div>
           <p className="mt-1 text-sm text-gray-500">
             India map of where work happens. Farm GPS points are live.
           </p>

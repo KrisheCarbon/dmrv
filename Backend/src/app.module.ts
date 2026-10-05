@@ -21,6 +21,7 @@ import { TrainingsModule } from './trainings/trainings.module';
 import { FarmersNetworkModule } from './farmers-network/farmers-network.module';
 import { ClustersModule } from './clusters/clusters.module';
 import { VerificationReportsModule } from './verification-reports/verification-reports.module';
+import { MapStatsModule } from './map-stats/map-stats.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { VerificationReportsModule } from './verification-reports/verification-r
     FarmersNetworkModule,
     ClustersModule,
     VerificationReportsModule,
+    MapStatsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
