@@ -21,11 +21,18 @@ interface FarmerRow {
   id: string;
   name: string;
   photo: string;
-  code: string;
   mobile: string;
   village: string;
   cluster: string;
   state: string;
+  farmerOnboarded: string;
+  farmerOnboardedAt: number;
+  farmOnboarded: string;
+  farmOnboardedAt: number;
+  totalAcres: string;
+  totalAcresValue: number;
+  farmAcres: string;
+  farmAcresValue: number;
   farms: string;
   farmCount: number;
   sample: string;
@@ -53,6 +60,34 @@ const FILTERS: Array<{ key: StatusFilter; label: string }> = [
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Failed to load farmers";
+}
+
+function formatOnboardedDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  }).format(date);
+}
+
+function dateSortValue(value?: string | null) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function formatAcres(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+function positiveAcres(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
 export default function FarmersPage() {
@@ -114,20 +149,42 @@ export default function FarmersPage() {
     }
     return farms.map((farm): FarmerRow => {
       const farmFields = fieldsByFarm.get(farm.id) ?? [];
+      const activeFields = farmFields.filter((field) => field.status !== "inactive");
       const farmTests = testsByFarm.get(farm.id) ?? [];
       const checklist = buildFarmerChecklist(farmFields, farmTests, [], farm);
       const village = [farm.village, farm.mandal, farm.district]
         .filter(Boolean)
         .join(", ");
+      const farmOnboardedAt = activeFields.reduce((earliest, field) => {
+        const time = dateSortValue(field.created_at);
+        if (time <= 0) return earliest;
+        return earliest === 0 || time < earliest ? time : earliest;
+      }, 0);
+      const farmAcresValue = activeFields.reduce(
+        (sum, field) => sum + positiveAcres(field.calculated_area),
+        0,
+      );
+      const totalAcresValue = Number(farm.total_land_size);
       return {
         id: farm.id,
         name: farm.farmer_name,
         photo: farm.farmer_photo_url || "",
-        code: farm.farmer_code || "—",
         mobile: farm.mobile_number ?? "—",
         village: village || farm.address || "—",
         cluster: farm.cluster?.name?.trim() || "—",
         state: farm.state?.trim() || "—",
+        farmerOnboarded: formatOnboardedDate(farm.created_at),
+        farmerOnboardedAt: dateSortValue(farm.created_at),
+        farmOnboarded: farmOnboardedAt
+          ? formatOnboardedDate(new Date(farmOnboardedAt).toISOString())
+          : "—",
+        farmOnboardedAt,
+        totalAcres: formatAcres(
+          Number.isFinite(totalAcresValue) ? totalAcresValue : null,
+        ),
+        totalAcresValue: Number.isFinite(totalAcresValue) ? totalAcresValue : 0,
+        farmAcres: activeFields.length > 0 ? formatAcres(farmAcresValue) : "—",
+        farmAcresValue,
         farms: checklist.hasFarms ? String(checklist.farmCount) : "None",
         farmCount: checklist.farmCount,
         sample: checklist.sampleLabel,
@@ -234,13 +291,6 @@ export default function FarmersPage() {
             ),
           },
           {
-            key: "code",
-            label: "Farmer ID",
-            filterable: true,
-            sortable: true,
-            filterPlaceholder: "Search ID",
-          },
-          {
             key: "mobile",
             label: "Mobile",
             filterable: true,
@@ -269,12 +319,36 @@ export default function FarmersPage() {
             filterPlaceholder: "Search state",
           },
           {
+            key: "farmerOnboarded",
+            label: "Farmer onboarded",
+            sortable: true,
+            sortValue: (row) => row.farmerOnboardedAt,
+          },
+          {
+            key: "farmOnboarded",
+            label: "Farm onboarded",
+            sortable: true,
+            sortValue: (row) => row.farmOnboardedAt,
+          },
+          {
+            key: "totalAcres",
+            label: "Total acres",
+            sortable: true,
+            sortValue: (row) => row.totalAcresValue,
+          },
+          {
             key: "farms",
             label: "Farms",
             filterable: true,
             sortable: true,
             filterPlaceholder: "None or count",
             sortValue: (row) => row.farmCount,
+          },
+          {
+            key: "farmAcres",
+            label: "Farm acres",
+            sortable: true,
+            sortValue: (row) => row.farmAcresValue,
           },
           {
             key: "sample",
