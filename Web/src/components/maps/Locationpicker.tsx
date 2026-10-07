@@ -27,6 +27,8 @@ export default function LocationPicker({
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   const [mode, setMode] = useState<PickerMode>("search");
   const [latInput, setLatInput] = useState("");
@@ -79,7 +81,7 @@ export default function LocationPicker({
       const result = e.result;
       const [lng, lat] = result.center;
       setMarker(lng, lat);
-      onChange({
+      onChangeRef.current({
         lat,
         lng,
         place_name: result.place_name,
@@ -93,7 +95,7 @@ export default function LocationPicker({
       setMarker(lng, lat);
 
       const geo = await reverseGeocode(lat, lng);
-      onChange({
+      onChangeRef.current({
         lat,
         lng,
         place_name: geo?.features?.[0]?.place_name ?? null,

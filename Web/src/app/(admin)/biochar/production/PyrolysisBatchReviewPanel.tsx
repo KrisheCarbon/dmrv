@@ -14,6 +14,7 @@ import {
   submitPyrolysisBatchStatus,
 } from "./actions";
 import PyrolysisBatchDetailView from "./PyrolysisBatchDetailView";
+import PyrolysisSensorLogs from "./PyrolysisSensorLogs";
 import ProductionReviewDecisionBar from "./ProductionReviewDecisionBar";
 import StatusBadge from "./StatusBadge";
 import {
@@ -165,6 +166,7 @@ export default function PyrolysisBatchReviewPanel({
   if (!data) return null;
 
   const currentStatus = data.batch_status?.status ?? "pending";
+  const reviewEnabled = canReview && data.protocol !== "rainbow";
 
   return (
     <div className={embedded ? "flex h-full min-h-0 flex-col" : "space-y-4"}>
@@ -188,6 +190,7 @@ export default function PyrolysisBatchReviewPanel({
             </div>
             <p className="mt-0.5 text-xs text-neutral-500">
               {data.kontikki_code} · {data.operator_name}
+              {data.protocol === "rainbow" ? " · Rainbow" : ""}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -228,7 +231,7 @@ export default function PyrolysisBatchReviewPanel({
           </div>
         </div>
 
-        {canReview ? (
+        {reviewEnabled ? (
           <ProductionReviewDecisionBar
             decision={batchStatus}
             reviewerNotes={reviewerNotes}
@@ -246,10 +249,11 @@ export default function PyrolysisBatchReviewPanel({
         ) : null}
       </div>
 
-      <div className={embedded ? "min-h-0 flex-1 overflow-y-auto px-4 py-3" : "px-0"}>
+      <div className={embedded ? "min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3" : "space-y-3 px-0"}>
+        <PyrolysisSensorLogs logs={data.sensor_logs ?? []} />
         <PyrolysisBatchDetailView
           data={data}
-          canReview={canReview}
+          canReview={reviewEnabled}
           photoLayout={embedded && !fullPage ? "drawer" : "page"}
           showMixingSection={fullPage}
           photoFlags={photoFlags}

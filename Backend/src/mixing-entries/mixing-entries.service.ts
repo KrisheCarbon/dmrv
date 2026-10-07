@@ -11,6 +11,7 @@ import {
   canAccessNetwork,
   canReviewMixingEntries,
   isMixingEntryPhotoKey,
+  isRainbowMixVolumeAllowed,
   MIXING_MATERIAL_TYPES,
   type AvailableMixingPyrolysisBatch,
   type CreateMixingEntryPayload,
@@ -26,129 +27,120 @@ import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
 
-const ENTRY_PORTAL_SELECT = `
-  id,
-  operator_id,
-  started_at,
-  farm_id,
-  farm_name,
-  location_lat,
-  location_lng,
-  location_address,
-  material_type,
-  material_to_biochar_ratio,
-  comment,
-  biochar_photo_url,
-  biochar_photo_metadata,
-  substrate_photo_url,
-  substrate_photo_metadata,
-  mixing_photo_url,
-  mixing_photo_metadata,
-  status,
-  created_at,
-  updated_at,
-  users:operator_id (
+type MixRegistry = 'csi' | 'rainbow';
+
+interface MixTables {
+  registry: MixRegistry;
+  entries: string;
+  links: string;
+  status: string;
+  flags: string;
+  sessions: string;
+  batches: string;
+}
+
+const CSI_MIX: MixTables = {
+  registry: 'csi',
+  entries: 'csi_mixing_entries',
+  links: 'csi_mixing_pyrolysis_links',
+  status: 'csi_mixing_entry_status',
+  flags: 'csi_mixing_entry_photo_flags',
+  sessions: 'csi_pyrolysis_sessions',
+  batches: 'csi_pyrolysis_batches',
+};
+
+const RAINBOW_MIX: MixTables = {
+  registry: 'rainbow',
+  entries: 'rainbow_mixing_entries',
+  links: 'rainbow_mixing_pyrolysis_links',
+  status: 'rainbow_mixing_entry_status',
+  flags: 'rainbow_mixing_entry_photo_flags',
+  sessions: 'rainbow_pyrolysis_sessions',
+  batches: 'rainbow_pyrolysis_batches',
+};
+
+const MIX_TABLES = [CSI_MIX, RAINBOW_MIX];
+
+function entrySelect(tables: MixTables, portal: boolean): string {
+  const operator = portal
+    ? `users:operator_id (id, full_name),`
+    : '';
+  return `
     id,
-    full_name
-  ),
-  mixing_pyrolysis_links (
-    pyrolysis_batch_id,
-    kontikki_code,
-    batch_number,
-    producer_name
-  ),
-  mixing_entry_status (
-    id,
-    entry_id,
+    operator_id,
+    started_at,
+    farm_id,
+    farm_name,
+    location_lat,
+    location_lng,
+    location_address,
+    material_type,
+    material_to_biochar_ratio,
+    comment,
+    biochar_photo_url,
+    biochar_photo_metadata,
+    substrate_photo_url,
+    substrate_photo_metadata,
+    mixing_photo_url,
+    mixing_photo_metadata,
     status,
-    reviewer_notes,
-    reviewed_by,
-    reviewed_at,
     created_at,
     updated_at,
-    reviewer:reviewed_by (
-      id,
-      full_name
+    ${operator}
+    ${tables.links} (
+      pyrolysis_batch_id,
+      kontikki_code,
+      batch_number,
+      producer_name
     ),
-    mixing_entry_photo_flags (
-      photo_key,
-      flagged
+    ${tables.status} (
+      id,
+      entry_id,
+      status,
+      reviewer_notes,
+      reviewed_by,
+      reviewed_at,
+      created_at,
+      updated_at,
+      reviewer:reviewed_by (
+        id,
+        full_name
+      ),
+      ${tables.flags} (
+        photo_key,
+        flagged
+      )
     )
-  )
-`;
+  `;
+}
+
+function availableBatchSelect(sessions: string): string {
+  return `
+    id,
+    batch_number,
+    kontikki_id,
+    kontikki_code,
+    yield_percent,
+    ${sessions}!inner (
+      status,
+      completed_at
+    ),
+    kontikkis (
+      id,
+      biochar_producer_id,
+      biochar_producer:biochar_producers (
+        id,
+        name
+      )
+    )
+  `;
+}
 
 export interface MixingEntryPortalRecord extends MixingEntryRecord {
   operator_name: string;
   review_status: MixingEntryReviewStatus;
   reviewed_at?: string | null;
 }
-
-const ENTRY_SELECT = `
-  id,
-  operator_id,
-  started_at,
-  farm_id,
-  farm_name,
-  location_lat,
-  location_lng,
-  location_address,
-  material_type,
-  material_to_biochar_ratio,
-  comment,
-  biochar_photo_url,
-  biochar_photo_metadata,
-  substrate_photo_url,
-  substrate_photo_metadata,
-  mixing_photo_url,
-  mixing_photo_metadata,
-  status,
-  created_at,
-  updated_at,
-  mixing_pyrolysis_links (
-    pyrolysis_batch_id,
-    kontikki_code,
-    batch_number,
-    producer_name
-  ),
-  mixing_entry_status (
-    id,
-    entry_id,
-    status,
-    reviewer_notes,
-    reviewed_by,
-    reviewed_at,
-    created_at,
-    updated_at,
-    reviewer:reviewed_by (
-      id,
-      full_name
-    ),
-    mixing_entry_photo_flags (
-      photo_key,
-      flagged
-    )
-  )
-`;
-
-const AVAILABLE_BATCH_SELECT = `
-  id,
-  batch_number,
-  kontikki_id,
-  kontikki_code,
-  yield_percent,
-  pyrolysis_sessions!inner (
-    status,
-    completed_at
-  ),
-  kontikkis (
-    id,
-    biochar_producer_id,
-    biochar_producer:biochar_producers (
-      id,
-      name
-    )
-  )
-`;
 
 @Injectable()
 export class MixingEntriesService {
@@ -161,50 +153,17 @@ export class MixingEntriesService {
     user: AuthenticatedUser,
   ): Promise<MixingEntryRecord[] | MixingEntryPortalRecord[]> {
     if (canAccessNetwork(user.role)) {
-      const { data, error } = await this.supabase
-        .from('mixing_entries')
-        .select(ENTRY_PORTAL_SELECT)
-        .order('started_at', { ascending: false });
-
-      if (error) {
-        throw new BadRequestException(error.message);
-      }
-
-      return (data ?? []).map((row) => this.mapPortalEntryRow(row));
+      return this.loadEntries(true, {});
     }
 
     if (user.role === 'supervisor') {
       const allowedEntryIds = await this.getAllowedEntryIds(user);
-      if (allowedEntryIds.length === 0) {
-        return [];
-      }
-
-      const { data, error } = await this.supabase
-        .from('mixing_entries')
-        .select(ENTRY_PORTAL_SELECT)
-        .in('id', allowedEntryIds)
-        .order('started_at', { ascending: false });
-
-      if (error) {
-        throw new BadRequestException(error.message);
-      }
-
-      return (data ?? []).map((row) => this.mapPortalEntryRow(row));
+      if (allowedEntryIds.length === 0) return [];
+      return this.loadEntries(true, { ids: allowedEntryIds });
     }
 
     this.assertMobileAccess(user);
-
-    const { data, error } = await this.supabase
-      .from('mixing_entries')
-      .select(ENTRY_SELECT)
-      .eq('operator_id', user.id)
-      .order('started_at', { ascending: false });
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    return (data ?? []).map((row) => this.mapEntryRow(row));
+    return this.loadEntries(false, { operatorId: user.id });
   }
 
   async getEntry(
@@ -212,21 +171,9 @@ export class MixingEntriesService {
     id: string,
   ): Promise<MixingEntryRecord | MixingEntryPortalRecord> {
     if (canAccessNetwork(user.role)) {
-      const { data, error } = await this.supabase
-        .from('mixing_entries')
-        .select(ENTRY_PORTAL_SELECT)
-        .eq('id', id)
-        .maybeSingle();
-
-      if (error) {
-        throw new BadRequestException(error.message);
-      }
-
-      if (!data) {
-        throw new NotFoundException('Mixing entry not found.');
-      }
-
-      return this.mapPortalEntryRow(data);
+      const entry = await this.findEntry(id, true);
+      if (!entry) throw new NotFoundException('Mixing entry not found.');
+      return entry;
     }
 
     if (user.role === 'supervisor') {
@@ -234,42 +181,15 @@ export class MixingEntriesService {
       if (!allowedEntryIds.includes(id)) {
         throw new NotFoundException('Mixing entry not found.');
       }
-
-      const { data, error } = await this.supabase
-        .from('mixing_entries')
-        .select(ENTRY_PORTAL_SELECT)
-        .eq('id', id)
-        .maybeSingle();
-
-      if (error) {
-        throw new BadRequestException(error.message);
-      }
-
-      if (!data) {
-        throw new NotFoundException('Mixing entry not found.');
-      }
-
-      return this.mapPortalEntryRow(data);
+      const entry = await this.findEntry(id, true);
+      if (!entry) throw new NotFoundException('Mixing entry not found.');
+      return entry;
     }
 
     this.assertMobileAccess(user);
-
-    const { data, error } = await this.supabase
-      .from('mixing_entries')
-      .select(ENTRY_SELECT)
-      .eq('id', id)
-      .eq('operator_id', user.id)
-      .maybeSingle();
-
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
-
-    if (!data) {
-      throw new NotFoundException('Mixing entry not found.');
-    }
-
-    return this.mapEntryRow(data);
+    const entry = await this.findEntry(id, false, user.id);
+    if (!entry) throw new NotFoundException('Mixing entry not found.');
+    return entry;
   }
 
   async listAvailablePyrolysisBatches(
@@ -285,47 +205,64 @@ export class MixingEntriesService {
     const alreadyMixedBatchIds = await this.getAlreadyMixedBatchIds();
 
     let query = this.supabase
-      .from('pyrolysis_batches')
-      .select(AVAILABLE_BATCH_SELECT)
+      .from(CSI_MIX.batches)
+      .select(availableBatchSelect(CSI_MIX.sessions))
       .eq('pyrolysis_completed', true)
       .in('kontikki_id', Array.from(allowedKontikkiIds));
 
     if (alreadyMixedBatchIds.length > 0) {
-      query = query.not(
-        'id',
-        'in',
-        `(${alreadyMixedBatchIds.join(',')})`,
-      );
+      query = query.not('id', 'in', `(${alreadyMixedBatchIds.join(',')})`);
     }
 
     const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
 
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
+    const csiRows = (data ?? []) as unknown as Record<string, unknown>[];
+    const csiBatches = csiRows
+      .filter((row) => this.sessionStatus(row, CSI_MIX.sessions) === 'completed')
+      .map((row) => this.mapAvailableBatchRow(row, 'csi'));
 
-    return (data ?? [])
-      .filter((row) => {
-        const session = row.pyrolysis_sessions as { status?: string } | null;
-        return session?.status === 'completed';
-      })
-      .map((row) => this.mapAvailableBatchRow(row));
+    const rainbowBatches = await this.listAvailableRainbowBatches(
+      allowedKontikkiIds,
+      alreadyMixedBatchIds,
+    );
+
+    return [...csiBatches, ...rainbowBatches];
   }
 
-  /**
-   * A pyrolysis batch can only be linked to a single mixing entry. Once it has
-   * been used it must disappear from the "available batches" list for everyone.
-   */
-  private async getAlreadyMixedBatchIds(): Promise<string[]> {
-    const { data, error } = await this.supabase
-      .from('mixing_pyrolysis_links')
-      .select('pyrolysis_batch_id');
+  private async listAvailableRainbowBatches(
+    allowedKontikkiIds: Set<string>,
+    alreadyMixedBatchIds: string[],
+  ): Promise<AvailableMixingPyrolysisBatch[]> {
+    let query = this.supabase
+      .from(RAINBOW_MIX.batches)
+      .select(availableBatchSelect(RAINBOW_MIX.sessions))
+      .eq('submission_status', 'submitted')
+      .in('kontikki_id', Array.from(allowedKontikkiIds));
 
-    if (error) {
-      throw new BadRequestException(error.message);
+    if (alreadyMixedBatchIds.length > 0) {
+      query = query.not('id', 'in', `(${alreadyMixedBatchIds.join(',')})`);
     }
 
-    return [...new Set((data ?? []).map((row) => String(row.pyrolysis_batch_id)))];
+    const { data, error } = await query.order('created_at', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+
+    const rainbowRows = (data ?? []) as unknown as Record<string, unknown>[];
+    return rainbowRows
+      .filter((row) => this.sessionStatus(row, RAINBOW_MIX.sessions) === 'completed')
+      .map((row) => this.mapAvailableBatchRow(row, 'rainbow'));
+  }
+
+  private async getAlreadyMixedBatchIds(): Promise<string[]> {
+    const ids: string[] = [];
+    for (const tables of MIX_TABLES) {
+      const { data, error } = await this.supabase
+        .from(tables.links)
+        .select('pyrolysis_batch_id');
+      if (error) throw new BadRequestException(error.message);
+      ids.push(...(data ?? []).map((row) => String(row.pyrolysis_batch_id)));
+    }
+    return [...new Set(ids)];
   }
 
   async createEntry(
@@ -336,15 +273,43 @@ export class MixingEntriesService {
     this.validateCreatePayload(payload);
 
     const allowedKontikkiIds = await this.getAllowedKontikkiIds(user);
-    await this.assertPyrolysisBatchesAllowed(
+    const split = await this.assertPyrolysisBatchesAllowed(
       payload.pyrolysis_batch_ids,
       allowedKontikkiIds,
     );
+    if (split.csiIds.length > 0 && split.rainbowIds.length > 0) {
+      throw new BadRequestException(
+        'CSI and Rainbow batches are stored separately. Mix them in two entries.',
+      );
+    }
 
-    const linkMeta = await this.fetchLinkMeta(payload.pyrolysis_batch_ids);
+    const tables = split.rainbowIds.length > 0 ? RAINBOW_MIX : CSI_MIX;
+    const batchIds = tables.registry === 'rainbow' ? split.rainbowIds : split.csiIds;
+    if (tables.registry === 'rainbow') {
+      if (!isRainbowMixVolumeAllowed(payload.material_to_biochar_ratio)) {
+        throw new BadRequestException(
+          'Rainbow soil mixes must be under half biochar by volume. Use 2:1 or 3:1 material to biochar.',
+        );
+      }
+      if (payload.location_lat == null || payload.location_lng == null) {
+        throw new BadRequestException(
+          'Rainbow mixing needs a GPS location for the mix.',
+        );
+      }
+      if (!payload.mixing_photo_url) {
+        throw new BadRequestException(
+          'Rainbow mixing needs a time-stamped photo of the mix.',
+        );
+      }
+    }
+
+    const linkMeta =
+      tables.registry === 'rainbow'
+        ? await this.fetchRainbowLinkMeta(batchIds)
+        : await this.fetchLinkMeta(batchIds);
 
     const { data: entry, error: entryError } = await this.supabase
-      .from('mixing_entries')
+      .from(tables.entries)
       .insert({
         operator_id: user.id,
         started_at: payload.started_at,
@@ -371,7 +336,7 @@ export class MixingEntriesService {
       throw new BadRequestException(entryError?.message ?? 'Could not create mixing entry.');
     }
 
-    const linkRows = payload.pyrolysis_batch_ids.map((batchId) => {
+    const linkRows = batchIds.map((batchId) => {
       const meta = linkMeta.get(batchId);
       return {
         mixing_entry_id: entry.id,
@@ -381,27 +346,22 @@ export class MixingEntriesService {
         producer_name: meta?.producer_name ?? null,
       };
     });
-
-    const { error: linkError } = await this.supabase
-      .from('mixing_pyrolysis_links')
-      .insert(linkRows);
-
+    const { error: linkError } = await this.supabase.from(tables.links).insert(linkRows);
     if (linkError) {
-      await this.supabase.from('mixing_entries').delete().eq('id', entry.id);
+      await this.supabase.from(tables.entries).delete().eq('id', entry.id);
       throw new BadRequestException(linkError.message);
     }
 
-    const { error: statusError } = await this.supabase.from('mixing_entry_status').insert({
+    const { error: statusError } = await this.supabase.from(tables.status).insert({
       entry_id: entry.id,
       status: 'pending_review',
     });
-
     if (statusError) {
-      await this.supabase.from('mixing_entries').delete().eq('id', entry.id);
+      await this.supabase.from(tables.entries).delete().eq('id', entry.id);
       throw new BadRequestException(statusError.message);
     }
 
-    return this.getEntry(user, entry.id);
+    return this.getEntry(user, entry.id as string);
   }
 
   async submitEntryStatus(
@@ -410,13 +370,14 @@ export class MixingEntriesService {
     payload: SubmitMixingEntryStatusPayload,
   ): Promise<MixingEntryPortalRecord> {
     this.assertCanReview(user);
+    const tables = await this.registryForEntry(entryId);
     await this.getEntry(user, entryId);
     this.validateEntryStatusPayload(payload);
 
     const now = new Date().toISOString();
 
     const { data: entryStatus, error: statusError } = await this.supabase
-      .from('mixing_entry_status')
+      .from(tables.status)
       .upsert(
         {
           entry_id: entryId,
@@ -438,7 +399,7 @@ export class MixingEntriesService {
     const entryStatusId = entryStatus.id as string;
 
     const { error: deleteError } = await this.supabase
-      .from('mixing_entry_photo_flags')
+      .from(tables.flags)
       .delete()
       .eq('entry_status_id', entryStatusId);
 
@@ -456,7 +417,7 @@ export class MixingEntriesService {
       }));
 
       const { error: insertError } = await this.supabase
-        .from('mixing_entry_photo_flags')
+        .from(tables.flags)
         .insert(flagRows);
 
       if (insertError) {
@@ -511,38 +472,30 @@ export class MixingEntriesService {
       return [];
     }
 
-    const { data: batches, error: batchError } = await this.supabase
-      .from('pyrolysis_batches')
-      .select('id')
-      .in('kontikki_id', Array.from(allowedKontikkiIds));
-
-    if (batchError) {
-      throw new BadRequestException(batchError.message);
+    const entryIds: string[] = [];
+    for (const tables of MIX_TABLES) {
+      const { data: batches, error: batchError } = await this.supabase
+        .from(tables.batches)
+        .select('id')
+        .in('kontikki_id', Array.from(allowedKontikkiIds));
+      if (batchError) throw new BadRequestException(batchError.message);
+      const batchIds = (batches ?? []).map((row) => row.id as string);
+      if (batchIds.length === 0) continue;
+      const { data: links, error: linkError } = await this.supabase
+        .from(tables.links)
+        .select('mixing_entry_id')
+        .in('pyrolysis_batch_id', batchIds);
+      if (linkError) throw new BadRequestException(linkError.message);
+      entryIds.push(...(links ?? []).map((row) => row.mixing_entry_id as string));
     }
 
-    const batchIds = (batches ?? []).map((row) => row.id as string);
-    if (batchIds.length === 0) {
-      return [];
-    }
-
-    const { data: links, error: linkError } = await this.supabase
-      .from('mixing_pyrolysis_links')
-      .select('mixing_entry_id')
-      .in('pyrolysis_batch_id', batchIds);
-
-    if (linkError) {
-      throw new BadRequestException(linkError.message);
-    }
-
-    return [
-      ...new Set((links ?? []).map((row) => row.mixing_entry_id as string)),
-    ];
+    return [...new Set(entryIds)];
   }
 
   private async assertPyrolysisBatchesAllowed(
     batchIds: string[],
     allowedKontikkiIds: Set<string>,
-  ) {
+  ): Promise<{ csiIds: string[]; rainbowIds: string[] }> {
     const uniqueIds = [...new Set(batchIds)];
 
     const alreadyMixedBatchIds = await this.getAlreadyMixedBatchIds();
@@ -553,45 +506,77 @@ export class MixingEntriesService {
       );
     }
 
-    const { data, error } = await this.supabase
-      .from('pyrolysis_batches')
+    const { data: rainbowRows, error: rainbowError } = await this.supabase
+      .from('rainbow_pyrolysis_batches')
       .select(
         `
         id,
         kontikki_id,
-        pyrolysis_completed,
-        pyrolysis_sessions!inner (status)
+        submission_status,
+        rainbow_pyrolysis_sessions!inner (status)
       `,
       )
       .in('id', uniqueIds);
 
-    if (error) {
-      throw new BadRequestException(error.message);
-    }
+    if (rainbowError) throw new BadRequestException(rainbowError.message);
 
-    if ((data ?? []).length !== uniqueIds.length) {
-      throw new BadRequestException('One or more pyrolysis batches were not found.');
-    }
+    const rainbowIds = (rainbowRows ?? []).map((row) => String(row.id));
+    const csiIds = uniqueIds.filter((id) => !rainbowIds.includes(id));
 
-    for (const row of data ?? []) {
-      const session = row.pyrolysis_sessions as { status?: string } | null;
-      if (!row.pyrolysis_completed || session?.status !== 'completed') {
+    for (const row of rainbowRows ?? []) {
+      const session = row.rainbow_pyrolysis_sessions as { status?: string } | null;
+      if (row.submission_status !== 'submitted' || session?.status !== 'completed') {
         throw new BadRequestException(
-          'Only completed pyrolysis batches can be linked to mixing.',
+          'Only completed Rainbow kiln runs can be linked to mixing.',
         );
       }
-
       if (!allowedKontikkiIds.has(String(row.kontikki_id))) {
         throw new ForbiddenException(
           'One or more pyrolysis batches are outside your assigned network.',
         );
       }
     }
+
+    if (csiIds.length > 0) {
+      const { data, error } = await this.supabase
+        .from('csi_pyrolysis_batches')
+        .select(
+          `
+          id,
+          kontikki_id,
+          pyrolysis_completed,
+          csi_pyrolysis_sessions!inner (status)
+        `,
+        )
+        .in('id', csiIds);
+
+      if (error) throw new BadRequestException(error.message);
+      if ((data ?? []).length !== csiIds.length) {
+        throw new BadRequestException('One or more pyrolysis batches were not found.');
+      }
+
+      for (const row of data ?? []) {
+        const session = row.csi_pyrolysis_sessions as { status?: string } | null;
+        if (!row.pyrolysis_completed || session?.status !== 'completed') {
+          throw new BadRequestException(
+            'Only completed pyrolysis batches can be linked to mixing.',
+          );
+        }
+        if (!allowedKontikkiIds.has(String(row.kontikki_id))) {
+          throw new ForbiddenException(
+            'One or more pyrolysis batches are outside your assigned network.',
+          );
+        }
+      }
+    }
+
+    return { csiIds, rainbowIds };
   }
 
   private async fetchLinkMeta(batchIds: string[]) {
+    if (batchIds.length === 0) return new Map();
     const { data, error } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .select(
         `
         id,
@@ -628,7 +613,119 @@ export class MixingEntriesService {
     return map;
   }
 
-  private mapEntryRow(row: Record<string, unknown>): MixingEntryRecord {
+  private async fetchRainbowLinkMeta(batchIds: string[]) {
+    if (batchIds.length === 0) return new Map();
+    const { data, error } = await this.supabase
+      .from('rainbow_pyrolysis_batches')
+      .select(
+        `
+        id,
+        batch_number,
+        kontikki_code,
+        producer_name
+      `,
+      )
+      .in('id', batchIds);
+
+    if (error) throw new BadRequestException(error.message);
+
+    const map = new Map<
+      string,
+      { kontikki_code?: string | null; batch_number?: string | null; producer_name?: string | null }
+    >();
+    for (const row of data ?? []) {
+      map.set(String(row.id), {
+        kontikki_code: (row.kontikki_code as string) ?? null,
+        batch_number: (row.batch_number as string) ?? null,
+        producer_name: (row.producer_name as string) ?? null,
+      });
+    }
+    return map;
+  }
+
+  private async loadEntries(
+    portal: boolean,
+    options: { operatorId?: string; ids?: string[] },
+  ): Promise<MixingEntryRecord[] | MixingEntryPortalRecord[]> {
+    const lists = await Promise.all(
+      MIX_TABLES.map((tables) => this.fetchRegistryEntries(tables, portal, options)),
+    );
+    return lists
+      .flat()
+      .sort((left, right) => right.started_at.localeCompare(left.started_at));
+  }
+
+  private async findEntry(
+    id: string,
+    portal: boolean,
+    operatorId?: string,
+  ): Promise<MixingEntryRecord | MixingEntryPortalRecord | null> {
+    const rows = await this.loadEntries(portal, {
+      operatorId,
+      ids: [id],
+    });
+    return rows.find((row) => row.id === id) ?? null;
+  }
+
+  private async fetchRegistryEntries(
+    tables: MixTables,
+    portal: boolean,
+    options: { operatorId?: string; ids?: string[] },
+  ): Promise<Array<MixingEntryRecord | MixingEntryPortalRecord>> {
+    let query = this.supabase
+      .from(tables.entries)
+      .select(entrySelect(tables, portal))
+      .order('started_at', { ascending: false });
+    if (options.operatorId) query = query.eq('operator_id', options.operatorId);
+    if (options.ids) query = query.in('id', options.ids);
+    const { data, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    return rows.map((row) => {
+      const shaped = this.shapeEntry(row, tables);
+      return portal
+        ? this.mapPortalEntryRow(shaped, tables.registry)
+        : this.mapEntryRow(shaped, tables.registry);
+    });
+  }
+
+  private shapeEntry(row: Record<string, unknown>, tables: MixTables): Record<string, unknown> {
+    const statusRaw = row[tables.status];
+    const status = Array.isArray(statusRaw) ? statusRaw[0] : statusRaw;
+    if (status && typeof status === 'object') {
+      const record = status as Record<string, unknown>;
+      record.mixing_entry_photo_flags = record[tables.flags] ?? [];
+    }
+    return {
+      ...row,
+      mixing_pyrolysis_links: row[tables.links] ?? [],
+      mixing_entry_status: status ?? null,
+    };
+  }
+
+  private async registryForEntry(entryId: string): Promise<MixTables> {
+    for (const tables of MIX_TABLES) {
+      const { data, error } = await this.supabase
+        .from(tables.entries)
+        .select('id')
+        .eq('id', entryId)
+        .maybeSingle();
+      if (error) throw new BadRequestException(error.message);
+      if (data) return tables;
+    }
+    throw new NotFoundException('Mixing entry not found.');
+  }
+
+  private sessionStatus(row: Record<string, unknown>, sessionKey: string): string | undefined {
+    const session = row[sessionKey] as { status?: string } | { status?: string }[] | null;
+    if (Array.isArray(session)) return session[0]?.status;
+    return session?.status;
+  }
+
+  private mapEntryRow(
+    row: Record<string, unknown>,
+    protocol: MixRegistry = 'csi',
+  ): MixingEntryRecord {
     const links = (row.mixing_pyrolysis_links ?? []) as Array<Record<string, unknown>>;
     const entryStatus = this.mapEntryStatus(row);
 
@@ -661,6 +758,7 @@ export class MixingEntriesService {
       pyrolysis_links: links.map(
         (link): MixingPyrolysisLinkRecord => ({
           pyrolysis_batch_id: String(link.pyrolysis_batch_id),
+          protocol,
           kontikki_code: (link.kontikki_code as string) ?? null,
           batch_number: (link.batch_number as string) ?? null,
           producer_name: (link.producer_name as string) ?? null,
@@ -707,8 +805,12 @@ export class MixingEntriesService {
     };
   }
 
-  private mapAvailableBatchRow(row: Record<string, unknown>): AvailableMixingPyrolysisBatch {
-    const session = row.pyrolysis_sessions as {
+  private mapAvailableBatchRow(
+    row: Record<string, unknown>,
+    protocol: 'csi' | 'rainbow',
+  ): AvailableMixingPyrolysisBatch {
+    const session = (row[protocol === 'rainbow' ? 'rainbow_pyrolysis_sessions' : 'csi_pyrolysis_sessions'] ??
+      row.pyrolysis_sessions) as {
       completed_at?: string | null;
     } | null;
     const kontikki = row.kontikkis as {
@@ -725,12 +827,16 @@ export class MixingEntriesService {
       producer_name: kontikki?.biochar_producer?.name ?? null,
       session_completed_at: session?.completed_at ?? null,
       yield_percent: row.yield_percent != null ? Number(row.yield_percent) : null,
+      protocol,
     };
   }
 
-  private mapPortalEntryRow(row: Record<string, unknown>): MixingEntryPortalRecord {
+  private mapPortalEntryRow(
+    row: Record<string, unknown>,
+    protocol: MixRegistry = 'csi',
+  ): MixingEntryPortalRecord {
     const operator = this.unwrap(row.users) as { full_name?: string | null } | null;
-    const base = this.mapEntryRow(row);
+    const base = this.mapEntryRow(row, protocol);
 
     return {
       ...base,

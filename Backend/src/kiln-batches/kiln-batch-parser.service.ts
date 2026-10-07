@@ -3,6 +3,24 @@ import { Injectable } from '@nestjs/common';
 export interface RawEspDataPoint {
   time_offset_seconds: number;
   temperature: number;
+  top_c: number | null;
+  middle_c: number | null;
+  bottom_c: number | null;
+  kiln_state: string | null;
+  top_valid: boolean | null;
+  middle_valid: boolean | null;
+  bottom_valid: boolean | null;
+  top_open: boolean | null;
+  middle_open: boolean | null;
+  bottom_open: boolean | null;
+  top_rate: number | null;
+  middle_rate: number | null;
+  bottom_rate: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  satellites: number | null;
+  utc_epoch: number | null;
+  uptime_s: number | null;
 }
 
 export interface RawEspBatch {
@@ -69,10 +87,8 @@ export class KilnBatchParserService {
       }
 
       const item = point as Record<string, unknown>;
-      if (
-        typeof item.time_offset_seconds !== 'number' ||
-        typeof item.temperature !== 'number'
-      ) {
+      const temperature = this.readingTemperature(item);
+      if (typeof item.time_offset_seconds !== 'number' || temperature == null) {
         throw new KilnBatchParseError(
           'invalid_json',
           `data_points[${index}] missing time_offset_seconds or temperature`,
@@ -81,7 +97,25 @@ export class KilnBatchParserService {
 
       return {
         time_offset_seconds: item.time_offset_seconds,
-        temperature: item.temperature,
+        temperature,
+        top_c: this.optionalNumber(item.top_c),
+        middle_c: this.optionalNumber(item.middle_c),
+        bottom_c: this.optionalNumber(item.bottom_c),
+        kiln_state: this.optionalText(item.kiln_state),
+        top_valid: this.optionalBool(item.top_valid),
+        middle_valid: this.optionalBool(item.middle_valid),
+        bottom_valid: this.optionalBool(item.bottom_valid),
+        top_open: this.optionalBool(item.top_open),
+        middle_open: this.optionalBool(item.middle_open),
+        bottom_open: this.optionalBool(item.bottom_open),
+        top_rate: this.optionalNumber(item.top_rate),
+        middle_rate: this.optionalNumber(item.middle_rate),
+        bottom_rate: this.optionalNumber(item.bottom_rate),
+        latitude: this.optionalNumber(item.latitude),
+        longitude: this.optionalNumber(item.longitude),
+        satellites: this.optionalNumber(item.satellites),
+        utc_epoch: this.optionalNumber(item.utc_epoch),
+        uptime_s: this.optionalNumber(item.uptime_s),
       };
     });
 
@@ -98,6 +132,32 @@ export class KilnBatchParserService {
       duration_seconds: durationSeconds,
       data_points: normalizedPoints,
     };
+  }
+
+  private optionalBool(value: unknown): boolean | null {
+    if (typeof value === 'boolean') return value;
+    if (value === 1 || value === 0) return value === 1;
+    return null;
+  }
+
+  private optionalNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private optionalText(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  private readingTemperature(item: Record<string, unknown>): number | null {
+    if (typeof item.temperature === 'number' && Number.isFinite(item.temperature)) {
+      return item.temperature;
+    }
+
+    const zones = [item.middle_c, item.top_c, item.bottom_c].filter(
+      (value): value is number => typeof value === 'number' && Number.isFinite(value),
+    );
+    if (zones.length === 0) return null;
+    return zones.reduce((sum, value) => sum + value, 0) / zones.length;
   }
 }
 

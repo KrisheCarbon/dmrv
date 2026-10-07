@@ -1,19 +1,22 @@
 import React, { useMemo, useState } from "react";
 import {
+  Dimensions,
   View,
   Text,
   Pressable,
   Modal,
   FlatList,
-  TextInput,
   StyleSheet,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   villagePlaceLine,
   villageSearchText,
   type ClusterVillageRecord,
 } from "@krishecarbon/shared";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import SearchField from "./SearchField";
+import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 
 type VillagePickerProps = {
   villages: ClusterVillageRecord[];
@@ -43,6 +46,12 @@ export default function VillagePicker({
 }: VillagePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const keyboardOverlap = useKeyboardOverlap();
+  const insets = useSafeAreaInsets();
+  const sheetHeight = Math.max(
+    280,
+    Dimensions.get("window").height - keyboardOverlap - insets.top - 8,
+  );
 
   const selected = villages.find((village) => village.id === valueId) ?? null;
   const filtered = useMemo(() => {
@@ -112,17 +121,22 @@ export default function VillagePicker({
         animationType="fade"
         onRequestClose={() => setOpen(false)}
       >
-        <View style={styles.overlay}>
+        <View style={[styles.overlay, { paddingBottom: keyboardOverlap }]}>
           <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Select village</Text>
-            <TextInput
+          <View style={[styles.sheet, { height: sheetHeight }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Select village</Text>
+              {keyboardOverlap > 0 ? (
+                <Pressable onPress={() => setOpen(false)} hitSlop={8}>
+                  <Text style={styles.sheetClose}>Close</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <SearchField
               value={query}
               onChangeText={setQuery}
               placeholder="Search village, block, or cluster"
-              placeholderTextColor={colors.smokeLight}
               style={styles.search}
-              autoCorrect={false}
             />
             {villages.length === 0 ? (
               <Text style={styles.empty}>{emptyText}</Text>
@@ -133,7 +147,8 @@ export default function VillagePicker({
                 data={sections}
                 keyExtractor={(item) => item.key}
                 keyboardShouldPersistTaps="handled"
-                style={styles.list}
+                keyboardDismissMode="on-drag"
+                style={[styles.list, styles.listFill]}
                 renderItem={({ item }) => {
                   if (item.type === "header") {
                     return <Text style={styles.groupTitle}>{item.title}</Text>;
@@ -173,9 +188,11 @@ export default function VillagePicker({
                 }}
               />
             )}
-            <Pressable style={styles.cancelBtn} onPress={() => setOpen(false)}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
+            {keyboardOverlap === 0 ? (
+              <Pressable style={styles.cancelBtn} onPress={() => setOpen(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -260,32 +277,38 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    maxHeight: "78%",
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
   },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
   sheetTitle: {
+    flex: 1,
     fontFamily: fonts.bold,
     fontSize: 16,
     color: colors.brunswick,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+  },
+  sheetClose: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.brunswick,
   },
   search: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    fontFamily: fonts.regular,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.chalk,
   },
   list: {
     paddingHorizontal: spacing.sm,
+  },
+  listFill: {
+    flex: 1,
+    minHeight: 0,
   },
   groupTitle: {
     fontFamily: fonts.medium,

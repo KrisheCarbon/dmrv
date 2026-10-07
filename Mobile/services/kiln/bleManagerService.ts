@@ -210,23 +210,28 @@ class BleManagerService {
         // Android fires the scan callback before the scan-response exchange completes,
         // meaning device.name / device.localName can both be null on the very first
         // packet. Checking serviceUUIDs catches the device in that window.
-        const hasKilnName =
-          device.name === 'Kiln-ESP32' || device.localName === 'Kiln-ESP32';
-        const hasKilnService = (device.serviceUUIDs ?? []).some(
-          (uuid) => uuid.toLowerCase() === KILN_SERVICE_UUID.toLowerCase(),
-        );
-        if (!hasKilnName && !hasKilnService) return;
+        const advertisedName = device.localName ?? device.name ?? '';
+        const services = device.serviceUUIDs ?? [];
+        const hasService = (fragment: string) =>
+          services.some((uuid) => uuid.toLowerCase().includes(fragment.toLowerCase()));
 
-        // Prefer advertised name; fall back to a stable MAC-derived label so the
-        // UI always shows something meaningful while Android caches the full name.
+        const isKrishe = /krishe/i.test(advertisedName) || hasService('ffe0');
+        const isLegacy =
+          advertisedName === 'Kiln-ESP32' || hasService(KILN_SERVICE_UUID);
+        if (!isKrishe && !isLegacy) return;
+
+        const protocol = isKrishe ? 'krishe' : 'legacy';
         const kilnId =
-          device.localName ?? device.name ?? `Kiln-${device.id.slice(-5).toUpperCase()}`;
+          protocol === 'krishe'
+            ? device.id
+            : advertisedName || `Kiln-${device.id.slice(-5).toUpperCase()}`;
 
         onDeviceFound({
           id: device.id,
           name: device.name,
           rssi: device.rssi ?? -100,
           kilnId,
+          protocol,
         });
       },
     );

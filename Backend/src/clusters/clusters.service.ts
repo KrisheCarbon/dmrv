@@ -112,7 +112,14 @@ export class ClustersService {
     const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);
 
-    return (data ?? []).map((row) => this.toVillageOption(row));
+    const villages = (data ?? []).map((row) => this.toVillageOption(row));
+    const registryByCluster = await this.registryByCluster(
+      [...new Set(villages.map((village) => village.cluster_id))],
+    );
+    return villages.map((village) => ({
+      ...village,
+      producer_registry: registryByCluster.get(village.cluster_id) ?? null,
+    }));
   }
 
   async findAll(user: AuthenticatedUser): Promise<ClusterRecord[]> {
@@ -559,6 +566,34 @@ export class ClustersService {
           : 'One or more selected climapreneurs are not valid climapreneur accounts.',
       );
     }
+  }
+
+  private async registryByCluster(
+    clusterIds: string[],
+  ): Promise<Map<string, string | null>> {
+    const map = new Map<string, string | null>();
+    if (clusterIds.length === 0) return map;
+
+    const { data, error } = await this.supabase
+      .from('biochar_producer_clusters')
+      .select('cluster_id, biochar_producers(registry)')
+      .in('cluster_id', clusterIds);
+    if (error) throw new BadRequestException(error.message);
+
+    for (const row of data ?? []) {
+      const clusterId = String(row.cluster_id);
+      const producerRaw = row.biochar_producers as
+        | { registry?: string | null }
+        | { registry?: string | null }[]
+        | null;
+      const producer = Array.isArray(producerRaw) ? producerRaw[0] : producerRaw;
+      const registry = producer?.registry ?? null;
+      const current = map.get(clusterId) ?? null;
+      if (registry === 'rainbow' || registry === 'both' || current == null) {
+        map.set(clusterId, registry ?? current);
+      }
+    }
+    return map;
   }
 
   private toVillageOption(row: Record<string, unknown>): ClusterVillageRecord {

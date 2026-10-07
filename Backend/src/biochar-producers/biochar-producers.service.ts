@@ -113,18 +113,6 @@ const PRODUCER_SELECT = `
       id,
       org_name
     )
-  ),
-  kontikkis (
-    id,
-    kontikki_code,
-    status,
-    kontikki_operators (
-      operator_id,
-      users (
-        id,
-        full_name
-      )
-    )
   )
 `;
 
@@ -199,7 +187,8 @@ export class BiocharProducersService {
     T extends Record<string, unknown>,
   >(producer: T, producerId: string): Promise<T> {
     const withSupervisors = await this.attachSupervisors(producer, producerId);
-    return this.attachClusters(withSupervisors, producerId);
+    const withClusters = await this.attachClusters(withSupervisors, producerId);
+    return this.attachKontikkis(withClusters, producerId);
   }
 
   private async attachSupervisors<
@@ -269,6 +258,66 @@ export class BiocharProducersService {
       biochar_producer_clusters: links.map((row) => ({
         cluster_id: row.cluster_id,
         clusters: clustersById.get(row.cluster_id as string) ?? null,
+      })),
+    };
+  }
+
+  private async attachKontikkis<
+    T extends Record<string, unknown>,
+  >(producer: T, producerId: string): Promise<T> {
+    const { data: kontikkis, error } = await this.supabase
+      .from('kontikkis')
+      .select('id, kontikki_code, status, module_id')
+      .eq('biochar_producer_id', producerId)
+      .order('kontikki_code', { ascending: true });
+
+    if (error) throw new BadRequestException(error.message);
+    if (!kontikkis?.length) {
+      return { ...producer, kontikkis: [] };
+    }
+
+    const kontikkiIds = kontikkis.map((row) => row.id as string);
+    const { data: links, error: linkError } = await this.supabase
+      .from('kontikki_operators')
+      .select('kontikki_id, operator_id')
+      .in('kontikki_id', kontikkiIds);
+
+    if (linkError) throw new BadRequestException(linkError.message);
+
+    const operatorIds = [
+      ...new Set((links ?? []).map((row) => row.operator_id as string)),
+    ];
+    const usersById = new Map<string, Record<string, unknown>>();
+    if (operatorIds.length > 0) {
+      const { data: users, error: usersError } = await this.supabase
+        .from('users')
+        .select('id, full_name, role')
+        .in('id', operatorIds);
+      if (usersError) throw new BadRequestException(usersError.message);
+      for (const user of users ?? []) {
+        usersById.set(user.id as string, user);
+      }
+    }
+
+    const operatorsByKontikki = new Map<
+      string,
+      Array<{ operator_id: string; users: Record<string, unknown> | null }>
+    >();
+    for (const link of links ?? []) {
+      const kontikkiId = link.kontikki_id as string;
+      const current = operatorsByKontikki.get(kontikkiId) ?? [];
+      current.push({
+        operator_id: link.operator_id as string,
+        users: usersById.get(link.operator_id as string) ?? null,
+      });
+      operatorsByKontikki.set(kontikkiId, current);
+    }
+
+    return {
+      ...producer,
+      kontikkis: kontikkis.map((row) => ({
+        ...row,
+        kontikki_operators: operatorsByKontikki.get(row.id as string) ?? [],
       })),
     };
   }

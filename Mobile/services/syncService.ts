@@ -698,6 +698,7 @@ function farmerToApiPayload(farmer: Farmer): FarmUpsertPayload {
     owned_land_size: farmer.ownedLandSize,
     leased_land_size: farmer.leasedLandSize,
     farmer_photo_url: farmer.farmerPhotoUrl,
+    credit_rights_acknowledged: farmer.creditRightsAcknowledged,
   };
 }
 
@@ -755,6 +756,7 @@ function remoteFarmerToRow(remote: FarmerRow): Record<string, unknown> {
     estimatedBiomass: Number(remote.estimated_biomass),
     farmerPhotoUri: remote.farmer_photo_url ?? null,
     farmerPhotoUrl: remote.farmer_photo_url ?? null,
+    creditRightsAcknowledged: Boolean(remote.credit_rights_acknowledged),
     createdBy: remote.created_by,
     assignedTo: remote.assigned_to,
     uploadStatus: "synced",

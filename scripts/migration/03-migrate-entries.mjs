@@ -200,9 +200,9 @@ for (const p of rows) {
 log(`Pyrolysis: ${batchRows.length} sessions + batches (${skipped.length} skipped)`);
 if (missingPhotos) warn(`${missingPhotos} photo fields had no migrated URL — placeholder used`);
 
-await upsert('pyrolysis_sessions', sessionRows);
-await upsert('pyrolysis_batches', batchRows);
-await upsert('pyrolysis_batch_status', statusRows, { onConflict: 'batch_id' });
+await upsert('csi_pyrolysis_sessions', sessionRows);
+await upsert('csi_pyrolysis_batches', batchRows);
+await upsert('csi_pyrolysis_batch_status', statusRows, { onConflict: 'batch_id' });
 
 // ── mixing ───────────────────────────────────────────────────────────────────
 // Partial-range linking. Cited "1-10" with batch 3 absent → link 1,2,4..10.
@@ -305,11 +305,11 @@ const totalCited = linkReport.reduce((a, r) => a + r.cited_count, 0);
 const totalLinked = linkReport.reduce((a, r) => a + r.linked.length, 0);
 log(`Mixing: ${mixEntryRows.length} entries, ${totalLinked}/${totalCited} cited batches linked (${totalCited - totalLinked} skipped as absent)`);
 
-await upsert('mixing_entries', mixEntryRows);
-await upsert('mixing_pyrolysis_links', mixLinkRows, {
+await upsert('csi_mixing_entries', mixEntryRows);
+await upsert('csi_mixing_pyrolysis_links', mixLinkRows, {
   onConflict: 'mixing_entry_id,pyrolysis_batch_id',
 });
-await upsert('mixing_entry_status', mixStatusRows, { onConflict: 'entry_id' });
+await upsert('csi_mixing_entry_status', mixStatusRows, { onConflict: 'entry_id' });
 
 // ── report ───────────────────────────────────────────────────────────────────
 

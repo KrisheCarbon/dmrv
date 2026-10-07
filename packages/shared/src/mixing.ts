@@ -30,6 +30,7 @@ export type MixingEntrySubmissionStatus =
 
 export interface MixingPyrolysisLinkRecord {
   pyrolysis_batch_id: string;
+  protocol?: "csi" | "rainbow";
   kontikki_code?: string | null;
   batch_number?: string | null;
   producer_name?: string | null;
@@ -69,6 +70,25 @@ export interface AvailableMixingPyrolysisBatch {
   producer_name?: string | null;
   session_completed_at?: string | null;
   yield_percent?: number | null;
+  /** Which production table this batch came from. */
+  protocol?: "csi" | "rainbow";
+}
+
+/**
+ * Stored ratio is biochar parts when the other material is 1 part
+ * (picker labels 1:1, 1:2, 1:3). Rainbow soil mixes must stay under
+ * half biochar by volume, so the ratio must be below 1.
+ */
+export function biocharShareOfMix(materialToBiocharRatio: number): number {
+  return materialToBiocharRatio / (1 + materialToBiocharRatio);
+}
+
+export function isRainbowMixVolumeAllowed(
+  ratio: number | null | undefined,
+): boolean {
+  const value = Number(ratio);
+  if (ratio == null || Number.isNaN(value) || value < 0) return false;
+  return biocharShareOfMix(value) < 0.5;
 }
 
 /** Mixing entry row shown on a pyrolysis batch detail page. */

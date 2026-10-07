@@ -12,6 +12,7 @@ import {
   normalizeKontikkiPhotoPaths,
 } from "@/lib/uploadKontikkiAssets";
 import { formatKontikkiCapacity, resolveKontikkiCapacity } from "../kontikkiLib";
+import { formatProducerRegistry } from "../../biochar-producers/producerLib";
 import type { KontikkiDetail } from "@/types";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -135,8 +136,19 @@ export default function KontikkiViewPage() {
       const user = Array.isArray(assignment.users)
         ? assignment.users[0]
         : assignment.users;
-      return user?.full_name?.trim() || "Unnamed operator";
+      return {
+        id: user?.id ?? assignment.operator_id,
+        name: user?.full_name?.trim() || "Unnamed operator",
+        role: user?.role ?? "",
+      };
     }) ?? [];
+  const supervisors = operators.filter((person) => person.role === "supervisor");
+  const climapreneurs = operators.filter(
+    (person) => person.role === "climapreneur",
+  );
+  const otherOperators = operators.filter(
+    (person) => person.role !== "supervisor" && person.role !== "climapreneur",
+  );
 
   const topPhotos = normalizeKontikkiPhotoPaths(
     data.top_photo_urls,
@@ -220,6 +232,14 @@ export default function KontikkiViewPage() {
             ) : (
               "—"
             )}
+            {producer?.registry ? (
+              <span className="mt-1 block text-xs text-neutral-500">
+                {formatProducerRegistry(producer.registry)}
+                {producer.registry === "rainbow" || producer.registry === "both"
+                  ? " · hardware module ID is required"
+                  : ""}
+              </span>
+            ) : null}
           </DetailRow>
 
           <DetailRow label="Status">
@@ -249,23 +269,6 @@ export default function KontikkiViewPage() {
           </DetailRow>
 
           <DetailRow label="Capacity">{formatKontikkiCapacity(capacity)}</DetailRow>
-
-          <DetailRow label="Operators">
-            {operators.length ? (
-              <ul className="space-y-2">
-                {operators.map((name) => (
-                  <li key={name} className="flex items-center gap-2">
-                    <span className="text-neutral-400" aria-hidden>
-                      &#9679;
-                    </span>
-                    <span>{name}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              "—"
-            )}
-          </DetailRow>
 
           <DetailRow label="Design document">
             {data.plan_pdf_url ? (
@@ -306,6 +309,50 @@ export default function KontikkiViewPage() {
           </DetailRow>
         </dl>
       </section>
+
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
+        <div className="border-b border-neutral-100 px-6 py-4">
+          <h2 className="text-lg font-semibold text-neutral-900">Operators</h2>
+          <p className="mt-0.5 text-sm text-neutral-500">
+            Supervisors and climapreneurs assigned to run this kontikki.
+          </p>
+        </div>
+        <div className="space-y-6 px-6 py-5">
+          <OperatorGroup heading="Supervisors" people={supervisors} />
+          <OperatorGroup heading="Climapreneurs" people={climapreneurs} />
+          {otherOperators.length > 0 ? (
+            <OperatorGroup heading="Other operators" people={otherOperators} />
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OperatorGroup({
+  heading,
+  people,
+}: {
+  heading: string;
+  people: Array<{ id: string; name: string }>;
+}) {
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-neutral-900">{heading}</h3>
+      {people.length === 0 ? (
+        <p className="mt-2 text-sm text-neutral-500">None assigned.</p>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {people.map((person) => (
+            <li key={person.id} className="flex items-center gap-2 text-sm text-neutral-900">
+              <span className="text-neutral-400" aria-hidden>
+                &#9679;
+              </span>
+              <span>{person.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -23,6 +23,7 @@ import {
   saveFarmerLocal,
 } from "../services/farmerService";
 import { loadClusterVillages } from "../services/clusterVillageService";
+import { pyrolysisProtocolForRegistry } from "@krishecarbon/shared";
 import { isFarmerSyncing, processSyncQueue } from "../services/syncService";
 import { getCurrentFarmLocation } from "../utils/location";
 import { startLocationCache } from "../services/locationCache";
@@ -53,6 +54,7 @@ const EMPTY_FORM = {
   longitude: null as number | null,
   farmer_photo_uri: null as string | null,
   farmer_photo_url: null as string | null,
+  credit_rights_acknowledged: false,
   total_land_size: "",
   owned_land_size: "",
   leased_land_size: "",
@@ -175,6 +177,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           longitude: farmer.longitude != null ? Number(farmer.longitude) : null,
           farmer_photo_uri: farmer.farmer_photo_uri ?? null,
           farmer_photo_url: farmer.farmer_photo_url ?? null,
+          credit_rights_acknowledged: Boolean(farmer.credit_rights_acknowledged),
           total_land_size: farmer.total_land_size
             ? String(farmer.total_land_size)
             : "",
@@ -246,8 +249,18 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       Alert.alert("Required", "Select a village from your cluster.");
       return;
     }
-    if (!isEdit && !form.farmer_photo_uri && !form.farmer_photo_url) {
+    const village = villages.find((item) => item.id === form.cluster_village_id);
+    const rainbowFarmer =
+      pyrolysisProtocolForRegistry(village?.producer_registry) === "rainbow";
+    if ((rainbowFarmer || !isEdit) && !form.farmer_photo_uri && !form.farmer_photo_url) {
       Alert.alert("Required", "Take a farmer photo.");
+      return;
+    }
+    if (rainbowFarmer && !form.credit_rights_acknowledged) {
+      Alert.alert(
+        "Rainbow",
+        "Confirm that this project holds the sole right to issue carbon credits for biochar from this farm.",
+      );
       return;
     }
     if (
@@ -271,6 +284,17 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         );
         return;
       }
+    }
+    if (!form.crop_name.trim() || !(Number(form.crop_area) > 0)) {
+      Alert.alert(
+        "Required",
+        "Enter the major crop and its area. Sowing and harvest dates are saved with that crop.",
+      );
+      return;
+    }
+    if (!form.sowing_date.trim() || !form.harvest_date.trim()) {
+      Alert.alert("Required", "Sowing date and harvest date are required.");
+      return;
     }
     if (!isHarvestAfterSowing(form.sowing_date, form.harvest_date)) {
       Alert.alert(
@@ -330,6 +354,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           longitude: form.longitude ?? 0,
           farmer_photo_uri: form.farmer_photo_uri,
           farmer_photo_url: form.farmer_photo_url,
+          credit_rights_acknowledged: form.credit_rights_acknowledged,
           total_land_size: total,
           owned_land_size: form.owned_land_size,
           leased_land_size: form.leased_land_size,
@@ -402,7 +427,12 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           onChangeText={(t) => setField("farmer_name", t)}
         />
         <FarmerPhotoField
-          required={!isEdit}
+          required={
+            !isEdit ||
+            pyrolysisProtocolForRegistry(
+              villages.find((item) => item.id === form.cluster_village_id)?.producer_registry,
+            ) === "rainbow"
+          }
           uri={form.farmer_photo_uri || form.farmer_photo_url}
           onChange={(uri) =>
             setForm((prev) => ({
@@ -453,6 +483,15 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
             }));
           }}
         />
+        {pyrolysisProtocolForRegistry(
+          villages.find((item) => item.id === form.cluster_village_id)?.producer_registry,
+        ) === "rainbow" ? (
+          <ToggleRow
+            label="This project holds the sole right to issue carbon credits for biochar from this farm *"
+            value={form.credit_rights_acknowledged}
+            onChange={(value) => setField("credit_rights_acknowledged", value)}
+          />
+        ) : null}
 
         <Text style={styles.section}>Land summary</Text>
         <FormInput
@@ -488,7 +527,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           keyboardType="decimal-pad"
         />
         <FormDateField
-          label="Estimated sowing date"
+          label="Estimated sowing date *"
           value={form.sowing_date}
           onChange={(t) =>
             setForm((prev) => ({
@@ -503,7 +542,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           maximumDate={form.harvest_date || undefined}
         />
         <FormDateField
-          label="Estimated harvest date"
+          label="Estimated harvest date *"
           value={form.harvest_date}
           onChange={(t) => setField("harvest_date", t)}
           afterDate={form.sowing_date || undefined}

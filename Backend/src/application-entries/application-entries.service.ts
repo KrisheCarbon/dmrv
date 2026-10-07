@@ -126,7 +126,7 @@ const AVAILABLE_BATCH_SELECT = `
   kontikki_id,
   kontikki_code,
   yield_percent,
-  pyrolysis_sessions!inner (
+  csi_pyrolysis_sessions!inner (
     status,
     completed_at
   ),
@@ -211,7 +211,7 @@ export class ApplicationEntriesService {
     if (allowedKontikkiIds.size === 0) return [];
 
     const { data, error } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .select(AVAILABLE_BATCH_SELECT)
       .eq('pyrolysis_completed', true)
       .in('kontikki_id', Array.from(allowedKontikkiIds))
@@ -221,7 +221,7 @@ export class ApplicationEntriesService {
 
     return (data ?? [])
       .filter((row) => {
-        const session = row.pyrolysis_sessions as { status?: string } | null;
+        const session = row.csi_pyrolysis_sessions as { status?: string } | null;
         return session?.status === 'completed';
       })
       .map((row) => this.mapAvailableBatchRow(row));
@@ -401,13 +401,13 @@ export class ApplicationEntriesService {
     const uniqueIds = [...new Set(batchIds)];
 
     const { data, error } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .select(
         `
         id,
         kontikki_id,
         pyrolysis_completed,
-        pyrolysis_sessions!inner (status)
+        csi_pyrolysis_sessions!inner (status)
       `,
       )
       .in('id', uniqueIds);
@@ -419,7 +419,7 @@ export class ApplicationEntriesService {
     }
 
     for (const row of data ?? []) {
-      const session = row.pyrolysis_sessions as { status?: string } | null;
+      const session = row.csi_pyrolysis_sessions as { status?: string } | null;
       if (!row.pyrolysis_completed || session?.status !== 'completed') {
         throw new BadRequestException(
           'Only completed pyrolysis batches can be linked to application.',
@@ -436,7 +436,7 @@ export class ApplicationEntriesService {
 
   private async fetchLinkMeta(batchIds: string[]) {
     const { data, error } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .select(
         `
         id,
@@ -541,7 +541,7 @@ export class ApplicationEntriesService {
   }
 
   private mapAvailableBatchRow(row: Record<string, unknown>): AvailableApplicationPyrolysisBatch {
-    const session = row.pyrolysis_sessions as { completed_at?: string | null } | null;
+    const session = row.csi_pyrolysis_sessions as { completed_at?: string | null } | null;
     const kontikki = row.kontikkis as {
       biochar_producer_id?: string | null;
       biochar_producer?: { id?: string; name?: string | null } | null;

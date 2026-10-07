@@ -257,7 +257,9 @@ export class FeedstocksService {
     }
 
     if (payload.hc_ratio !== undefined && payload.hc_ratio >= 0.4) {
-      throw new BadRequestException('H/C ratio must be less than 0.4.');
+      throw new BadRequestException(
+        'Feedstock catalog H/C must be under 0.4. Rainbow H/Corg is stored on the kiln-run lab sample and must be under 0.7.',
+      );
     }
 
     if (payload.lab_status !== undefined) {

@@ -27,8 +27,18 @@ const BASE_MODULES = [
   {
     id: "dashboard",
     title: "Dashboard",
-    desc: "Overview of your activity & metrics",
-    active: false
+    desc: "Farmers, pyrolysis, mixing, and payment stats",
+    active: true,
+    screen: "DashboardHub",
+    roles: ["admin", "manager", "supervisor"]
+  },
+  {
+    id: "dashboard-cluster",
+    title: "Dashboard",
+    desc: "Your cluster totals and your own entries",
+    active: true,
+    screen: "FieldActivity",
+    roles: ["climapreneur"]
   },
   {
     id: "pyrolysis",

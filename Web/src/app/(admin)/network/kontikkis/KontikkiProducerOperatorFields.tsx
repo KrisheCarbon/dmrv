@@ -8,6 +8,7 @@ export interface ProducerOption {
   id: string;
   name: string;
   producer_code?: string | null;
+  registry?: string | null;
 }
 
 export interface OperatorOption {
@@ -21,7 +22,7 @@ interface KontikkiProducerOperatorFieldsProps {
   operatorIds: string[];
   kontikkiName: string;
   onKontikkiNameChange: (name: string) => void;
-  onProducerChange: (producerId: string) => void;
+  onProducerChange: (producerId: string, registry: string) => void;
   onOperatorIdsChange: (operatorIds: string[]) => void;
 }
 
@@ -48,16 +49,34 @@ export default function KontikkiProducerOperatorFields({
 
   useEffect(() => {
     async function fetchProducers() {
-      const { data } = await supabase
+      const withRegistry = await supabase
+        .from("biochar_producers")
+        .select("id, name, producer_code, registry")
+        .order("name");
+
+      if (!withRegistry.error) {
+        setProducers(withRegistry.data ?? []);
+        return;
+      }
+
+      const fallback = await supabase
         .from("biochar_producers")
         .select("id, name, producer_code")
         .order("name");
-
-      setProducers(data ?? []);
+      setProducers(fallback.data ?? []);
     }
 
     fetchProducers();
   }, []);
+
+  useEffect(() => {
+    if (!producerId || producers.length === 0) return;
+    const selected = producers.find((producer) => producer.id === producerId);
+    if (!selected?.registry) return;
+    onProducerChange(producerId, selected.registry);
+    // Notify once the producer list resolves the registry for the current id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [producerId, producers]);
 
   useEffect(() => {
     async function fetchOperators() {
@@ -164,7 +183,11 @@ export default function KontikkiProducerOperatorFields({
         <select
           className={inputClass}
           value={producerId}
-          onChange={(e) => onProducerChange(e.target.value)}
+          onChange={(e) => {
+            const nextId = e.target.value;
+            const selected = producers.find((producer) => producer.id === nextId);
+            onProducerChange(nextId, selected?.registry ?? "");
+          }}
         >
           <option value="">Select producer</option>
           {producers.map((producer) => (
@@ -172,6 +195,8 @@ export default function KontikkiProducerOperatorFields({
               {producer.producer_code
                 ? `${producer.name} (${producer.producer_code})`
                 : producer.name}
+              {producer.registry === "rainbow" ? " · Rainbow" : ""}
+              {producer.registry === "csi" ? " · CSI" : ""}
             </option>
           ))}
         </select>

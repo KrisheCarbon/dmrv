@@ -36,6 +36,7 @@ export interface Farmer {
   leasedLandSize: number | null;
   farmerPhotoUri: string | null;
   farmerPhotoUrl: string | null;
+  creditRightsAcknowledged: boolean;
   crops: FarmerCrop[];
   interestedInBiochar: boolean;
   priorBiocharExp: boolean;
@@ -72,6 +73,7 @@ interface FarmerRowRaw {
   leased_land_size?: number | null;
   farmer_photo_uri?: string | null;
   farmer_photo_url?: string | null;
+  credit_rights_acknowledged?: number | null;
   crops: string;
   interested_in_biochar: number;
   prior_biochar_exp: number;
@@ -117,6 +119,7 @@ export function rowToFarmer(row: FarmerRowRaw): Farmer {
     leasedLandSize: row.leased_land_size ?? null,
     farmerPhotoUri: row.farmer_photo_uri ?? null,
     farmerPhotoUrl: row.farmer_photo_url ?? null,
+    creditRightsAcknowledged: fromSqliteBool(row.credit_rights_acknowledged),
     crops,
     interestedInBiochar: fromSqliteBool(row.interested_in_biochar),
     priorBiocharExp: fromSqliteBool(row.prior_biochar_exp),
@@ -155,6 +158,7 @@ export function farmerToRow(farmer: Omit<Farmer, "id">): Record<string, unknown>
     leased_land_size: farmer.leasedLandSize,
     farmer_photo_uri: farmer.farmerPhotoUri,
     farmer_photo_url: farmer.farmerPhotoUrl,
+    credit_rights_acknowledged: toSqliteBool(farmer.creditRightsAcknowledged),
     crops: JSON.stringify(farmer.crops ?? []),
     interested_in_biochar: toSqliteBool(farmer.interestedInBiochar),
     prior_biochar_exp: toSqliteBool(farmer.priorBiocharExp),
@@ -778,6 +782,7 @@ export interface PyrolysisBatch {
   kontikkiCode: string;
   producerName: string | null;
   batchNumber: string | null;
+  generatedBatchCode: string | null;
   feedstockQuantity: number | null;
   avgFeedstockSizeCm: number | null;
   feedstockId: string | null;
@@ -863,6 +868,7 @@ interface PyrolysisBatchRowRaw {
   kontikki_code: string;
   producer_name: string | null;
   batch_number: string | null;
+  generated_batch_code?: string | null;
   feedstock_quantity: number | null;
   avg_feedstock_size_cm: number | null;
   feedstock_id: string | null;
@@ -949,6 +955,7 @@ export function rowToPyrolysisBatch(row: PyrolysisBatchRowRaw): PyrolysisBatch {
     kontikkiCode: row.kontikki_code,
     producerName: row.producer_name,
     batchNumber: row.batch_number,
+    generatedBatchCode: row.generated_batch_code ?? null,
     feedstockQuantity: row.feedstock_quantity,
     avgFeedstockSizeCm: row.avg_feedstock_size_cm,
     feedstockId: row.feedstock_id,
@@ -1037,6 +1044,7 @@ export function pyrolysisBatchToRow(
     kontikki_code: batch.kontikkiCode,
     producer_name: batch.producerName,
     batch_number: batch.batchNumber,
+    generated_batch_code: batch.generatedBatchCode,
     feedstock_quantity: batch.feedstockQuantity,
     avg_feedstock_size_cm: batch.avgFeedstockSizeCm,
     feedstock_id: batch.feedstockId,
@@ -1513,6 +1521,7 @@ export interface RainbowPyrolysisBatch {
   producerId: string | null;
   producerName: string | null;
   batchNumber: string | null;
+  generatedBatchCode: string | null;
   feedstockQuantity: number | null;
   avgFeedstockSizeCm: number | null;
   feedstockId: string | null;
@@ -1520,6 +1529,9 @@ export interface RainbowPyrolysisBatch {
   locationLat: number | null;
   locationLng: number | null;
   locationAddress: string | null;
+  kilnPhotoLocalUri: string | null;
+  kilnPhotoUrl: string | null;
+  kilnPhotoMetadataJson: string | null;
   feedstockPhotoLocalUri: string | null;
   feedstockPhotoUrl: string | null;
   feedstockSizePhotoLocalUri: string | null;
@@ -1542,6 +1554,32 @@ export interface RainbowPyrolysisBatch {
   samplePhotoUrl: string | null;
   samplePhotoMetadataJson: string | null;
   sampleSavedAt: string | null;
+  sampleSpotsJson: string | null;
+  samplePilePhotoLocalUri: string | null;
+  samplePilePhotoUrl: string | null;
+  samplePilePhotoMetadataJson: string | null;
+  sampleBagCode: string | null;
+  sampleBagPhotoLocalUri: string | null;
+  sampleBagPhotoUrl: string | null;
+  sampleBagPhotoMetadataJson: string | null;
+  sampleBagNotUsed: boolean;
+  sampleCollectedAt: string | null;
+  feedstockClass: "woody" | "other" | null;
+  lastLayerConfirmed: boolean;
+  flameCurtainPhotoLocalUri: string | null;
+  flameCurtainPhotoUrl: string | null;
+  flameCurtainPhotoMetadataJson: string | null;
+  quenchStartPhotoLocalUri: string | null;
+  quenchStartPhotoUrl: string | null;
+  quenchStartPhotoMetadataJson: string | null;
+  quenchEndPhotoLocalUri: string | null;
+  quenchEndPhotoUrl: string | null;
+  quenchEndPhotoMetadataJson: string | null;
+  quenchPhotosJson: string | null;
+  quenchVideoLocalUri: string | null;
+  quenchVideoUrl: string | null;
+  quenchVideoMetadataJson: string | null;
+  quenchVideoDurationSeconds: number | null;
   reviewStatus: string | null;
   reviewerNotes: string | null;
   submissionStatus: string;
@@ -1560,6 +1598,7 @@ interface RainbowPyrolysisBatchRowRaw {
   producer_id: string | null;
   producer_name: string | null;
   batch_number: string | null;
+  generated_batch_code?: string | null;
   feedstock_quantity: number | null;
   avg_feedstock_size_cm: number | null;
   feedstock_id: string | null;
@@ -1567,6 +1606,9 @@ interface RainbowPyrolysisBatchRowRaw {
   location_lat: number | null;
   location_lng: number | null;
   location_address: string | null;
+  kiln_photo_local_uri?: string | null;
+  kiln_photo_url?: string | null;
+  kiln_photo_metadata_json?: string | null;
   feedstock_photo_local_uri: string | null;
   feedstock_photo_url: string | null;
   feedstock_size_photo_local_uri: string | null;
@@ -1589,6 +1631,32 @@ interface RainbowPyrolysisBatchRowRaw {
   sample_photo_url: string | null;
   sample_photo_metadata_json: string | null;
   sample_saved_at: string | null;
+  sample_spots_json?: string | null;
+  sample_pile_photo_local_uri?: string | null;
+  sample_pile_photo_url?: string | null;
+  sample_pile_photo_metadata_json?: string | null;
+  sample_bag_code?: string | null;
+  sample_bag_photo_local_uri?: string | null;
+  sample_bag_photo_url?: string | null;
+  sample_bag_photo_metadata_json?: string | null;
+  sample_bag_not_used?: number | null;
+  sample_collected_at?: string | null;
+  feedstock_class?: string | null;
+  last_layer_confirmed?: number | null;
+  flame_curtain_photo_local_uri?: string | null;
+  flame_curtain_photo_url?: string | null;
+  flame_curtain_photo_metadata_json?: string | null;
+  quench_start_photo_local_uri?: string | null;
+  quench_start_photo_url?: string | null;
+  quench_start_photo_metadata_json?: string | null;
+  quench_end_photo_local_uri?: string | null;
+  quench_end_photo_url?: string | null;
+  quench_end_photo_metadata_json?: string | null;
+  quench_photos_json?: string | null;
+  quench_video_local_uri?: string | null;
+  quench_video_url?: string | null;
+  quench_video_metadata_json?: string | null;
+  quench_video_duration_seconds?: number | null;
   review_status: string | null;
   reviewer_notes: string | null;
   submission_status: string;
@@ -1608,6 +1676,7 @@ export function rowToRainbowPyrolysisBatch(row: RainbowPyrolysisBatchRowRaw): Ra
     producerId: row.producer_id,
     producerName: row.producer_name,
     batchNumber: row.batch_number,
+    generatedBatchCode: row.generated_batch_code ?? null,
     feedstockQuantity: row.feedstock_quantity,
     avgFeedstockSizeCm: row.avg_feedstock_size_cm,
     feedstockId: row.feedstock_id,
@@ -1615,6 +1684,9 @@ export function rowToRainbowPyrolysisBatch(row: RainbowPyrolysisBatchRowRaw): Ra
     locationLat: row.location_lat,
     locationLng: row.location_lng,
     locationAddress: row.location_address,
+    kilnPhotoLocalUri: row.kiln_photo_local_uri ?? null,
+    kilnPhotoUrl: row.kiln_photo_url ?? null,
+    kilnPhotoMetadataJson: row.kiln_photo_metadata_json ?? null,
     feedstockPhotoLocalUri: row.feedstock_photo_local_uri,
     feedstockPhotoUrl: row.feedstock_photo_url,
     feedstockSizePhotoLocalUri: row.feedstock_size_photo_local_uri,
@@ -1637,6 +1709,36 @@ export function rowToRainbowPyrolysisBatch(row: RainbowPyrolysisBatchRowRaw): Ra
     samplePhotoUrl: row.sample_photo_url,
     samplePhotoMetadataJson: row.sample_photo_metadata_json,
     sampleSavedAt: row.sample_saved_at,
+    sampleSpotsJson: row.sample_spots_json ?? null,
+    samplePilePhotoLocalUri: row.sample_pile_photo_local_uri ?? null,
+    samplePilePhotoUrl: row.sample_pile_photo_url ?? null,
+    samplePilePhotoMetadataJson: row.sample_pile_photo_metadata_json ?? null,
+    sampleBagCode: row.sample_bag_code ?? null,
+    sampleBagPhotoLocalUri: row.sample_bag_photo_local_uri ?? null,
+    sampleBagPhotoUrl: row.sample_bag_photo_url ?? null,
+    sampleBagPhotoMetadataJson: row.sample_bag_photo_metadata_json ?? null,
+    sampleBagNotUsed: fromSqliteBool(row.sample_bag_not_used),
+    sampleCollectedAt: row.sample_collected_at ?? null,
+    feedstockClass:
+      row.feedstock_class === "woody" || row.feedstock_class === "other"
+        ? row.feedstock_class
+        : null,
+    lastLayerConfirmed: fromSqliteBool(row.last_layer_confirmed),
+    flameCurtainPhotoLocalUri: row.flame_curtain_photo_local_uri ?? null,
+    flameCurtainPhotoUrl: row.flame_curtain_photo_url ?? null,
+    flameCurtainPhotoMetadataJson: row.flame_curtain_photo_metadata_json ?? null,
+    quenchStartPhotoLocalUri: row.quench_start_photo_local_uri ?? null,
+    quenchStartPhotoUrl: row.quench_start_photo_url ?? null,
+    quenchStartPhotoMetadataJson: row.quench_start_photo_metadata_json ?? null,
+    quenchEndPhotoLocalUri: row.quench_end_photo_local_uri ?? null,
+    quenchEndPhotoUrl: row.quench_end_photo_url ?? null,
+    quenchEndPhotoMetadataJson: row.quench_end_photo_metadata_json ?? null,
+    quenchPhotosJson: row.quench_photos_json ?? null,
+    quenchVideoLocalUri: row.quench_video_local_uri ?? null,
+    quenchVideoUrl: row.quench_video_url ?? null,
+    quenchVideoMetadataJson: row.quench_video_metadata_json ?? null,
+    quenchVideoDurationSeconds:
+      row.quench_video_duration_seconds != null ? Number(row.quench_video_duration_seconds) : null,
     reviewStatus: row.review_status,
     reviewerNotes: row.reviewer_notes,
     submissionStatus: row.submission_status,
@@ -1658,6 +1760,7 @@ export function rainbowPyrolysisBatchToRow(
     producer_id: batch.producerId,
     producer_name: batch.producerName,
     batch_number: batch.batchNumber,
+    generated_batch_code: batch.generatedBatchCode,
     feedstock_quantity: batch.feedstockQuantity,
     avg_feedstock_size_cm: batch.avgFeedstockSizeCm,
     feedstock_id: batch.feedstockId,
@@ -1665,6 +1768,9 @@ export function rainbowPyrolysisBatchToRow(
     location_lat: batch.locationLat,
     location_lng: batch.locationLng,
     location_address: batch.locationAddress,
+    kiln_photo_local_uri: batch.kilnPhotoLocalUri,
+    kiln_photo_url: batch.kilnPhotoUrl,
+    kiln_photo_metadata_json: batch.kilnPhotoMetadataJson,
     feedstock_photo_local_uri: batch.feedstockPhotoLocalUri,
     feedstock_photo_url: batch.feedstockPhotoUrl,
     feedstock_size_photo_local_uri: batch.feedstockSizePhotoLocalUri,
@@ -1687,6 +1793,32 @@ export function rainbowPyrolysisBatchToRow(
     sample_photo_url: batch.samplePhotoUrl,
     sample_photo_metadata_json: batch.samplePhotoMetadataJson,
     sample_saved_at: batch.sampleSavedAt,
+    sample_spots_json: batch.sampleSpotsJson,
+    sample_pile_photo_local_uri: batch.samplePilePhotoLocalUri,
+    sample_pile_photo_url: batch.samplePilePhotoUrl,
+    sample_pile_photo_metadata_json: batch.samplePilePhotoMetadataJson,
+    sample_bag_code: batch.sampleBagCode,
+    sample_bag_photo_local_uri: batch.sampleBagPhotoLocalUri,
+    sample_bag_photo_url: batch.sampleBagPhotoUrl,
+    sample_bag_photo_metadata_json: batch.sampleBagPhotoMetadataJson,
+    sample_bag_not_used: toSqliteBool(batch.sampleBagNotUsed),
+    sample_collected_at: batch.sampleCollectedAt,
+    feedstock_class: batch.feedstockClass,
+    last_layer_confirmed: toSqliteBool(batch.lastLayerConfirmed),
+    flame_curtain_photo_local_uri: batch.flameCurtainPhotoLocalUri,
+    flame_curtain_photo_url: batch.flameCurtainPhotoUrl,
+    flame_curtain_photo_metadata_json: batch.flameCurtainPhotoMetadataJson,
+    quench_start_photo_local_uri: batch.quenchStartPhotoLocalUri,
+    quench_start_photo_url: batch.quenchStartPhotoUrl,
+    quench_start_photo_metadata_json: batch.quenchStartPhotoMetadataJson,
+    quench_end_photo_local_uri: batch.quenchEndPhotoLocalUri,
+    quench_end_photo_url: batch.quenchEndPhotoUrl,
+    quench_end_photo_metadata_json: batch.quenchEndPhotoMetadataJson,
+    quench_photos_json: batch.quenchPhotosJson,
+    quench_video_local_uri: batch.quenchVideoLocalUri,
+    quench_video_url: batch.quenchVideoUrl,
+    quench_video_metadata_json: batch.quenchVideoMetadataJson,
+    quench_video_duration_seconds: batch.quenchVideoDurationSeconds,
     review_status: batch.reviewStatus,
     reviewer_notes: batch.reviewerNotes,
     submission_status: batch.submissionStatus,

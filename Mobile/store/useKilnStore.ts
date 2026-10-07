@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Device } from 'react-native-ble-plx';
 import type {
   ScannedDevice,
+  SensorProtocol,
   StorageInfo,
   DownloadStatus,
 } from '../types/kiln';
@@ -10,6 +11,7 @@ import type { KilnKontikkiOption } from '../services/kiln/kilnKontikkiService';
 interface KilnState {
   connectedDevice: Device | null;
   kilnId: string | null;
+  sensorProtocol: SensorProtocol | null;
   selectedKontikki: KilnKontikkiOption | null;
   storageInfo: StorageInfo | null;
   scannedDevices: ScannedDevice[];
@@ -22,6 +24,7 @@ interface KilnState {
 interface KilnActions {
   setConnectedDevice: (device: Device | null) => void;
   setKilnId: (id: string | null) => void;
+  setSensorProtocol: (protocol: SensorProtocol | null) => void;
   setSelectedKontikki: (kontikki: KilnKontikkiOption | null) => void;
   setStorageInfo: (info: StorageInfo | null) => void;
   setIsScanning: (scanning: boolean) => void;
@@ -37,6 +40,7 @@ interface KilnActions {
 export const useKilnStore = create<KilnState & KilnActions>((set) => ({
   connectedDevice: null,
   kilnId: null,
+  sensorProtocol: null,
   selectedKontikki: null,
   storageInfo: null,
   scannedDevices: [],
@@ -47,6 +51,7 @@ export const useKilnStore = create<KilnState & KilnActions>((set) => ({
 
   setConnectedDevice: (device) => set({ connectedDevice: device }),
   setKilnId: (id) => set({ kilnId: id }),
+  setSensorProtocol: (protocol) => set({ sensorProtocol: protocol }),
   setSelectedKontikki: (kontikki) => set({ selectedKontikki: kontikki }),
   setStorageInfo: (info) => set({ storageInfo: info }),
   setIsScanning: (scanning) => set({ isScanning: scanning }),
@@ -72,6 +77,7 @@ export const useKilnStore = create<KilnState & KilnActions>((set) => ({
     set({
       connectedDevice: null,
       kilnId: null,
+      sensorProtocol: null,
       storageInfo: null,
       downloadStatus: 'idle',
       downloadedBytes: 0,
@@ -81,6 +87,7 @@ export const useKilnStore = create<KilnState & KilnActions>((set) => ({
     set({
       connectedDevice: null,
       kilnId: null,
+      sensorProtocol: null,
       selectedKontikki: null,
       storageInfo: null,
       scannedDevices: [],

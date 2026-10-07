@@ -56,7 +56,7 @@ export class KilnBatchesService {
       );
     }
 
-    if (batch.kiln_id.trim() !== kontikki.module_id.trim()) {
+    if (!this.moduleIdsMatch(batch.kiln_id, kontikki.module_id)) {
       throw new ForbiddenException(
         `Hardware module ID "${batch.kiln_id}" does not match kontikki module "${kontikki.module_id}".`,
       );
@@ -115,6 +115,24 @@ export class KilnBatchesService {
       batch_id: batchId,
       time_offset_seconds: point.time_offset_seconds,
       temperature: point.temperature,
+      top_c: point.top_c,
+      middle_c: point.middle_c,
+      bottom_c: point.bottom_c,
+      kiln_state: point.kiln_state,
+      top_valid: point.top_valid,
+      middle_valid: point.middle_valid,
+      bottom_valid: point.bottom_valid,
+      top_open: point.top_open,
+      middle_open: point.middle_open,
+      bottom_open: point.bottom_open,
+      top_rate: point.top_rate,
+      middle_rate: point.middle_rate,
+      bottom_rate: point.bottom_rate,
+      latitude: point.latitude,
+      longitude: point.longitude,
+      satellites: point.satellites,
+      utc_epoch: point.utc_epoch,
+      uptime_s: point.uptime_s,
       recorded_at: new Date(
         startTime.getTime() + point.time_offset_seconds * 1000,
       ).toISOString(),
@@ -216,17 +234,51 @@ export class KilnBatchesService {
       throw new ForbiddenException('You do not have access to this batch.');
     }
 
-    const { data: readings, error: readingsError } = await this.supabase
+    const zoneSelect = [
+      'time_offset_seconds',
+      'temperature',
+      'recorded_at',
+      'top_c',
+      'middle_c',
+      'bottom_c',
+      'kiln_state',
+      'top_valid',
+      'middle_valid',
+      'bottom_valid',
+      'top_open',
+      'middle_open',
+      'bottom_open',
+      'top_rate',
+      'middle_rate',
+      'bottom_rate',
+      'latitude',
+      'longitude',
+      'satellites',
+      'utc_epoch',
+      'uptime_s',
+    ].join(', ');
+    const zoneReadings = await this.supabase
       .from('kiln_temperature_readings')
-      .select('time_offset_seconds, temperature, recorded_at')
+      .select(zoneSelect)
       .eq('batch_id', batchId)
       .order('time_offset_seconds', { ascending: true });
 
-    if (readingsError) {
+    const readingsResult =
+      zoneReadings.error && /column|schema cache/i.test(zoneReadings.error.message)
+        ? await this.supabase
+            .from('kiln_temperature_readings')
+            .select('time_offset_seconds, temperature, recorded_at')
+            .eq('batch_id', batchId)
+            .order('time_offset_seconds', { ascending: true })
+        : zoneReadings;
+
+    if (readingsResult.error) {
       throw new Error(
-        `Failed to load temperature readings: ${readingsError.message}`,
+        `Failed to load temperature readings: ${readingsResult.error.message}`,
       );
     }
+
+    const readings = readingsResult.data;
 
     return {
       ...this.mapBatchSummary(batch),
@@ -273,5 +325,12 @@ export class KilnBatchesService {
     }
 
     return kontikki;
+  }
+
+  private moduleIdsMatch(left: string, right: string): boolean {
+    const key = (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const a = key(left);
+    const b = key(right);
+    return a.length > 0 && a === b;
   }
 }

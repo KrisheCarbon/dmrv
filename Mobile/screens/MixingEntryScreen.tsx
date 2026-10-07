@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import {
   MIXING_MATERIAL_TYPES,
+  isRainbowMixVolumeAllowed,
   mixingMaterialLabel,
   type MixingMaterialType,
 } from "@krishecarbon/shared";
@@ -90,6 +91,8 @@ export default function MixingEntryScreen({ navigation, route }) {
       { value: "1", label: "1:1" },
       { value: "2", label: "1:2" },
       { value: "3", label: "1:3" },
+      { value: "0.5", label: "2:1 material to biochar" },
+      { value: "0.333", label: "3:1 material to biochar" },
     ],
     [],
   );
@@ -101,7 +104,11 @@ export default function MixingEntryScreen({ navigation, route }) {
         label: batch.batch_number
           ? `${batch.kontikki_code} · ${batch.batch_number}`
           : batch.kontikki_code,
-        subtitle: [batch.producer_name, batch.yield_percent != null ? `Yield ${batch.yield_percent}%` : null]
+        subtitle: [
+          batch.protocol === "rainbow" ? "Rainbow" : null,
+          batch.producer_name,
+          batch.yield_percent != null ? `Yield ${batch.yield_percent}%` : null,
+        ]
           .filter(Boolean)
           .join(" · "),
       })),
@@ -296,6 +303,15 @@ export default function MixingEntryScreen({ navigation, route }) {
   }
 
   async function handleSubmit() {
+    const selected = pyrolysisBatches.filter((batch) => selectedBatchIds.includes(batch.id));
+    const includesRainbow = selected.some((batch) => batch.protocol === "rainbow");
+    if (includesRainbow && !isRainbowMixVolumeAllowed(entry?.materialToBiocharRatio)) {
+      Alert.alert(
+        "Rainbow mix",
+        "Biochar must be under half the mix by volume. Choose 2:1 or 3:1 material to biochar.",
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       await submitMixingEntry(entryId);
@@ -468,6 +484,13 @@ export default function MixingEntryScreen({ navigation, route }) {
             }}
             enabled={isEditable}
           />
+          {pyrolysisBatches.some(
+            (batch) => selectedBatchIds.includes(batch.id) && batch.protocol === "rainbow",
+          ) ? (
+            <Text style={styles.sectionHint}>
+              Rainbow: biochar must be under half the mix. Use 2:1 or 3:1 material to biochar.
+            </Text>
+          ) : null}
         </View>
 
         <View style={styles.sectionCard}>

@@ -189,7 +189,7 @@ export default function FeedstockDetailsPage() {
           <DetailRow label="Carbon content">
             {data.carbon_content_percent}%
           </DetailRow>
-          <DetailRow label="H/C ratio">{data.hc_ratio}</DetailRow>
+          <DetailRow label="Catalog H/C (CSI, under 0.4)">{data.hc_ratio}</DetailRow>
           <DetailRow label="Lab status">
             <span className="inline-flex rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-xs text-neutral-800">
               {formatLabStatus(data.lab_status)}

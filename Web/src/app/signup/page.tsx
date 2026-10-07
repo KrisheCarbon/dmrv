@@ -279,9 +279,12 @@ function SignupForm() {
               </label>
               <input
                 type="text"
-                placeholder="6-digit code"
+                placeholder="8-digit code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={8}
                 value={otp}
-                onChange={(e) => setOtp(e.target.value)}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>

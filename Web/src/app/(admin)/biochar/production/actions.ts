@@ -47,3 +47,13 @@ export async function updatePyrolysisBatchYield(id: string, yieldPercent: number
     body: JSON.stringify({ yield_percent: yieldPercent }),
   });
 }
+
+export async function updatePyrolysisBatchVolumePercent(
+  id: string,
+  volumePercent: number | null,
+) {
+  return backendFetch<PyrolysisBatchDetail>(`/pyrolysis-batches/${id}/volume-percent`, {
+    method: "PATCH",
+    body: JSON.stringify({ volume_percent: volumePercent }),
+  });
+}

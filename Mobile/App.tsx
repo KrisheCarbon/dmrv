@@ -29,6 +29,9 @@ import SoilSamplesInboxScreen from "./screens/SoilSamplesInboxScreen";
 import SoilSampleReceiveScreen from "./screens/SoilSampleReceiveScreen";
 import SoilReportUploadScreen from "./screens/SoilReportUploadScreen";
 import FarmerDashboardScreen from "./screens/FarmerDashboardScreen";
+import DashboardHubScreen from "./screens/DashboardHubScreen";
+import DashboardModuleScreen from "./screens/DashboardModuleScreen";
+import FieldActivityScreen from "./screens/FieldActivityScreen";
 import AddFarmerScreen from "./screens/AddFarmerScreen";
 import EditFarmerScreen from "./screens/EditFarmerScreen";
 import FarmerDetailScreen from "./screens/FarmerDetailScreen";
@@ -45,6 +48,7 @@ import KilnSelectKontikkiScreen from "./screens/KilnSelectKontikkiScreen";
 import KilnScannerScreen from "./screens/KilnScannerScreen";
 import KilnDashboardScreen from "./screens/KilnDashboardScreen";
 import KilnSavedBatchesScreen from "./screens/KilnSavedBatchesScreen";
+import KilnSensorSettingsScreen from "./screens/KilnSensorSettingsScreen";
 import PhotoWatermarkProcessor from "./components/PhotoWatermarkProcessor";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -100,6 +104,18 @@ function MainStack() {
         name="FarmerDashboard"
         component={screen(FarmerDashboardScreen)}
       />
+      <Stack.Screen
+        name="DashboardHub"
+        component={screen(DashboardHubScreen)}
+      />
+      <Stack.Screen
+        name="DashboardModule"
+        component={screen(DashboardModuleScreen)}
+      />
+      <Stack.Screen
+        name="FieldActivity"
+        component={screen(FieldActivityScreen)}
+      />
       <Stack.Screen name="AddFarmer" component={screen(AddFarmerScreen)} />
       <Stack.Screen name="FarmerDetail" component={screen(FarmerDetailScreen)} />
       <Stack.Screen name="EditFarmer" component={screen(EditFarmerScreen)} />
@@ -142,6 +158,10 @@ function MainStack() {
       <Stack.Screen
         name="KilnSavedBatches"
         component={screen(KilnSavedBatchesScreen)}
+      />
+      <Stack.Screen
+        name="KilnSensorSettings"
+        component={screen(KilnSensorSettingsScreen)}
       />
     </Stack.Navigator>
   );

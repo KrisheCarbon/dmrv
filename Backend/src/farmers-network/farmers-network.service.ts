@@ -345,6 +345,24 @@ export class FarmersNetworkService {
     }
   }
 
+  private assertFieldCropDates(
+    sowingDate?: string | null,
+    harvestDate?: string | null,
+  ) {
+    const sowing = String(sowingDate || '').trim();
+    const harvest = String(harvestDate || '').trim();
+    if (!sowing || !harvest) {
+      throw new BadRequestException(
+        'Sowing date and harvest date are required.',
+      );
+    }
+    if (harvest <= sowing) {
+      throw new BadRequestException(
+        'Harvest date must be after the sowing date.',
+      );
+    }
+  }
+
   async createField(
     user: AuthenticatedUser,
     payload: FarmFieldUpsertPayload,
@@ -355,6 +373,7 @@ export class FarmersNetworkService {
     if (!area || area <= 0) {
       throw new BadRequestException('Plot area (acres) is required.');
     }
+    this.assertFieldCropDates(payload.sowing_date, payload.harvest_date);
     await this.assertFieldAreaCap(farm, area);
 
     const insert = {
@@ -405,6 +424,10 @@ export class FarmersNetworkService {
     if (nextArea > 0) {
       await this.assertFieldAreaCap(farm, nextArea, id);
     }
+    this.assertFieldCropDates(
+      payload.sowing_date !== undefined ? payload.sowing_date : existing.sowing_date,
+      payload.harvest_date !== undefined ? payload.harvest_date : existing.harvest_date,
+    );
 
     const patch: Record<string, unknown> = {};
     const keys: Array<keyof FarmFieldUpsertPayload> = [

@@ -1,5 +1,31 @@
 import type { RawEspBatch } from '../types/kiln';
 
+function optionalBool(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === 0) return value === 1;
+  return null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readingTemperature(item: Record<string, unknown>): number | null {
+  if (typeof item.temperature === 'number' && Number.isFinite(item.temperature)) {
+    return item.temperature;
+  }
+
+  const zones = [item.middle_c, item.top_c, item.bottom_c].filter(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  );
+  if (zones.length === 0) return null;
+  return zones.reduce((sum, value) => sum + value, 0) / zones.length;
+}
+
 export const MIN_JSON_BATCH_BYTES = 20;
 
 export function parseKilnBatchBytes(rawBytes: Uint8Array): RawEspBatch {
@@ -73,10 +99,8 @@ function validateRawBatch(value: unknown): RawEspBatch {
     }
 
     const item = point as Record<string, unknown>;
-    if (
-      typeof item.time_offset_seconds !== 'number' ||
-      typeof item.temperature !== 'number'
-    ) {
+    const temperature = readingTemperature(item);
+    if (typeof item.time_offset_seconds !== 'number' || temperature == null) {
       throw new Error(
         `data_points[${index}] missing time_offset_seconds or temperature.`,
       );
@@ -84,7 +108,25 @@ function validateRawBatch(value: unknown): RawEspBatch {
 
     return {
       time_offset_seconds: item.time_offset_seconds,
-      temperature: item.temperature,
+      temperature,
+      top_c: optionalNumber(item.top_c),
+      middle_c: optionalNumber(item.middle_c),
+      bottom_c: optionalNumber(item.bottom_c),
+      kiln_state: optionalText(item.kiln_state),
+      top_valid: optionalBool(item.top_valid),
+      middle_valid: optionalBool(item.middle_valid),
+      bottom_valid: optionalBool(item.bottom_valid),
+      top_open: optionalBool(item.top_open),
+      middle_open: optionalBool(item.middle_open),
+      bottom_open: optionalBool(item.bottom_open),
+      top_rate: optionalNumber(item.top_rate),
+      middle_rate: optionalNumber(item.middle_rate),
+      bottom_rate: optionalNumber(item.bottom_rate),
+      latitude: optionalNumber(item.latitude),
+      longitude: optionalNumber(item.longitude),
+      satellites: optionalNumber(item.satellites),
+      utc_epoch: optionalNumber(item.utc_epoch),
+      uptime_s: optionalNumber(item.uptime_s),
     };
   });
 
@@ -99,4 +141,75 @@ function validateRawBatch(value: unknown): RawEspBatch {
     duration_seconds: durationSeconds,
     data_points: normalizedPoints,
   };
+}
+
+export function describeSavedKilnBatch(payload: string): string[] {
+  try {
+    const batch = JSON.parse(payload) as { data_points?: Array<Record<string, unknown>> };
+    const points = Array.isArray(batch.data_points) ? batch.data_points : [];
+    const last = points[points.length - 1] ?? {};
+    const zone = (label: string, tempKey: string, openKey: string, rateKey: string) => {
+      if (last[openKey] === true) return `${label} probe open`;
+      const temp = last[tempKey];
+      const rate = last[rateKey];
+      const tempText = typeof temp === 'number' ? `${temp.toFixed(1)} °C` : 'no reading';
+      const rateText = typeof rate === 'number' ? `, ${rate.toFixed(1)} °C/s` : '';
+      return `${label} ${tempText}${rateText}`;
+    };
+
+    const lines = [
+      `${points.length} readings received`,
+      typeof last.kiln_state === 'string' ? `Kiln state ${last.kiln_state}` : 'Kiln state not recorded',
+      zone('Top', 'top_c', 'top_open', 'top_rate'),
+      zone('Middle', 'middle_c', 'middle_open', 'middle_rate'),
+      zone('Bottom', 'bottom_c', 'bottom_open', 'bottom_rate'),
+    ];
+
+    if (typeof last.satellites === 'number') {
+      lines.push(`${last.satellites} satellites`);
+    }
+    if (typeof last.uptime_s === 'number') {
+      lines.push(`Module uptime ${last.uptime_s} s`);
+    }
+    return lines;
+  } catch {
+    return ['Received recording'];
+  }
+}
+
+export function kilnBatchToCsv(payload: string): string {
+  const batch = JSON.parse(payload) as { data_points?: Array<Record<string, unknown>> };
+  const points = Array.isArray(batch.data_points) ? batch.data_points : [];
+  const header = [
+    'time_offset_seconds',
+    'state',
+    'top_c',
+    'middle_c',
+    'bottom_c',
+    'top_valid',
+    'middle_valid',
+    'bottom_valid',
+    'top_open',
+    'middle_open',
+    'bottom_open',
+    'top_rate',
+    'middle_rate',
+    'bottom_rate',
+    'latitude',
+    'longitude',
+    'satellites',
+    'utc_epoch',
+    'uptime_s',
+  ];
+  const rows = points.map((point) =>
+    header
+      .map((key) => {
+        const value = key === 'state' ? point.kiln_state : point[key];
+        if (value == null) return '';
+        const text = String(value);
+        return text.includes(',') ? `"${text}"` : text;
+      })
+      .join(','),
+  );
+  return [header.join(','), ...rows].join('\n');
 }

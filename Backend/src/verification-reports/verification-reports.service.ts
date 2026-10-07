@@ -270,7 +270,7 @@ export class VerificationReportsService {
     const unique = [...new Set(batchIds)];
     for (const group of chunks(unique, 150)) {
       const { data, error } = await this.supabase
-        .from('pyrolysis_batches')
+        .from('csi_pyrolysis_batches')
         .select(
           'id, feedstock_quantity, yield_percent, feedstock_id, created_at, stage_final_captured_at, pyrolysis_saved_at, location_lat, location_lng',
         )

@@ -22,6 +22,7 @@ interface KontikkiRow extends Record<string, unknown> {
   id: string;
   code: string;
   status: string;
+  moduleId: string;
   operators: string;
 }
 
@@ -142,6 +143,7 @@ export default function BiocharProducerViewPage() {
         : kontikki.status === "active"
           ? "Active"
           : "—",
+    moduleId: kontikki.module_id?.trim() || "—",
     operators: resolveKontikkiOperators(kontikki.kontikki_operators),
   }));
 
@@ -372,9 +374,11 @@ export default function BiocharProducerViewPage() {
             columns={[
               { key: "code", label: "Kontikki ID" },
               { key: "status", label: "Status" },
+              { key: "moduleId", label: "Hardware module ID" },
               { key: "operators", label: "Operators" },
             ]}
             rows={kontikkiRows}
+            onRowClick={(row) => router.push(`/network/kontikkis/${row.id}`)}
             actions={(row) => (
               <button
                 type="button"

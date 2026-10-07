@@ -265,7 +265,7 @@ function AuthForm() {
           ) : (
             <>
               <p className="text-sm text-gray-500 text-center">
-                A 6-digit code was sent to{" "}
+                An 8-digit code was sent to{" "}
                 <span className="font-medium text-gray-700">{email}</span>
               </p>
 
@@ -275,9 +275,12 @@ function AuthForm() {
                 </label>
                 <input
                   type="text"
-                  placeholder="Enter the 6-digit code"
+                  placeholder="Enter the 8-digit code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={8}
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
                 />
               </div>

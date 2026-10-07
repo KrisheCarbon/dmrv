@@ -118,9 +118,14 @@ function KontikkiCard({
             </View>
           ))}
         </View>
-        {row.payload?.batch_number?.trim() ? (
-          <Text style={styles.sampleMeta}>Batch ID: {row.payload.batch_number.trim()}</Text>
+        {row.batchNumber?.trim() || row.payload?.batch_number?.trim() ? (
+          <Text style={styles.sampleMeta}>
+            Field batch: {(row.batchNumber || row.payload?.batch_number || "").trim()}
+          </Text>
         ) : null}
+        <Text style={styles.sampleMeta}>
+          Generated: {row.generatedBatchCode?.trim() || "Assigned when this run syncs"}
+        </Text>
       </TouchableOpacity>
 
       {isDraft && onDelete ? (
@@ -428,6 +433,22 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 14,
     fontFamily: fonts.bold,
+  },
+  collectBtn: {
+    alignSelf: "flex-start",
+    marginTop: spacing.sm,
+    minHeight: 48,
+    justifyContent: "center",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.chalk,
+    paddingHorizontal: spacing.md,
+  },
+  collectBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: 16,
+    color: colors.brunswick,
   },
   deleteBtn: {
     alignSelf: "flex-start",

@@ -179,11 +179,14 @@ export class MapStatsService {
       farms,
       fields,
       soilTests,
-      sessions,
+      csiSessions,
+      rainbowSessions,
       csiBatches,
       rainbowBatches,
-      mixingEntries,
-      mixingLinks,
+      csiMixingEntries,
+      rainbowMixingEntries,
+      csiMixingLinks,
+      rainbowMixingLinks,
     ] = await Promise.all([
       fetchAllPages<UserRow>((from, to) =>
         this.supabase
@@ -230,13 +233,19 @@ export class MapStatsService {
       ),
       fetchAllPages<SessionRow>((from, to) =>
         this.supabase
-          .from('pyrolysis_sessions')
+          .from('csi_pyrolysis_sessions')
+          .select('id, operator_id')
+          .range(from, to),
+      ),
+      fetchAllPages<SessionRow>((from, to) =>
+        this.supabase
+          .from('rainbow_pyrolysis_sessions')
           .select('id, operator_id')
           .range(from, to),
       ),
       fetchAllPages<BatchRow>((from, to) =>
         this.supabase
-          .from('pyrolysis_batches')
+          .from('csi_pyrolysis_batches')
           .select(
             'id, session_id, kontikki_id, feedstock_quantity, yield_percent, submission_status',
           )
@@ -252,17 +261,34 @@ export class MapStatsService {
       ),
       fetchAllPages<MixingRow>((from, to) =>
         this.supabase
-          .from('mixing_entries')
+          .from('csi_mixing_entries')
+          .select('id, farm_id, operator_id, status')
+          .range(from, to),
+      ),
+      fetchAllPages<MixingRow>((from, to) =>
+        this.supabase
+          .from('rainbow_mixing_entries')
           .select('id, farm_id, operator_id, status')
           .range(from, to),
       ),
       fetchAllPages<MixingLinkRow>((from, to) =>
         this.supabase
-          .from('mixing_pyrolysis_links')
+          .from('csi_mixing_pyrolysis_links')
+          .select('mixing_entry_id, pyrolysis_batch_id')
+          .range(from, to),
+      ),
+      fetchAllPages<MixingLinkRow>((from, to) =>
+        this.supabase
+          .from('rainbow_mixing_pyrolysis_links')
           .select('mixing_entry_id, pyrolysis_batch_id')
           .range(from, to),
       ),
     ]);
+
+    const sessionsById = new Map<string, SessionRow>();
+    for (const row of [...csiSessions, ...rainbowSessions]) {
+      sessionsById.set(row.id, row);
+    }
 
     return this.assemble({
       users,
@@ -272,11 +298,11 @@ export class MapStatsService {
       farms,
       fields,
       soilTests,
-      sessions,
+      sessions: [...sessionsById.values()],
       csiBatches,
       rainbowBatches,
-      mixingEntries,
-      mixingLinks,
+      mixingEntries: [...csiMixingEntries, ...rainbowMixingEntries],
+      mixingLinks: [...csiMixingLinks, ...rainbowMixingLinks],
     });
   }
 

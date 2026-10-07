@@ -40,4 +40,13 @@ export class PyrolysisBatchesController {
   ) {
     return this.pyrolysisBatchesService.updateYield(user, id, body.yield_percent);
   }
+
+  @Patch(':id/volume-percent')
+  updateVolumePercent(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: { volume_percent?: number | null },
+  ) {
+    return this.pyrolysisBatchesService.updateVolumePercent(user, id, body.volume_percent);
+  }
 }

@@ -25,8 +25,13 @@ async function uploadLocalPhoto(
 
   const response = await fetch(localUri);
   const arrayBuffer = await response.arrayBuffer();
-  const ext = localUri.split(".").pop()?.split("?")[0] || "jpg";
-  const contentType = ext === "png" ? "image/png" : "image/jpeg";
+  const ext = localUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+  const contentType =
+    ext === "png"
+      ? "image/png"
+      : ext === "mp4" || ext === "mov" || ext === "m4v"
+        ? "video/mp4"
+        : "image/jpeg";
 
   const { error } = await supabase.storage
     .from(PYROLYSIS_BUCKET)
@@ -56,6 +61,16 @@ export async function uploadPyrolysisBatchPhotos(
   data: PyrolysisKontikkiData,
 ): Promise<PyrolysisKontikkiData> {
   const next: PyrolysisKontikkiData = { ...data };
+
+  if (data.kiln_photo_local_uri) {
+    next.kiln_photo_url = await uploadLocalPhoto(
+      data.kiln_photo_local_uri,
+      data.kiln_photo_url,
+      buildPyrolysisPhotoPath(serverBatchId, "kiln", {
+        ext: photoExt(data.kiln_photo_local_uri),
+      }),
+    );
+  }
 
   if (data.feedstock_photo_local_uri) {
     next.feedstock_photo_url = await uploadLocalPhoto(
@@ -166,5 +181,96 @@ export async function uploadRainbowPhotos(
       return { ...load, photo_url: photoUrl };
     }),
   );
-  return { data: next, loads: nextLoads };
+  if (next.flame_curtain_photo_local_uri) {
+    next.flame_curtain_photo_url = await uploadLocalPhoto(
+      next.flame_curtain_photo_local_uri,
+      next.flame_curtain_photo_url,
+      buildPyrolysisPhotoPath(serverBatchId, "stage", {
+        stage: "flame_curtain",
+        ext: photoExt(next.flame_curtain_photo_local_uri),
+      }),
+    );
+  }
+  const withQuench = await uploadRainbowQuenchMedia(serverBatchId, next);
+  const spots = await Promise.all(
+    (withQuench.sample_spots ?? []).map(async (spot) => {
+      if (!spot.photo_local_uri) return spot;
+      const photoUrl = await uploadLocalPhoto(
+        spot.photo_local_uri,
+        spot.photo_url,
+        buildPyrolysisPhotoPath(serverBatchId, "sample_spot", {
+          index: spot.spot,
+          ext: photoExt(spot.photo_local_uri),
+        }),
+      );
+      return { ...spot, photo_url: photoUrl };
+    }),
+  );
+  const pileUrl = withQuench.sample_pile_photo_local_uri
+    ? await uploadLocalPhoto(
+        withQuench.sample_pile_photo_local_uri,
+        withQuench.sample_pile_photo_url,
+        buildPyrolysisPhotoPath(serverBatchId, "sample_pile", {
+          ext: photoExt(withQuench.sample_pile_photo_local_uri),
+        }),
+      )
+    : withQuench.sample_pile_photo_url ?? null;
+  const bagUrl = withQuench.sample_bag_photo_local_uri
+    ? await uploadLocalPhoto(
+        withQuench.sample_bag_photo_local_uri,
+        withQuench.sample_bag_photo_url,
+        buildPyrolysisPhotoPath(serverBatchId, "sample_bag", {
+          ext: photoExt(withQuench.sample_bag_photo_local_uri),
+        }),
+      )
+    : withQuench.sample_bag_photo_url ?? null;
+  return {
+    data: {
+      ...withQuench,
+      sample_spots: spots,
+      sample_pile_photo_url: pileUrl,
+      sample_bag_photo_url: bagUrl,
+    },
+    loads: nextLoads,
+  };
+}
+
+export async function uploadRainbowQuenchMedia(
+  serverBatchId: string,
+  data: PyrolysisKontikkiData,
+): Promise<PyrolysisKontikkiData> {
+  const photos = await Promise.all(
+    (data.quench_photos ?? []).map(async (photo, index) => {
+      if (!photo.photo_local_uri) return photo;
+      const photoUrl = await uploadLocalPhoto(
+        photo.photo_local_uri,
+        photo.photo_url,
+        buildPyrolysisPhotoPath(serverBatchId, "quench", {
+          index: index + 1,
+          ext: photoExt(photo.photo_local_uri),
+        }),
+      );
+      return { ...photo, photo_url: photoUrl };
+    }),
+  );
+  const videoUrl = data.quench_video_local_uri
+    ? await uploadLocalPhoto(
+        data.quench_video_local_uri,
+        data.quench_video_url,
+        buildPyrolysisPhotoPath(serverBatchId, "quench_video", {
+          ext: photoExt(data.quench_video_local_uri),
+        }),
+      )
+    : data.quench_video_url ?? null;
+  const first = photos.find((photo) => photo.photo_local_uri || photo.photo_url);
+  const last = [...photos].reverse().find((photo) => photo.photo_local_uri || photo.photo_url);
+  return {
+    ...data,
+    quench_photos: photos,
+    quench_video_url: videoUrl,
+    quench_start_photo_url: photos.length >= 1 ? first?.photo_url ?? null : data.quench_start_photo_url,
+    quench_start_photo_metadata: photos.length >= 1 ? first?.photo_metadata ?? null : data.quench_start_photo_metadata,
+    quench_end_photo_url: photos.length >= 2 ? last?.photo_url ?? null : data.quench_end_photo_url,
+    quench_end_photo_metadata: photos.length >= 2 ? last?.photo_metadata ?? null : data.quench_end_photo_metadata,
+  };
 }

@@ -16,6 +16,16 @@ function toLocalIsoDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function formatDisplayDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(year, month - 1, day).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function dayAfterIso(value: string): Date {
   const next = parseIsoDate(value);
   next.setDate(next.getDate() + 1);
@@ -58,7 +68,7 @@ export default function FormDateField({
         onPress={() => setOpen(true)}
       >
         <Text style={[styles.value, !value && styles.placeholder]}>
-          {value || "Select date"}
+          {value ? formatDisplayDate(value) : "Select date"}
         </Text>
       </Pressable>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}

@@ -42,7 +42,7 @@ const note = (kind, ref, detail) => {
 // ── pull everything back ─────────────────────────────────────────────────────
 
 const dbBatches = await select(
-  'pyrolysis_batches',
+  'csi_pyrolysis_batches',
   'select=id,batch_number,kontikki_code,yield_percent,feedstock_name,' +
     'moisture_reading_1,moisture_reading_2,moisture_reading_3,moisture_reading_4,moisture_reading_5,' +
     'feedstock_photo_url,moisture_photo_url_1,moisture_photo_url_2,moisture_photo_url_3,' +
@@ -52,11 +52,11 @@ const dbBatches = await select(
 const byId = new Map(dbBatches.map((b) => [b.id, b]));
 
 const dbMixing = await select(
-  'mixing_entries',
+  'csi_mixing_entries',
   'select=id,farm_name,started_at,comment,biochar_photo_url,substrate_photo_url,mixing_photo_url&limit=500',
 );
 const mixById = new Map(dbMixing.map((m) => [m.id, m]));
-const dbLinks = await select('mixing_pyrolysis_links', 'select=*&limit=5000');
+const dbLinks = await select('csi_mixing_pyrolysis_links', 'select=*&limit=5000');
 const linksByEntry = new Map();
 for (const l of dbLinks) {
   if (!linksByEntry.has(l.mixing_entry_id)) linksByEntry.set(l.mixing_entry_id, []);

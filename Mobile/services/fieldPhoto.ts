@@ -19,6 +19,7 @@ export type CapturedFieldPhoto = {
 export type CapturedApplicationVideo = {
   uri: string;
   metadata: FieldPhotoMetadata;
+  durationSeconds: number | null;
 };
 
 function normalizeMediaUri(uri: string | null | undefined): string | null {
@@ -176,7 +177,10 @@ export async function captureFieldPhotoFromCamera(): Promise<CapturedFieldPhoto 
   return { uri: asset.uri, metadata };
 }
 
-export async function captureApplicationVideo(): Promise<CapturedApplicationVideo | null> {
+export async function captureApplicationVideo(options?: {
+  requireLocation?: boolean;
+  maxDurationSeconds?: number;
+}): Promise<CapturedApplicationVideo | null> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
   if (permission.status !== "granted") {
     throw new Error(
@@ -189,7 +193,7 @@ export async function captureApplicationVideo(): Promise<CapturedApplicationVide
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["videos"],
     quality: 0.85,
-    videoMaxDuration: 120,
+    videoMaxDuration: options?.maxDurationSeconds ?? 120,
     allowsEditing: false,
   });
 
@@ -197,6 +201,9 @@ export async function captureApplicationVideo(): Promise<CapturedApplicationVide
 
   const asset = result.assets[0];
   const location = getLocationForPhotoCapture() ?? (await locationForCapture());
+  if (options?.requireLocation && !location) {
+    throw new LocationUnavailableError();
+  }
   const capturedAt = currentTimestamp();
 
   const metadata: FieldPhotoMetadata = {
@@ -209,7 +216,9 @@ export async function captureApplicationVideo(): Promise<CapturedApplicationVide
   };
 
   const persistedUri = await persistApplicationVideo(asset.uri);
-  // Best-effort: also drop a copy in the phone's Gallery/Videos app.
   void savePhotoToGallery(persistedUri);
-  return { uri: persistedUri, metadata };
+  const durationMs = typeof asset.duration === "number" ? asset.duration : null;
+  const durationSeconds =
+    durationMs == null ? null : durationMs > 1000 ? Math.round(durationMs / 1000) : Math.round(durationMs);
+  return { uri: persistedUri, metadata, durationSeconds };
 }

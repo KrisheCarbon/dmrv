@@ -2,6 +2,7 @@
 
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -15,14 +16,26 @@ interface ChartPoint {
   label: string;
   minutes: number;
   temperature: number;
+  top: number | null;
+  middle: number | null;
+  bottom: number | null;
 }
+
+const AXIS = { fontSize: 12, fill: "var(--text-secondary)" };
 
 function buildChartPoints(readings: KilnTemperatureReading[]): ChartPoint[] {
   return readings.map((reading) => ({
     label: formatOffsetLabel(reading.time_offset_seconds),
     minutes: Number((reading.time_offset_seconds / 60).toFixed(1)),
     temperature: Number(reading.temperature.toFixed(2)),
+    top: zoneValue(reading.top_c),
+    middle: zoneValue(reading.middle_c),
+    bottom: zoneValue(reading.bottom_c),
   }));
+}
+
+function zoneValue(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Number(value.toFixed(2)) : null;
 }
 
 function formatOffsetLabel(seconds: number) {
@@ -41,6 +54,9 @@ export default function TemperatureTimeChart({
   height = 320,
 }: TemperatureTimeChartProps) {
   const points = buildChartPoints(readings);
+  const hasZones = points.some(
+    (point) => point.top != null || point.middle != null || point.bottom != null,
+  );
 
   if (points.length === 0) {
     return (
@@ -56,42 +72,78 @@ export default function TemperatureTimeChart({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={points} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <LineChart data={points} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis
             dataKey="minutes"
-            tick={{ fontSize: 12, fill: "#6b7280" }}
+            tick={AXIS}
             label={{
               value: "Elapsed time (minutes)",
               position: "insideBottom",
               offset: -2,
-              style: { fill: "#6b7280", fontSize: 12 },
+              style: { fill: "var(--text-secondary)", fontSize: 12 },
             }}
           />
           <YAxis
-            tick={{ fontSize: 12, fill: "#6b7280" }}
+            tick={AXIS}
             label={{
               value: "Temperature (°C)",
               angle: -90,
               position: "insideLeft",
-              style: { fill: "#6b7280", fontSize: 12 },
+              style: { fill: "var(--text-secondary)", fontSize: 12 },
             }}
           />
           <Tooltip
-            formatter={(value) => [`${value ?? 0} °C`, "Temperature"]}
+            formatter={(value, name) => [`${value ?? "—"} °C`, name]}
             labelFormatter={(_, payload) => {
               const point = payload?.[0]?.payload as ChartPoint | undefined;
               return point ? `Time ${point.label}` : "Reading";
             }}
           />
-          <Line
-            type="monotone"
-            dataKey="temperature"
-            stroke="#1b4332"
-            strokeWidth={2}
-            dot={points.length <= 60}
-            activeDot={{ r: 5 }}
-          />
+          {hasZones ? (
+            <Legend />
+          ) : null}
+          {hasZones ? (
+            <>
+              <Line
+                type="monotone"
+                dataKey="top"
+                name="Top"
+                stroke="var(--series-top)"
+                strokeWidth={2}
+                connectNulls={false}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="middle"
+                name="Middle"
+                stroke="var(--series-middle)"
+                strokeWidth={2}
+                connectNulls={false}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="bottom"
+                name="Bottom"
+                stroke="var(--series-bottom)"
+                strokeWidth={2}
+                connectNulls={false}
+                dot={false}
+              />
+            </>
+          ) : (
+            <Line
+              type="monotone"
+              dataKey="temperature"
+              name="Temperature"
+              stroke="var(--series-top)"
+              strokeWidth={2}
+              dot={points.length <= 60}
+              activeDot={{ r: 5 }}
+            />
+          )}
         </LineChart>
       </ResponsiveContainer>
     </div>

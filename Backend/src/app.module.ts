@@ -22,6 +22,7 @@ import { FarmersNetworkModule } from './farmers-network/farmers-network.module';
 import { ClustersModule } from './clusters/clusters.module';
 import { VerificationReportsModule } from './verification-reports/verification-reports.module';
 import { MapStatsModule } from './map-stats/map-stats.module';
+import { FieldActivityModule } from './field-activity/field-activity.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { MapStatsModule } from './map-stats/map-stats.module';
     ClustersModule,
     VerificationReportsModule,
     MapStatsModule,
+    FieldActivityModule,
   ],
   controllers: [AppController],
   providers: [AppService],

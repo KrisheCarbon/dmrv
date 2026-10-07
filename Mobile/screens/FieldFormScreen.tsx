@@ -379,6 +379,10 @@ export default function FieldFormScreen({ route, navigation }) {
       );
       return;
     }
+    if (!field.sowingDate.trim() || !field.harvestDate.trim()) {
+      Alert.alert("Required", "Sowing date and harvest date are required.");
+      return;
+    }
     if (!isHarvestAfterSowing(field.sowingDate, field.harvestDate)) {
       Alert.alert(
         "Crop dates",
@@ -750,7 +754,7 @@ export default function FieldFormScreen({ route, navigation }) {
           onValueChange={(v) => setField((p) => ({ ...p, season: v }))}
         />
         <FormDateField
-          label="Estimated sowing date"
+          label="Estimated sowing date *"
           value={field.sowingDate}
           onChange={(t) =>
             setField((p) => ({
@@ -763,7 +767,7 @@ export default function FieldFormScreen({ route, navigation }) {
           maximumDate={field.harvestDate || undefined}
         />
         <FormDateField
-          label="Estimated harvest date"
+          label="Estimated harvest date *"
           value={field.harvestDate}
           onChange={(t) => setField((p) => ({ ...p, harvestDate: t }))}
           afterDate={field.sowingDate || undefined}

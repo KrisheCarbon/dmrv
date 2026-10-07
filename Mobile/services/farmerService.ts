@@ -23,6 +23,7 @@ export type ExtendedFarmerForm = FarmerForm & {
   leased_land_size?: string | number;
   farmer_photo_uri?: string | null;
   farmer_photo_url?: string | null;
+  credit_rights_acknowledged?: boolean;
 };
 
 export function canSeeAllFarms(role?: string | null) {
@@ -31,9 +32,16 @@ export function canSeeAllFarms(role?: string | null) {
 
 export function farmerToFormData(
   farmer: Farmer,
-): ExtendedFarmerForm & { id: string; farmer_code?: string | null; sync_status: string; sync_error?: string | null } {
+): ExtendedFarmerForm & {
+  id: string;
+  farmer_code?: string | null;
+  created_by?: string | null;
+  sync_status: string;
+  sync_error?: string | null;
+} {
   return {
     id: farmer.id,
+    created_by: farmer.createdBy,
     server_id: farmer.serverId,
     farmer_code: farmer.farmerCode,
     farmer_name: farmer.farmerName,
@@ -55,6 +63,7 @@ export function farmerToFormData(
     leased_land_size: farmer.leasedLandSize != null ? String(farmer.leasedLandSize) : "",
     farmer_photo_uri: farmer.farmerPhotoUri,
     farmer_photo_url: farmer.farmerPhotoUrl,
+    credit_rights_acknowledged: farmer.creditRightsAcknowledged,
     crops: farmer.crops,
     interested_in_biochar: farmer.interestedInBiochar,
     prior_biochar_exp: farmer.priorBiocharExp,
@@ -149,6 +158,7 @@ export async function saveFarmerLocal(
       leased_land_size: leased,
       farmer_photo_uri: form.farmer_photo_uri?.trim() || null,
       farmer_photo_url: form.farmer_photo_url?.trim() || null,
+      credit_rights_acknowledged: form.credit_rights_acknowledged ? 1 : 0,
       crops: JSON.stringify(crops),
       interested_in_biochar: form.interested_in_biochar ? 1 : 0,
       prior_biochar_exp: form.prior_biochar_exp ? 1 : 0,
@@ -189,6 +199,7 @@ export async function saveFarmerLocal(
       leasedLandSize: leased,
       farmerPhotoUri: form.farmer_photo_uri?.trim() || null,
       farmerPhotoUrl: form.farmer_photo_url?.trim() || null,
+      creditRightsAcknowledged: Boolean(form.credit_rights_acknowledged),
       crops,
       interestedInBiochar: !!form.interested_in_biochar,
       priorBiocharExp: !!form.prior_biochar_exp,

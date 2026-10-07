@@ -13,6 +13,7 @@ import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import { bleService } from "../services/kiln/bleManagerService";
 import { useKilnStore } from "../store/useKilnStore";
 import type { FlashFileInfo } from "../types/kiln";
+import KilnLiveSession from "../components/KilnLiveSession";
 import { queueKilnBatch } from "../services/kiln/batchService";
 import { parseKilnBatchBytes } from "../utils/kilnBatch";
 import { processSyncQueue } from "../services/syncService";
@@ -59,6 +60,7 @@ export default function KilnDashboardScreen({ navigation }: Props) {
   const {
     connectedDevice,
     kilnId,
+    sensorProtocol,
     selectedKontikki,
     storageInfo,
     downloadStatus,
@@ -92,8 +94,9 @@ export default function KilnDashboardScreen({ navigation }: Props) {
   }, [connectedDevice, setStorageInfo]);
 
   useEffect(() => {
-    refreshStorageInfo();
-  }, [refreshStorageInfo]);
+    if (sensorProtocol === "krishe") return;
+    void refreshStorageInfo();
+  }, [refreshStorageInfo, sensorProtocol]);
 
   const handleDownload = useCallback(async () => {
     if (!connectedDevice) return;
@@ -240,6 +243,10 @@ export default function KilnDashboardScreen({ navigation }: Props) {
       navigation.navigate("KilnScanner");
     }
   }, [connectedDevice, resetOnDisconnect, navigation]);
+
+  if (sensorProtocol === "krishe") {
+    return <KilnLiveSession navigation={navigation} />;
+  }
 
   if (!connectedDevice) {
     return (

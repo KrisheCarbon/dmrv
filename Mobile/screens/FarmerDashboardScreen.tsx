@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   RefreshControl,
   Pressable,
-  TextInput,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import FarmerCard from "../components/FarmerCard";
+import SearchField from "../components/SearchField";
 import { ScreenShell } from "../components/ScreenHeader";
+import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
 import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
 import { getFarmersChecklist } from "../services/farmersNetworkService";
 import { getUserProfile } from "../services/userProfile";
@@ -21,6 +24,11 @@ import {
   getAllSyncProgress
 } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import {
+  fetchFieldActivity,
+  type FieldActivityPerson,
+  type FieldActivityStats,
+} from "../services/fieldActivity";
 
 const FILTERS = {
   all: { key: "all", label: "All entries", heading: "All farmers" },
@@ -76,6 +84,26 @@ function matchesFarmerSearch(farmer, query: string) {
   return farmerSearchText(farmer).includes(q);
 }
 
+function peopleFromActivity(stats: FieldActivityStats): FieldActivityPerson[] {
+  const rows: FieldActivityPerson[] = [];
+  if (stats.self) rows.push(stats.self);
+  rows.push(...(stats.admins ?? []), ...(stats.managers ?? []));
+  rows.push(...stats.climapreneurs);
+  for (const team of stats.teams) {
+    rows.push(team.supervisor, ...team.climapreneurs);
+  }
+  rows.push(...stats.unassignedClimapreneurs);
+
+  const seen = new Set<string>();
+  return rows
+    .filter((person) => {
+      if (seen.has(person.id)) return false;
+      seen.add(person.id);
+      return true;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function StatTile({ label, value, active, onPress }) {
   return (
     <Pressable
@@ -96,23 +124,32 @@ export default function FarmerDashboardScreen({ navigation, route }) {
   const listTitle = route.params?.title || "All Farmers";
   const listMode = route.params?.listMode || "all";
   const [farmers, setFarmers] = useState([]);
-  const [stats, setStats] = useState({ total: 0, synced: 0, pendingSync: 0 });
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const keyboardOverlap = useKeyboardOverlap();
   const [syncProgress, setSyncProgress] = useState({});
   const [checklist, setChecklist] = useState({});
+  const [enteredById, setEnteredById] = useState(route.params?.enteredById || "");
+  const [enteredByName, setEnteredByName] = useState(route.params?.enteredByName || "");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [people, setPeople] = useState<FieldActivityPerson[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+
+  useEffect(() => {
+    setEnteredById(route.params?.enteredById || "");
+    setEnteredByName(route.params?.enteredByName || "");
+  }, [route.params?.enteredById, route.params?.enteredByName]);
 
   const loadData = useCallback(async () => {
     const profile = await getUserProfile();
     if (!profile) {
       setFarmers([]);
-      setStats({ total: 0, synced: 0, pendingSync: 0 });
       return;
     }
 
     const localFarmers = await getAllFarmersLocal(profile.id, profile.role);
-    setStats(buildStats(localFarmers));
     setFarmers(localFarmers.map((f) => farmerToFormData(f)));
     setSyncProgress(getAllSyncProgress());
     setChecklist(await getFarmersChecklist(localFarmers.map((f) => f.id)));
@@ -147,13 +184,47 @@ export default function FarmerDashboardScreen({ navigation, route }) {
     };
   }, [navigation, loadData]);
 
+  const scopedFarmers = useMemo(() => {
+    if (!enteredById) return farmers;
+    return farmers.filter((farmer) => farmer.created_by === enteredById);
+  }, [farmers, enteredById]);
+
+  const stats = useMemo(() => buildStats(scopedFarmers), [scopedFarmers]);
+
   const filteredFarmers = useMemo(
     () =>
-      filterFarmers(farmers, activeFilter).filter((farmer) =>
+      filterFarmers(scopedFarmers, activeFilter).filter((farmer) =>
         matchesFarmerSearch(farmer, searchQuery),
       ),
-    [farmers, activeFilter, searchQuery]
+    [scopedFarmers, activeFilter, searchQuery]
   );
+
+  async function openEnteredByPicker() {
+    setPickerOpen(true);
+    if (people.length > 0 || peopleLoading) return;
+    setPeopleLoading(true);
+    try {
+      const activity = await fetchFieldActivity();
+      setPeople(peopleFromActivity(activity));
+    } catch {
+      setPeople([]);
+    } finally {
+      setPeopleLoading(false);
+    }
+  }
+
+  function selectEnteredBy(person: { id: string; name: string } | null) {
+    const id = person?.id || "";
+    const name = person?.name || "";
+    setEnteredById(id);
+    setEnteredByName(name);
+    navigation.setParams({
+      enteredById: id || undefined,
+      enteredByName: name || undefined,
+      title: name || "All Farmers",
+    });
+    setPickerOpen(false);
+  }
 
   async function onRefresh() {
     setRefreshing(true);
@@ -187,55 +258,60 @@ export default function FarmerDashboardScreen({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.statsRow}>
-        <StatTile
-          label={FILTERS.all.label}
-          value={stats.total}
-          active={activeFilter === "all"}
-          onPress={() => setActiveFilter("all")}
-        />
-        <StatTile
-          label={FILTERS.synced.label}
-          value={stats.synced}
-          active={activeFilter === "synced"}
-          onPress={() => setActiveFilter("synced")}
-        />
-        <StatTile
-          label={FILTERS.pending.label}
-          value={stats.pendingSync}
-          active={activeFilter === "pending"}
-          onPress={() => setActiveFilter("pending")}
-        />
-      </View>
+      {searchFocused ? null : (
+        <View style={styles.statsRow}>
+          <StatTile
+            label={FILTERS.all.label}
+            value={stats.total}
+            active={activeFilter === "all"}
+            onPress={() => setActiveFilter("all")}
+          />
+          <StatTile
+            label={FILTERS.synced.label}
+            value={stats.synced}
+            active={activeFilter === "synced"}
+            onPress={() => setActiveFilter("synced")}
+          />
+          <StatTile
+            label={FILTERS.pending.label}
+            value={stats.pendingSync}
+            active={activeFilter === "pending"}
+            onPress={() => setActiveFilter("pending")}
+          />
+        </View>
+      )}
 
-      <View style={styles.searchRow}>
-        <TextInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search name, mobile, or farmer ID"
-          placeholderTextColor={colors.smokeLight}
-          style={styles.search}
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-          clearButtonMode="while-editing"
-        />
-        {searchQuery.length > 0 ? (
-          <Pressable
-            onPress={() => setSearchQuery("")}
-            style={styles.searchClear}
-            accessibilityLabel="Clear search"
-          >
-            <Text style={styles.searchClearText}>Clear</Text>
+      <SearchField
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholder="Search name, mobile, or farmer ID"
+        onFocus={() => setSearchFocused(true)}
+        onBlur={() => setSearchFocused(false)}
+        style={styles.search}
+      />
+
+      <View style={styles.enteredBy}>
+        <Pressable style={styles.enteredByMain} onPress={openEnteredByPicker}>
+          <Text style={styles.enteredByLabel}>Entered by</Text>
+          <Text style={styles.enteredByValue} numberOfLines={1}>
+            {enteredByName || "Anyone"}
+          </Text>
+        </Pressable>
+        {enteredById ? (
+          <Pressable hitSlop={8} onPress={() => selectEnteredBy(null)}>
+            <Text style={styles.enteredByClear}>Clear</Text>
           </Pressable>
-        ) : null}
+        ) : (
+          <Text style={styles.enteredByChevron}>›</Text>
+        )}
       </View>
 
       <FlatList
-        style={styles.list}
+        style={[styles.list, keyboardOverlap > 0 && { marginBottom: keyboardOverlap }]}
         data={filteredFarmers}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -248,21 +324,27 @@ export default function FarmerDashboardScreen({ navigation, route }) {
         ListHeaderComponent={
           filteredFarmers.length > 0 ? (
             <Text style={styles.listHeading}>
-              {FILTERS[activeFilter].heading}
+              {enteredByName
+                ? `Entered by ${enteredByName}`
+                : FILTERS[activeFilter].heading}
             </Text>
           ) : null
         }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>
-              {searchQuery.trim()
+              {enteredByName
+                ? `No farmers from ${enteredByName}`
+                : searchQuery.trim()
                 ? "No matching farmers"
                 : activeFilter === "all"
                   ? "No farmers yet"
                   : `No ${FILTERS[activeFilter].heading.toLowerCase()}`}
             </Text>
             <Text style={styles.emptyText}>
-              {searchQuery.trim()
+              {enteredByName
+                ? "No farmers on this phone were entered by this person."
+                : searchQuery.trim()
                 ? `No farmer matches “${searchQuery.trim()}”.`
                 : activeFilter === "all"
                   ? listMode === "repeat"
@@ -281,6 +363,44 @@ export default function FarmerDashboardScreen({ navigation, route }) {
           />
         )}
       />
+
+      <Modal
+        visible={pickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPickerOpen(false)}
+      >
+        <View style={styles.pickerOverlay}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setPickerOpen(false)} />
+          <View style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Entered by</Text>
+            <Pressable style={styles.pickerRow} onPress={() => selectEnteredBy(null)}>
+              <Text style={styles.pickerName}>Anyone</Text>
+            </Pressable>
+            {peopleLoading ? (
+              <ActivityIndicator color={colors.brunswick} style={styles.pickerLoading} />
+            ) : (
+              <FlatList
+                data={people}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={styles.pickerRow}
+                    onPress={() => selectEnteredBy(item)}
+                  >
+                    <Text style={styles.pickerName}>{item.name}</Text>
+                    <Text style={styles.pickerRole}>{item.role}</Text>
+                  </Pressable>
+                )}
+                ListEmptyComponent={
+                  <Text style={styles.pickerEmpty}>No climapreneurs or supervisors found.</Text>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScreenShell>
   );
 }
@@ -328,33 +448,97 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm
   },
-  searchRow: {
+  search: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  enteredBy: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    gap: spacing.sm,
+  },
+  enteredByMain: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
   },
-  search: {
-    flex: 1,
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    fontFamily: fonts.regular,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.white,
-  },
-  searchClear: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  searchClearText: {
-    fontSize: 13,
+  enteredByLabel: {
     fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.smoke,
+  },
+  enteredByValue: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 14,
     color: colors.brunswick,
+  },
+  enteredByClear: {
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    color: colors.error,
+  },
+  enteredByChevron: {
+    fontSize: 20,
+    color: colors.smoke,
+  },
+  pickerOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  pickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(26, 60, 42, 0.35)",
+  },
+  pickerSheet: {
+    maxHeight: "70%",
+    backgroundColor: colors.white,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  pickerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 18,
+    color: colors.brunswick,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  pickerRow: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  pickerName: {
+    fontFamily: fonts.medium,
+    fontSize: 16,
+    color: colors.text,
+  },
+  pickerRole: {
+    marginTop: 2,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.smoke,
+    textTransform: "capitalize",
+  },
+  pickerLoading: {
+    marginVertical: spacing.lg,
+  },
+  pickerEmpty: {
+    padding: spacing.lg,
+    fontFamily: fonts.regular,
+    color: colors.smoke,
   },
   statTile: {
     flex: 1,

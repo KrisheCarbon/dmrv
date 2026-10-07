@@ -314,7 +314,9 @@ export default function FeedstockForm({
 
     const hcRatio = Number(form.hc_ratio);
     if (!form.hc_ratio || Number.isNaN(hcRatio) || hcRatio >= 0.4) {
-      setError("H/C ratio must be less than 0.4.");
+      setError(
+        "Catalog H/C must be under 0.4. Rainbow H/Corg is a separate kiln-run lab result and must be under 0.7.",
+      );
       return null;
     }
 
@@ -544,7 +546,7 @@ export default function FeedstockForm({
             />
           </div>
           <div className="space-y-1.5">
-            <label className={labelClass}>H/C ratio (&lt; 0.4) *</label>
+            <label className={labelClass}>Catalog H/C (&lt; 0.4) *</label>
             <input
               type="number"
               min={0}
@@ -554,6 +556,9 @@ export default function FeedstockForm({
               value={form.hc_ratio}
               onChange={(e) => updateField("hc_ratio", e.target.value)}
             />
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              CSI catalog value. Rainbow organic carbon and H/Corg are entered on the kiln-run lab sample.
+            </p>
           </div>
         </div>
       </section>

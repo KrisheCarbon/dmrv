@@ -100,6 +100,7 @@ export default function BiocharProducersPage() {
           { key: "status", label: "Status" },
         ]}
         rows={producers}
+        onRowClick={(row) => router.push(`/network/biochar-producers/${row.id}`)}
         actions={(row) => (
           <button
             type="button"

@@ -10,6 +10,7 @@ import {
   canAccessMobileApp,
   canAccessNetwork,
   canAccessWebPortal,
+  pyrolysisProtocolForRegistry,
   type FarmUpsertPayload,
   type Farmer,
 } from '@krishecarbon/shared';
@@ -79,6 +80,7 @@ export class FarmsService {
     }
 
     const location = await this.resolveVillageAssignment(user, payload, true);
+    await this.assertRainbowFarmer(payload, location.cluster_id);
 
     const { data, error } = await this.supabase
       .from('farms')
@@ -114,6 +116,7 @@ export class FarmsService {
     }
 
     const location = await this.resolveVillageAssignment(user, payload, false);
+    await this.assertRainbowFarmer(payload, location.cluster_id);
 
     const { data, error } = await this.supabase
       .from('farms')
@@ -222,6 +225,37 @@ export class FarmsService {
       district: (data.district as string | null) ?? null,
       state: (data.state as string | null) ?? null,
     };
+  }
+
+  private async assertRainbowFarmer(
+    payload: FarmUpsertPayload,
+    clusterId: string | null,
+  ) {
+    if (!clusterId) return;
+    const { data, error } = await this.supabase
+      .from('biochar_producer_clusters')
+      .select('biochar_producers(registry)')
+      .eq('cluster_id', clusterId);
+    if (error) throw new BadRequestException(error.message);
+
+    const rainbow = (data ?? []).some((row) => {
+      const producerRaw = row.biochar_producers as
+        | { registry?: string | null }
+        | { registry?: string | null }[]
+        | null;
+      const producer = Array.isArray(producerRaw) ? producerRaw[0] : producerRaw;
+      return pyrolysisProtocolForRegistry(producer?.registry) === 'rainbow';
+    });
+    if (!rainbow) return;
+
+    if (!payload.farmer_photo_url) {
+      throw new BadRequestException('A Rainbow farmer record needs a photo.');
+    }
+    if (!payload.credit_rights_acknowledged) {
+      throw new BadRequestException(
+        'Rainbow farmers must confirm this project holds the sole right to issue carbon credits for biochar from this farm.',
+      );
+    }
   }
 
   private async assertCanUseCluster(

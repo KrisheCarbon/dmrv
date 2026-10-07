@@ -16,6 +16,8 @@ export interface ClusterVillageRecord {
   mandal?: string | null;
   district?: string | null;
   state?: string | null;
+  /** Registry of the producer linked to this cluster, when one is assigned. */
+  producer_registry?: string | null;
 }
 
 export function villagePlaceLine(village: {

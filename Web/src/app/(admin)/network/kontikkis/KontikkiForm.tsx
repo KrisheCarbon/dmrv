@@ -42,6 +42,7 @@ interface KontikkiFormState {
   kontikki_code: string;
   module_id: string;
   producer_id: string;
+  producer_registry: string;
   operator_ids: string[];
   status: KontikkiStatus;
   top_diameter_cm: string;
@@ -75,6 +76,12 @@ function toFormState(
         : data?.biochar_producer?.id) ??
       defaultProducerId ??
       "",
+    producer_registry: (() => {
+      const producer = Array.isArray(data?.biochar_producer)
+        ? data?.biochar_producer[0]
+        : data?.biochar_producer;
+      return producer?.registry ?? "";
+    })(),
     operator_ids: extractOperatorIds(data?.kontikki_operators),
     status: (data?.status as KontikkiStatus) ?? "active",
     top_diameter_cm: String(data?.top_diameter_cm ?? ""),
@@ -314,6 +321,15 @@ export default function KontikkiForm({
       return;
     }
 
+    const rainbowProducer =
+      form.producer_registry === "rainbow" || form.producer_registry === "both";
+    if (rainbowProducer && !form.module_id.trim()) {
+      setError(
+        "Hardware module ID is required when this kontikki is assigned to a Rainbow producer.",
+      );
+      return;
+    }
+
     const hasDesignDoc =
       Boolean(form.designDocFile) ||
       (Boolean(form.designDocPath) && !form.removeDesignDoc);
@@ -435,8 +451,8 @@ export default function KontikkiForm({
         onKontikkiNameChange={(kontikki_code) =>
           setForm((prev) => ({ ...prev, kontikki_code }))
         }
-        onProducerChange={(producer_id) =>
-          setForm((prev) => ({ ...prev, producer_id }))
+        onProducerChange={(producer_id, producer_registry) =>
+          setForm((prev) => ({ ...prev, producer_id, producer_registry }))
         }
         onOperatorIdsChange={(operator_ids) =>
           setForm((prev) => ({ ...prev, operator_ids }))
@@ -464,6 +480,10 @@ export default function KontikkiForm({
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-neutral-700">
             Hardware module ID
+            {form.producer_registry === "rainbow" ||
+            form.producer_registry === "both"
+              ? " *"
+              : ""}
           </label>
           <input
             className={inputClass}
@@ -471,11 +491,17 @@ export default function KontikkiForm({
             onChange={(e) =>
               setForm({ ...form, module_id: e.target.value })
             }
-            placeholder="e.g. Kiln-ESP32"
+            placeholder="AA:BB:CC:DD:EE:FF"
+            required={
+              form.producer_registry === "rainbow" ||
+              form.producer_registry === "both"
+            }
           />
           <p className="text-xs text-neutral-500">
-            Must match the ESP32 KILN_ID value. Mobile users with access to this
-            kontikki can connect to the sensor using this ID.
+            {form.producer_registry === "rainbow" ||
+            form.producer_registry === "both"
+              ? "Required for a Rainbow producer. Enter the sensor Bluetooth address, or the KILN_ID on an older board. The kiln sensor screen only connects to this module."
+              : "For a KriSHE Carbon node, enter the sensor Bluetooth address. For an older Kiln-ESP32 board, enter its KILN_ID. The kiln sensor screen only connects to this module."}
           </p>
         </div>
 

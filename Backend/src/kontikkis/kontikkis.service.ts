@@ -6,7 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canAccessNetwork } from '@krishecarbon/shared';
+import {
+  canAccessNetwork,
+  pyrolysisProtocolForRegistry,
+} from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -114,7 +117,8 @@ const KONTIKKI_DETAIL_SELECT = `
   biochar_producer:biochar_producers (
     id,
     name,
-    producer_code
+    producer_code,
+    registry
   ),
   ${KONTIKKI_OPERATORS_SELECT},
   top_diameter_cm,
@@ -209,6 +213,10 @@ export class KontikkisService {
   ): Promise<KontikkiRecord> {
     this.assertCanManage(user);
     this.validateCoreFields(payload);
+    await this.assertRainbowModuleId(
+      payload.biochar_producer_id,
+      payload.module_id,
+    );
 
     const {
       operator_ids = [],
@@ -265,7 +273,7 @@ export class KontikkisService {
     payload: UpdateKontikkiPayload,
   ): Promise<KontikkiRecord> {
     this.assertCanManage(user);
-    await this.ensureKontikkiExists(id);
+    const existing = await this.ensureKontikkiExists(id);
 
     const {
       operator_ids,
@@ -273,6 +281,14 @@ export class KontikkisService {
       bottom_photo_urls,
       ...row
     } = payload;
+
+    const nextProducerId =
+      row.biochar_producer_id ?? existing.biochar_producer_id;
+    const nextModuleId =
+      'module_id' in row ? row.module_id : existing.module_id;
+    if (nextProducerId) {
+      await this.assertRainbowModuleId(nextProducerId, nextModuleId);
+    }
 
     if (Object.keys(row).length > 0) {
       const updateRow = { ...row };
@@ -360,10 +376,13 @@ export class KontikkisService {
     return trimmed.length > 0 ? trimmed : null;
   }
 
-  private async ensureKontikkiExists(id: string): Promise<void> {
+  private async ensureKontikkiExists(id: string): Promise<{
+    biochar_producer_id: string | null;
+    module_id: string | null;
+  }> {
     const { data, error } = await this.supabase
       .from('kontikkis')
-      .select('id')
+      .select('id, biochar_producer_id, module_id')
       .eq('id', id)
       .maybeSingle();
 
@@ -373,6 +392,32 @@ export class KontikkisService {
 
     if (!data) {
       throw new NotFoundException('Kontikki not found');
+    }
+
+    return {
+      biochar_producer_id: (data.biochar_producer_id as string | null) ?? null,
+      module_id: (data.module_id as string | null) ?? null,
+    };
+  }
+
+  private async assertRainbowModuleId(
+    producerId: string,
+    moduleId: string | null | undefined,
+  ): Promise<void> {
+    const { data, error } = await this.supabase
+      .from('biochar_producers')
+      .select('registry')
+      .eq('id', producerId)
+      .maybeSingle();
+
+    if (error) throw new BadRequestException(error.message);
+    if (pyrolysisProtocolForRegistry(data?.registry as string | null) !== 'rainbow') {
+      return;
+    }
+    if (!this.normalizeModuleId(moduleId)) {
+      throw new BadRequestException(
+        'Hardware module ID is required when this kontikki is assigned to a Rainbow producer.',
+      );
     }
   }
 

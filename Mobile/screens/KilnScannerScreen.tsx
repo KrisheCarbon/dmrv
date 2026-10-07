@@ -12,9 +12,12 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { BleError } from "react-native-ble-plx";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import { bleService } from "../services/kiln/bleManagerService";
+import { krisheSession } from "../services/kiln/krisheTelemetry";
+import { getKilnSensorSettings, loadKilnSensorSettings } from "../services/kiln/kilnSensorSettings";
 import { startLocationCache } from "../services/locationCache";
 import { useKilnStore } from "../store/useKilnStore";
 import type { ScannedDevice } from "../types/kiln";
+import { moduleIdsMatch } from "../utils/moduleId";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
 type Props = {
@@ -51,6 +54,7 @@ export default function KilnScannerScreen({ navigation }: Props) {
     clearScannedDevices,
     setConnectedDevice,
     setKilnId,
+    setSensorProtocol,
     resetOnDisconnect,
   } = useKilnStore();
 
@@ -84,8 +88,20 @@ export default function KilnScannerScreen({ navigation }: Props) {
     clearScannedDevices();
     setIsScanning(true);
 
+    const assignedModuleId = selectedKontikki.module_id;
+    const looksLikeBluetoothAddress = /^[0-9A-F]{12}$/.test(
+      assignedModuleId.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+    );
+
     bleService.startScan(
-      (device) => addOrUpdateScannedDevice(device),
+      (device) => {
+        if (device.protocol === "krishe") {
+          if (!moduleIdsMatch(device.id, assignedModuleId)) return;
+        } else if (looksLikeBluetoothAddress) {
+          return;
+        }
+        addOrUpdateScannedDevice(device);
+      },
       (err) => {
         setIsScanning(false);
         Alert.alert("Scan Error", err.message);
@@ -108,13 +124,36 @@ export default function KilnScannerScreen({ navigation }: Props) {
       try {
         await bleService.waitForPowerOn();
         const connectedDev = await bleService.connect(device.id, (err: BleError | null) => {
+          krisheSession.stop();
           resetOnDisconnect();
           if (err) Alert.alert("Disconnected", `Lost connection: ${err.message}`);
         });
 
+        if (device.protocol === "krishe") {
+          if (!moduleIdsMatch(device.id, selectedKontikki.module_id)) {
+            await bleService.disconnect(connectedDev.id);
+            resetOnDisconnect();
+            Alert.alert(
+              "Wrong Hardware Module",
+              `This sensor's Bluetooth address is "${device.id}", but ${selectedKontikki.kontikki_code} is linked to "${selectedKontikki.module_id}".`,
+            );
+            return;
+          }
+
+          setConnectedDevice(connectedDev);
+          setKilnId(selectedKontikki.module_id);
+          setSensorProtocol("krishe");
+          krisheSession.ensureStarted(connectedDev, {
+            moduleId: selectedKontikki.module_id,
+            kontikkiId: selectedKontikki.id,
+          });
+          navigation.navigate("KilnDashboard");
+          return;
+        }
+
         const kilnId = await bleService.readKilnId(connectedDev);
 
-        if (kilnId.trim() !== selectedKontikki.module_id.trim()) {
+        if (!moduleIdsMatch(kilnId, selectedKontikki.module_id)) {
           await bleService.disconnect(connectedDev.id);
           resetOnDisconnect();
           Alert.alert(
@@ -126,6 +165,7 @@ export default function KilnScannerScreen({ navigation }: Props) {
 
         setConnectedDevice(connectedDev);
         setKilnId(kilnId);
+        setSensorProtocol("legacy");
         navigation.navigate("KilnDashboard");
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
@@ -140,6 +180,7 @@ export default function KilnScannerScreen({ navigation }: Props) {
       resetOnDisconnect,
       setConnectedDevice,
       setKilnId,
+      setSensorProtocol,
       navigation,
       selectedKontikki,
     ],
@@ -147,6 +188,7 @@ export default function KilnScannerScreen({ navigation }: Props) {
 
   const handleDisconnect = useCallback(async () => {
     if (!connectedDevice) return;
+    krisheSession.stop();
     try {
       await bleService.disconnect(connectedDevice.id);
     } catch (err) {
@@ -192,6 +234,28 @@ export default function KilnScannerScreen({ navigation }: Props) {
         </Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={styles.wifiButton}
+        onPress={() => {
+          if (!selectedKontikki) return;
+          void (async () => {
+            const settings = await loadKilnSensorSettings();
+            krisheSession.startWifi(
+              { moduleId: selectedKontikki.module_id, kontikkiId: selectedKontikki.id },
+              settings.wifiStatusUrl || getKilnSensorSettings().wifiStatusUrl,
+            );
+            setSensorProtocol("krishe");
+            setKilnId(selectedKontikki.module_id);
+            navigation.navigate("KilnDashboard");
+          })();
+        }}
+      >
+        <Text style={styles.wifiButtonText}>Read over Wi-Fi</Text>
+      </TouchableOpacity>
+      <Text style={styles.wifiHint}>
+        Join the sensor hotspot KriSHE_Carbon_AP first. The module password is krishecarbon.
+      </Text>
+
       <FlatList
         data={scannedDevices}
         keyExtractor={(item) => item.id}
@@ -207,7 +271,7 @@ export default function KilnScannerScreen({ navigation }: Props) {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.deviceKilnId}>{item.kilnId}</Text>
                   <Text style={styles.deviceId} numberOfLines={1}>
-                    {item.id}
+                    {item.protocol === "krishe" ? "KriSHE Carbon · live" : item.id}
                   </Text>
                 </View>
               </View>
@@ -232,8 +296,8 @@ export default function KilnScannerScreen({ navigation }: Props) {
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No Sensors Detected</Text>
             <Text style={styles.emptySubtitle}>
-              Power on the ESP32 sensor for {selectedKontikki.kontikki_code}, ensure it is
-              within Bluetooth range, then tap Scan.
+              Power on the sensor linked to {selectedKontikki.kontikki_code}. A KriSHE Carbon
+              node only appears when its Bluetooth address matches module {selectedKontikki.module_id}.
             </Text>
           </View>
         }
@@ -255,7 +319,7 @@ const styles = StyleSheet.create({
   },
   targetLabel: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.6,
@@ -278,12 +342,33 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
+    minHeight: 56,
     paddingVertical: 14,
     borderRadius: radius.md,
     backgroundColor: colors.brunswick,
   },
   scanButtonActive: { backgroundColor: colors.brunswickLight },
   scanButtonText: { color: colors.white, fontFamily: fonts.bold, fontSize: 15 },
+  wifiButton: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.brunswick,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.white,
+  },
+  wifiButtonText: { color: colors.brunswick, fontFamily: fonts.bold, fontSize: 15 },
+  wifiHint: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
   listContent: { paddingHorizontal: spacing.md, paddingBottom: spacing.lg, flexGrow: 1 },
   deviceCard: {
     flexDirection: "row",
@@ -300,17 +385,18 @@ const styles = StyleSheet.create({
   statusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.smokeLight },
   statusDotActive: { backgroundColor: colors.success },
   deviceKilnId: { fontFamily: fonts.bold, fontSize: 15, color: colors.text },
-  deviceId: { fontFamily: fonts.regular, fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+  deviceId: { fontFamily: fonts.regular, fontSize: 13, color: colors.textSecondary, marginTop: 2 },
   deviceRight: { alignItems: "flex-end", gap: 8 },
   rssiContainer: { flexDirection: "row", alignItems: "flex-end", gap: 2 },
   rssiBar: { width: 4, borderRadius: 2 },
   rssiBarActive: { backgroundColor: colors.success },
   rssiBarInactive: { backgroundColor: colors.border },
-  rssiLabel: { fontSize: 10, color: colors.textSecondary, marginLeft: 4 },
+  rssiLabel: { fontSize: 13, color: colors.textSecondary, marginLeft: 4 },
   connectBtn: {
     backgroundColor: colors.brunswick,
     borderRadius: radius.sm,
     paddingHorizontal: 14,
+    minHeight: 48,
     paddingVertical: 7,
     minWidth: 90,
     alignItems: "center",
@@ -321,6 +407,7 @@ const styles = StyleSheet.create({
     borderColor: colors.error,
     borderRadius: radius.sm,
     paddingHorizontal: 14,
+    minHeight: 48,
     paddingVertical: 7,
     minWidth: 90,
     alignItems: "center",

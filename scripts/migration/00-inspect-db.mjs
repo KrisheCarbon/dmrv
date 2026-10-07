@@ -72,12 +72,12 @@ const TABLES = [
   'kontikki_operators',
   'feedstocks',
   'farms',
-  'pyrolysis_sessions',
-  'pyrolysis_batches',
-  'pyrolysis_batch_status',
-  'mixing_entries',
-  'mixing_pyrolysis_links',
-  'mixing_entry_status',
+  'csi_pyrolysis_sessions',
+  'csi_pyrolysis_batches',
+  'csi_pyrolysis_batch_status',
+  'csi_mixing_entries',
+  'csi_mixing_pyrolysis_links',
+  'csi_mixing_entry_status',
 ];
 
 // Reference tables we want the full contents of (small, needed for FK mapping).

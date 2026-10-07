@@ -6,11 +6,18 @@ export const FILE_DOWNLOAD_CHAR_UUID = 'd4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f8a';
 export const UPTIME_CHAR_UUID = 'e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8a9b';
 export const FILE_CMD_CHAR_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26aa';
 
+/** KriSHE Carbon node (garvk1708/KriSHE-): notify JSON on 0xFFE1. */
+export const KRISHE_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+export const KRISHE_TELEMETRY_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
+
+export type SensorProtocol = 'legacy' | 'krishe';
+
 export interface ScannedDevice {
   id: string;
   name: string | null;
   rssi: number;
   kilnId: string;
+  protocol: SensorProtocol;
 }
 
 export interface StorageInfo {
@@ -44,5 +51,23 @@ export interface RawEspBatch {
   data_points: Array<{
     time_offset_seconds: number;
     temperature: number;
+    top_c?: number | null;
+    middle_c?: number | null;
+    bottom_c?: number | null;
+    kiln_state?: string | null;
+    top_valid?: boolean | null;
+    middle_valid?: boolean | null;
+    bottom_valid?: boolean | null;
+    top_open?: boolean | null;
+    middle_open?: boolean | null;
+    bottom_open?: boolean | null;
+    top_rate?: number | null;
+    middle_rate?: number | null;
+    bottom_rate?: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    satellites?: number | null;
+    utc_epoch?: number | null;
+    uptime_s?: number | null;
   }>;
 }

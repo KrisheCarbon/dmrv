@@ -17,6 +17,7 @@ export const PYROLYSIS_PHOTOS_BUCKET = "pyrolysis";
 export interface PyrolysisBatchListItem extends DbRow {
   id: string;
   batch_number?: string | null;
+  generated_batch_code?: string | null;
   kontikki_id: string;
   kontikki_code: string;
   session_id: string;
@@ -45,13 +46,96 @@ export interface PyrolysisBatchListItem extends DbRow {
   updated_at?: string;
 }
 
+export interface PyrolysisSensorReading {
+  time_offset_seconds: number;
+  temperature: number;
+  recorded_at: string;
+  top_c: number | null;
+  middle_c: number | null;
+  bottom_c: number | null;
+}
+
+export interface PyrolysisSensorLog {
+  id: string;
+  batch_name: string;
+  kiln_id: string;
+  started_at: string;
+  ended_at: string;
+  clock: "sensor" | "phone";
+  point_count: number;
+  lowest_c: number | null;
+  ends_excluded: boolean;
+  stayed_at_or_above_350: boolean | null;
+  readings: PyrolysisSensorReading[];
+}
+
+export interface RainbowMoistureProof {
+  slot: number;
+  reading: number | null;
+  photo_url: string | null;
+  captured_at: string | null;
+}
+
+export interface RainbowLayerProof {
+  sequence: number;
+  photo_url: string | null;
+  captured_at: string | null;
+}
+
+export interface RainbowRunProof {
+  feedstock_class: "woody" | "other" | null;
+  required_moisture_count: number;
+  moisture_mean: number | null;
+  moisture_mean_limit: number | null;
+  highest_moisture: number | null;
+  moisture_within_rules: boolean;
+  moisture: RainbowMoistureProof[];
+  layers: RainbowLayerProof[];
+  last_layer_confirmed: boolean;
+  flame_curtain_photo_url: string | null;
+  flame_curtain_captured_at: string | null;
+  quench_start_photo_url: string | null;
+  quench_start_captured_at: string | null;
+  quench_end_photo_url: string | null;
+  quench_end_captured_at: string | null;
+  quench_photos?: Array<{
+    slot: number;
+    photo_url: string | null;
+    captured_at: string | null;
+  }>;
+  quench_duration_seconds?: number | null;
+  quench_video_url?: string | null;
+  quench_video_captured_at?: string | null;
+  quench_video_duration_seconds?: number | null;
+}
+
 export interface PyrolysisBatchDetail extends PyrolysisBatchRecord {
+  generated_batch_code?: string | null;
   session_status: string;
   session_completed_at?: string | null;
   operator_id: string;
   operator_name: string;
   producer_id?: string | null;
   producer_name: string;
+  protocol?: "csi" | "rainbow";
+  kiln_photo_url?: string | null;
+  sensor_logs?: PyrolysisSensorLog[];
+  run_proof?: RainbowRunProof | null;
+  volume_percent?: number | null;
+  kontikki_capacity_liters?: number | null;
+  biochar_bulk_density_kg_m3?: number | null;
+  estimated_biochar_volume_liters?: number | null;
+  estimated_biochar_mass_kg?: number | null;
+  sample_spots?: Array<{
+    spot: number;
+    photo_url?: string | null;
+    photo_metadata?: { captured_at?: string | null } | null;
+  }>;
+  sample_pile_photo_url?: string | null;
+  sample_bag_code?: string | null;
+  sample_bag_photo_url?: string | null;
+  sample_bag_not_used?: boolean;
+  sample_collected_at?: string | null;
   batch_status: {
     id: string;
     batch_id: string;
@@ -113,6 +197,7 @@ export function productionBatchSearchIndex(batch: PyrolysisBatchListItem): strin
   return buildSearchIndex(
     batch.id,
     batch.batch_number,
+    batch.generated_batch_code,
     batch.kontikki_code,
     batch.kontikki_id,
     batch.producer_name,

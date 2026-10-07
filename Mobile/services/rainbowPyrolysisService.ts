@@ -1,13 +1,19 @@
 import {
   emptyRainbowMoistureReadings,
+  isRainbowInfoComplete,
   isRainbowMoistureComplete,
   isRainbowProductionComplete,
+  isRainbowSampleCollectionComplete,
+  rainbowRequiredMoistureCount,
+  type RainbowFeedstockClass,
+  type RainbowProcessProof,
   rainbowKontikkiWorkflowProgress,
   type FieldPhotoMetadata,
   type MoistureReading,
   type PyrolysisKontikkiData,
   type RainbowBiomassLoad,
   type RainbowPyrolysisBatchRecord,
+  type RainbowSampleSpot,
   type PyrolysisKontikkiOption,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
@@ -20,12 +26,21 @@ import {
   type RainbowPyrolysisBatch,
 } from "../database/types";
 import {
-  isInfoSectionComplete,
   isSampleSectionComplete,
   isYieldSectionComplete,
 } from "../utils/pyrolysisSectionValidation";
 
 const LOCAL_SYNC_STATUS = "local";
+
+function parseSampleSpots(raw: string | null | undefined): RainbowSampleSpot[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as RainbowSampleSpot[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 function parseMetadata(raw: string | null | undefined): FieldPhotoMetadata | null {
   if (!raw) return null;
@@ -39,6 +54,40 @@ function parseMetadata(raw: string | null | undefined): FieldPhotoMetadata | nul
 function stringifyMetadata(value: FieldPhotoMetadata | null | undefined): string | null {
   if (!value) return null;
   return JSON.stringify(value);
+}
+
+function parseQuenchPhotos(raw: string | null | undefined): PyrolysisKontikkiData["quench_photos"] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as PyrolysisKontikkiData["quench_photos"];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function quenchProof(data: PyrolysisKontikkiData): Pick<
+  RainbowProcessProof,
+  "quenchStartPhoto" | "quenchEndPhoto" | "quenchVideo" | "quenchPhotoCount"
+> {
+  const photos = (data.quench_photos ?? []).filter(
+    (photo) => photo.photo_local_uri || photo.photo_url,
+  );
+  const first = photos[0];
+  const last = photos.length >= 2 ? photos[photos.length - 1] : undefined;
+  return {
+    quenchStartPhoto:
+      first?.photo_local_uri ||
+      first?.photo_url ||
+      data.quench_start_photo_local_uri ||
+      data.quench_start_photo_url,
+    quenchEndPhoto:
+      last?.photo_local_uri ||
+      last?.photo_url ||
+      (photos.length >= 2 ? undefined : data.quench_end_photo_local_uri || data.quench_end_photo_url),
+    quenchVideo: data.quench_video_local_uri || data.quench_video_url,
+    quenchPhotoCount: photos.length,
+  };
 }
 
 export type RainbowDraft = {
@@ -63,6 +112,7 @@ export async function insertRainbowBatchLocal(
     producerId: kontikki.biochar_producer_id ?? null,
     producerName: kontikki.producer_name ?? null,
     batchNumber: null,
+    generatedBatchCode: null,
     feedstockQuantity: null,
     avgFeedstockSizeCm: null,
     feedstockId: null,
@@ -70,6 +120,9 @@ export async function insertRainbowBatchLocal(
     locationLat: null,
     locationLng: null,
     locationAddress: null,
+    kilnPhotoLocalUri: null,
+    kilnPhotoUrl: null,
+    kilnPhotoMetadataJson: null,
     feedstockPhotoLocalUri: null,
     feedstockPhotoUrl: null,
     feedstockSizePhotoLocalUri: null,
@@ -92,6 +145,32 @@ export async function insertRainbowBatchLocal(
     samplePhotoUrl: null,
     samplePhotoMetadataJson: null,
     sampleSavedAt: null,
+    sampleSpotsJson: null,
+    samplePilePhotoLocalUri: null,
+    samplePilePhotoUrl: null,
+    samplePilePhotoMetadataJson: null,
+    sampleBagCode: null,
+    sampleBagPhotoLocalUri: null,
+    sampleBagPhotoUrl: null,
+    sampleBagPhotoMetadataJson: null,
+    sampleBagNotUsed: false,
+    sampleCollectedAt: null,
+    feedstockClass: null,
+    lastLayerConfirmed: false,
+    flameCurtainPhotoLocalUri: null,
+    flameCurtainPhotoUrl: null,
+    flameCurtainPhotoMetadataJson: null,
+    quenchStartPhotoLocalUri: null,
+    quenchStartPhotoUrl: null,
+    quenchStartPhotoMetadataJson: null,
+    quenchEndPhotoLocalUri: null,
+    quenchEndPhotoUrl: null,
+    quenchEndPhotoMetadataJson: null,
+    quenchPhotosJson: null,
+    quenchVideoLocalUri: null,
+    quenchVideoUrl: null,
+    quenchVideoMetadataJson: null,
+    quenchVideoDurationSeconds: null,
     reviewStatus: null,
     reviewerNotes: null,
     submissionStatus: "draft",
@@ -170,7 +249,12 @@ export async function loadRainbowDraft(batchId: string): Promise<RainbowDraft> {
     "SELECT * FROM rainbow_pyrolysis_moisture WHERE batch_id = ? ORDER BY slot ASC",
     [batchId],
   );
-  const moisture = emptyRainbowMoistureReadings().map((empty, index) => {
+  const required = rainbowRequiredMoistureCount(batch.feedstockQuantity);
+  const storedCount = moistureRows.reduce(
+    (max, row) => Math.max(max, Number(row.slot) || 0),
+    0,
+  );
+  const moisture = emptyRainbowMoistureReadings(Math.max(required, storedCount)).map((empty, index) => {
     const row = moistureRows.find((item) => item.slot === index + 1);
     if (!row) return empty;
     const mapped = rowToRainbowMoisture(row);
@@ -209,6 +293,7 @@ export function rainbowDraftToKontikkiData(draft: RainbowDraft): PyrolysisKontik
     avg_feedstock_size_cm: draft.batch.avgFeedstockSizeCm,
     feedstock_id: draft.batch.feedstockId,
     feedstock_name: draft.batch.feedstockName ?? "",
+    feedstock_class: draft.batch.feedstockClass,
     location:
       draft.batch.locationLat != null && draft.batch.locationLng != null
         ? {
@@ -217,6 +302,9 @@ export function rainbowDraftToKontikkiData(draft: RainbowDraft): PyrolysisKontik
             address: draft.batch.locationAddress,
           }
         : null,
+    kiln_photo_local_uri: draft.batch.kilnPhotoLocalUri,
+    kiln_photo_url: draft.batch.kilnPhotoUrl,
+    kiln_photo_metadata: parseMetadata(draft.batch.kilnPhotoMetadataJson),
     feedstock_photo_local_uri: draft.batch.feedstockPhotoLocalUri,
     feedstock_photo_url: draft.batch.feedstockPhotoUrl,
     feedstock_photo_metadata: parseMetadata(draft.batch.feedstockPhotoMetadataJson),
@@ -232,8 +320,33 @@ export function rainbowDraftToKontikkiData(draft: RainbowDraft): PyrolysisKontik
     sample_photo_url: draft.batch.samplePhotoUrl,
     sample_photo_metadata: parseMetadata(draft.batch.samplePhotoMetadataJson),
     sample_saved_at: draft.batch.sampleSavedAt,
+    sample_spots: parseSampleSpots(draft.batch.sampleSpotsJson),
+    sample_pile_photo_local_uri: draft.batch.samplePilePhotoLocalUri,
+    sample_pile_photo_url: draft.batch.samplePilePhotoUrl,
+    sample_pile_photo_metadata: parseMetadata(draft.batch.samplePilePhotoMetadataJson),
+    sample_bag_code: draft.batch.sampleBagCode,
+    sample_bag_photo_local_uri: draft.batch.sampleBagPhotoLocalUri,
+    sample_bag_photo_url: draft.batch.sampleBagPhotoUrl,
+    sample_bag_photo_metadata: parseMetadata(draft.batch.sampleBagPhotoMetadataJson),
+    sample_bag_not_used: draft.batch.sampleBagNotUsed,
+    sample_collected_at: draft.batch.sampleCollectedAt,
     info_saved_at: draft.batch.infoSavedAt,
     moisture_saved_at: draft.batch.moistureSavedAt,
+    last_layer_confirmed: draft.batch.lastLayerConfirmed,
+    flame_curtain_photo_local_uri: draft.batch.flameCurtainPhotoLocalUri,
+    flame_curtain_photo_url: draft.batch.flameCurtainPhotoUrl,
+    flame_curtain_photo_metadata: parseMetadata(draft.batch.flameCurtainPhotoMetadataJson),
+    quench_start_photo_local_uri: draft.batch.quenchStartPhotoLocalUri,
+    quench_start_photo_url: draft.batch.quenchStartPhotoUrl,
+    quench_start_photo_metadata: parseMetadata(draft.batch.quenchStartPhotoMetadataJson),
+    quench_end_photo_local_uri: draft.batch.quenchEndPhotoLocalUri,
+    quench_end_photo_url: draft.batch.quenchEndPhotoUrl,
+    quench_end_photo_metadata: parseMetadata(draft.batch.quenchEndPhotoMetadataJson),
+    quench_photos: parseQuenchPhotos(draft.batch.quenchPhotosJson),
+    quench_video_local_uri: draft.batch.quenchVideoLocalUri,
+    quench_video_url: draft.batch.quenchVideoUrl,
+    quench_video_metadata: parseMetadata(draft.batch.quenchVideoMetadataJson),
+    quench_video_duration_seconds: draft.batch.quenchVideoDurationSeconds,
   };
 }
 
@@ -243,16 +356,31 @@ export async function saveRainbowInfoLocal(
 ) {
   const db = await getDb();
   const now = Date.now();
-  const complete = isInfoSectionComplete(data);
+  const feedstockClass: RainbowFeedstockClass | null =
+    data.feedstock_class === "woody" || data.feedstock_class === "other"
+      ? data.feedstock_class
+      : null;
+  const complete = isRainbowInfoComplete({
+    batchNumber: data.batch_number,
+    feedstockId: data.feedstock_id,
+    feedstockName: data.feedstock_name,
+    feedstockClass,
+    feedstockPhoto: data.feedstock_photo_local_uri || data.feedstock_photo_url,
+    kilnPhoto: data.kiln_photo_local_uri || data.kiln_photo_url,
+  });
   const patch = {
     batch_number: data.batch_number ?? null,
     feedstock_quantity: data.feedstock_quantity ?? null,
     avg_feedstock_size_cm: data.avg_feedstock_size_cm ?? null,
     feedstock_id: data.feedstock_id ?? null,
     feedstock_name: data.feedstock_name ?? null,
+    feedstock_class: feedstockClass,
     location_lat: data.location?.lat ?? null,
     location_lng: data.location?.lng ?? null,
     location_address: data.location?.address ?? null,
+    kiln_photo_local_uri: data.kiln_photo_local_uri ?? null,
+    kiln_photo_url: data.kiln_photo_url ?? null,
+    kiln_photo_metadata_json: stringifyMetadata(data.kiln_photo_metadata),
     feedstock_photo_local_uri: data.feedstock_photo_local_uri ?? null,
     feedstock_photo_url: data.feedstock_photo_url ?? null,
     feedstock_size_photo_local_uri: data.feedstock_size_photo_local_uri ?? null,
@@ -265,6 +393,36 @@ export async function saveRainbowInfoLocal(
   };
   const { sql, args } = buildUpdate("rainbow_pyrolysis_batches", patch, "id = ?", [batchId]);
   await db.runAsync(sql, args);
+  await ensureRainbowMoistureSlots(batchId, data.feedstock_quantity);
+}
+
+async function ensureRainbowMoistureSlots(
+  batchId: string,
+  feedstockKg: number | null | undefined,
+) {
+  const db = await getDb();
+  const required = rainbowRequiredMoistureCount(feedstockKg);
+  const rows = await db.getAllAsync<{ slot: number }>(
+    "SELECT slot FROM rainbow_pyrolysis_moisture WHERE batch_id = ?",
+    [batchId],
+  );
+  const have = new Set(rows.map((row) => Number(row.slot)));
+  const now = Date.now();
+  for (let slot = 1; slot <= required; slot += 1) {
+    if (have.has(slot)) continue;
+    const insert = buildInsert("rainbow_pyrolysis_moisture", {
+      id: generateId(),
+      batch_id: batchId,
+      slot,
+      reading: null,
+      photo_local_uri: null,
+      photo_url: null,
+      photo_metadata_json: null,
+      created_at: now,
+      updated_at: now,
+    });
+    await db.runAsync(insert.sql, insert.args);
+  }
 }
 
 export async function saveRainbowMoistureLocal(
@@ -273,24 +431,49 @@ export async function saveRainbowMoistureLocal(
 ) {
   const db = await getDb();
   const now = Date.now();
-  const complete = isRainbowMoistureComplete(readings);
+  const batch = await getRainbowBatch(batchId);
+  const complete = isRainbowMoistureComplete(
+    readings,
+    batch?.feedstockQuantity,
+    batch?.feedstockClass,
+  );
 
-  for (let index = 0; index < 10; index += 1) {
+  for (let index = 0; index < readings.length; index += 1) {
     const reading = readings[index];
-    await db.runAsync(
-      `UPDATE rainbow_pyrolysis_moisture
-       SET reading = ?, photo_local_uri = ?, photo_url = ?, photo_metadata_json = ?, updated_at = ?
-       WHERE batch_id = ? AND slot = ?`,
-      [
-        reading?.reading ?? null,
-        reading?.photo_local_uri ?? null,
-        reading?.photo_url ?? null,
-        stringifyMetadata(reading?.photo_metadata),
-        now,
-        batchId,
-        index + 1,
-      ],
+    const slot = index + 1;
+    const existing = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM rainbow_pyrolysis_moisture WHERE batch_id = ? AND slot = ?",
+      [batchId, slot],
     );
+    if (existing) {
+      await db.runAsync(
+        `UPDATE rainbow_pyrolysis_moisture
+         SET reading = ?, photo_local_uri = ?, photo_url = ?, photo_metadata_json = ?, updated_at = ?
+         WHERE batch_id = ? AND slot = ?`,
+        [
+          reading?.reading ?? null,
+          reading?.photo_local_uri ?? null,
+          reading?.photo_url ?? null,
+          stringifyMetadata(reading?.photo_metadata),
+          now,
+          batchId,
+          slot,
+        ],
+      );
+    } else {
+      const insert = buildInsert("rainbow_pyrolysis_moisture", {
+        id: generateId(),
+        batch_id: batchId,
+        slot,
+        reading: reading?.reading ?? null,
+        photo_local_uri: reading?.photo_local_uri ?? null,
+        photo_url: reading?.photo_url ?? null,
+        photo_metadata_json: stringifyMetadata(reading?.photo_metadata),
+        created_at: now,
+        updated_at: now,
+      });
+      await db.runAsync(insert.sql, insert.args);
+    }
   }
 
   await db.runAsync(
@@ -301,9 +484,30 @@ export async function saveRainbowMoistureLocal(
   );
 }
 
+function proofFromBatch(batch: RainbowPyrolysisBatch | null): RainbowProcessProof {
+  const photos = parseQuenchPhotos(batch?.quenchPhotosJson);
+  const filled = photos.filter((photo) => photo.photo_local_uri || photo.photo_url);
+  return {
+    lastLayerConfirmed: Boolean(batch?.lastLayerConfirmed),
+    flameCurtainPhoto: batch?.flameCurtainPhotoLocalUri || batch?.flameCurtainPhotoUrl,
+    quenchStartPhoto:
+      filled[0]?.photo_local_uri ||
+      filled[0]?.photo_url ||
+      batch?.quenchStartPhotoLocalUri ||
+      batch?.quenchStartPhotoUrl,
+    quenchEndPhoto:
+      (filled.length >= 2 ? filled[filled.length - 1]?.photo_local_uri || filled[filled.length - 1]?.photo_url : null) ||
+      batch?.quenchEndPhotoLocalUri ||
+      batch?.quenchEndPhotoUrl,
+    quenchVideo: batch?.quenchVideoLocalUri || batch?.quenchVideoUrl,
+    quenchPhotoCount: filled.length,
+  };
+}
+
 export async function saveRainbowBiomassLoadsLocal(
   batchId: string,
   loads: RainbowBiomassLoad[],
+  data?: PyrolysisKontikkiData,
 ) {
   const db = await getDb();
   const now = Date.now();
@@ -312,7 +516,33 @@ export async function saveRainbowBiomassLoadsLocal(
     id: load.id || generateId(),
     sequence: index + 1,
   }));
-  const complete = isRainbowProductionComplete(normalized);
+  const batch = await getRainbowBatch(batchId);
+  const fromDraft = data ? quenchProof(data) : null;
+  const resolved: RainbowProcessProof = data
+    ? {
+        lastLayerConfirmed: Boolean(data.last_layer_confirmed),
+        flameCurtainPhoto: data.flame_curtain_photo_local_uri || data.flame_curtain_photo_url,
+        ...fromDraft,
+      }
+    : proofFromBatch(batch);
+  const complete = isRainbowProductionComplete(normalized, resolved);
+  const photos = data ?? {
+    last_layer_confirmed: batch?.lastLayerConfirmed,
+    flame_curtain_photo_local_uri: batch?.flameCurtainPhotoLocalUri,
+    flame_curtain_photo_url: batch?.flameCurtainPhotoUrl,
+    flame_curtain_photo_metadata: parseMetadata(batch?.flameCurtainPhotoMetadataJson),
+    quench_start_photo_local_uri: batch?.quenchStartPhotoLocalUri,
+    quench_start_photo_url: batch?.quenchStartPhotoUrl,
+    quench_start_photo_metadata: parseMetadata(batch?.quenchStartPhotoMetadataJson),
+    quench_end_photo_local_uri: batch?.quenchEndPhotoLocalUri,
+    quench_end_photo_url: batch?.quenchEndPhotoUrl,
+    quench_end_photo_metadata: parseMetadata(batch?.quenchEndPhotoMetadataJson),
+    quench_photos: parseQuenchPhotos(batch?.quenchPhotosJson),
+    quench_video_local_uri: batch?.quenchVideoLocalUri,
+    quench_video_url: batch?.quenchVideoUrl,
+    quench_video_metadata: parseMetadata(batch?.quenchVideoMetadataJson),
+    quench_video_duration_seconds: batch?.quenchVideoDurationSeconds,
+  };
 
   await db.runAsync("DELETE FROM rainbow_pyrolysis_biomass_loads WHERE batch_id = ?", [batchId]);
   for (const load of normalized) {
@@ -333,9 +563,44 @@ export async function saveRainbowBiomassLoadsLocal(
 
   await db.runAsync(
     `UPDATE rainbow_pyrolysis_batches
-     SET production_completed = ?, production_saved_at = ?, updated_at = ?
+     SET production_completed = ?, production_saved_at = ?, updated_at = ?,
+         last_layer_confirmed = ?,
+         flame_curtain_photo_local_uri = ?,
+         flame_curtain_photo_url = ?,
+         flame_curtain_photo_metadata_json = ?,
+         quench_start_photo_local_uri = ?,
+         quench_start_photo_url = ?,
+         quench_start_photo_metadata_json = ?,
+         quench_end_photo_local_uri = ?,
+         quench_end_photo_url = ?,
+         quench_end_photo_metadata_json = ?,
+         quench_photos_json = ?,
+         quench_video_local_uri = ?,
+         quench_video_url = ?,
+         quench_video_metadata_json = ?,
+         quench_video_duration_seconds = ?
      WHERE id = ?`,
-    [complete ? 1 : 0, complete ? new Date().toISOString() : null, now, batchId],
+    [
+      complete ? 1 : 0,
+      complete ? new Date().toISOString() : null,
+      now,
+      resolved.lastLayerConfirmed ? 1 : 0,
+      photos.flame_curtain_photo_local_uri ?? null,
+      photos.flame_curtain_photo_url ?? null,
+      stringifyMetadata(photos.flame_curtain_photo_metadata),
+      photos.quench_start_photo_local_uri ?? null,
+      photos.quench_start_photo_url ?? null,
+      stringifyMetadata(photos.quench_start_photo_metadata),
+      photos.quench_end_photo_local_uri ?? null,
+      photos.quench_end_photo_url ?? null,
+      stringifyMetadata(photos.quench_end_photo_metadata),
+      JSON.stringify(photos.quench_photos ?? []),
+      photos.quench_video_local_uri ?? null,
+      photos.quench_video_url ?? null,
+      stringifyMetadata(photos.quench_video_metadata),
+      photos.quench_video_duration_seconds ?? null,
+      batchId,
+    ],
   );
 }
 
@@ -380,6 +645,47 @@ export async function saveRainbowSampleLocal(batchId: string, data: PyrolysisKon
   );
 }
 
+export async function saveRainbowSampleCollection(
+  batchId: string,
+  data: PyrolysisKontikkiData,
+) {
+  const db = await getDb();
+  const now = Date.now();
+  const complete = isRainbowSampleCollectionComplete({
+    spots: data.sample_spots,
+    pilePhotoUrl: data.sample_pile_photo_url,
+    pilePhotoLocalUri: data.sample_pile_photo_local_uri,
+    bagNotUsed: data.sample_bag_not_used,
+    bagCode: data.sample_bag_code,
+    bagPhotoUrl: data.sample_bag_photo_url,
+    bagPhotoLocalUri: data.sample_bag_photo_local_uri,
+  });
+  await db.runAsync(
+    `UPDATE rainbow_pyrolysis_batches
+     SET sample_spots_json = ?,
+         sample_pile_photo_local_uri = ?, sample_pile_photo_url = ?, sample_pile_photo_metadata_json = ?,
+         sample_bag_code = ?, sample_bag_photo_local_uri = ?, sample_bag_photo_url = ?,
+         sample_bag_photo_metadata_json = ?, sample_bag_not_used = ?,
+         sample_collected_at = ?, sample_completed = ?, updated_at = ?
+     WHERE id = ?`,
+    [
+      JSON.stringify(data.sample_spots ?? []),
+      data.sample_pile_photo_local_uri ?? null,
+      data.sample_pile_photo_url ?? null,
+      stringifyMetadata(data.sample_pile_photo_metadata),
+      data.sample_bag_code ?? null,
+      data.sample_bag_photo_local_uri ?? null,
+      data.sample_bag_photo_url ?? null,
+      stringifyMetadata(data.sample_bag_photo_metadata),
+      data.sample_bag_not_used ? 1 : 0,
+      complete ? data.sample_collected_at ?? new Date().toISOString() : null,
+      complete ? 1 : 0,
+      now,
+      batchId,
+    ],
+  );
+}
+
 export function rainbowProgress(draft: RainbowDraft): number {
   return rainbowKontikkiWorkflowProgress(
     {
@@ -407,9 +713,12 @@ export function toRainbowApiRecord(draft: RainbowDraft): RainbowPyrolysisBatchRe
     avg_feedstock_size_cm: draft.batch.avgFeedstockSizeCm,
     feedstock_id: draft.batch.feedstockId,
     feedstock_name: draft.batch.feedstockName,
+    feedstock_class: draft.batch.feedstockClass,
     location_lat: draft.batch.locationLat,
     location_lng: draft.batch.locationLng,
     location_address: draft.batch.locationAddress,
+    kiln_photo_url: draft.batch.kilnPhotoUrl,
+    kiln_photo_metadata: parseMetadata(draft.batch.kilnPhotoMetadataJson),
     feedstock_photo_url: draft.batch.feedstockPhotoUrl,
     feedstock_size_photo_url: draft.batch.feedstockSizePhotoUrl,
     feedstock_photo_metadata: parseMetadata(draft.batch.feedstockPhotoMetadataJson),
@@ -442,6 +751,33 @@ export function toRainbowApiRecord(draft: RainbowDraft): RainbowPyrolysisBatchRe
     sample_photo_url: draft.batch.samplePhotoUrl,
     sample_photo_metadata: parseMetadata(draft.batch.samplePhotoMetadataJson),
     sample_saved_at: draft.batch.sampleSavedAt,
+    sample_spots: parseSampleSpots(draft.batch.sampleSpotsJson)?.map((spot) => ({
+      spot: spot.spot,
+      photo_url: spot.photo_url,
+      photo_metadata: spot.photo_metadata,
+    })),
+    sample_pile_photo_url: draft.batch.samplePilePhotoUrl,
+    sample_pile_photo_metadata: parseMetadata(draft.batch.samplePilePhotoMetadataJson),
+    sample_bag_code: draft.batch.sampleBagCode,
+    sample_bag_photo_url: draft.batch.sampleBagPhotoUrl,
+    sample_bag_photo_metadata: parseMetadata(draft.batch.sampleBagPhotoMetadataJson),
+    sample_bag_not_used: draft.batch.sampleBagNotUsed,
+    sample_collected_at: draft.batch.sampleCollectedAt,
+    last_layer_confirmed: draft.batch.lastLayerConfirmed,
+    flame_curtain_photo_url: draft.batch.flameCurtainPhotoUrl,
+    flame_curtain_photo_metadata: parseMetadata(draft.batch.flameCurtainPhotoMetadataJson),
+    quench_start_photo_url: draft.batch.quenchStartPhotoUrl,
+    quench_start_photo_metadata: parseMetadata(draft.batch.quenchStartPhotoMetadataJson),
+    quench_end_photo_url: draft.batch.quenchEndPhotoUrl,
+    quench_end_photo_metadata: parseMetadata(draft.batch.quenchEndPhotoMetadataJson),
+    quench_photos: parseQuenchPhotos(draft.batch.quenchPhotosJson)?.map((photo) => ({
+      id: photo.id,
+      photo_url: photo.photo_url,
+      photo_metadata: photo.photo_metadata,
+    })),
+    quench_video_url: draft.batch.quenchVideoUrl,
+    quench_video_metadata: parseMetadata(draft.batch.quenchVideoMetadataJson),
+    quench_video_duration_seconds: draft.batch.quenchVideoDurationSeconds,
     submission_status: draft.batch.submissionStatus === "submitted" ? "submitted" : "draft",
   };
 }

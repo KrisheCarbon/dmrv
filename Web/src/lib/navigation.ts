@@ -147,9 +147,12 @@ export const DASHBOARD_SECTIONS = [
   {
     key: "verification-reports",
     title: "Verification Reports",
-    description: "Download the CSI C-Sink package from submitted application records.",
+    description: "CSI C-Sink download and the Rainbow credit package.",
     href: "/verification-reports",
-    links: [{ href: "/verification-reports", label: "Download" }],
+    links: [
+      { href: "/verification-reports", label: "Download" },
+      { href: "/verification-reports/rainbow", label: "Rainbow credits" },
+    ],
   },
   {
     key: "users",

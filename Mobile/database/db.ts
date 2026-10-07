@@ -214,6 +214,40 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "soil_reports", "document_url", "TEXT");
   await addColumnIfMissing(db, "soil_reports", "server_id", "TEXT");
 
+  await addColumnIfMissing(db, "farmers", "credit_rights_acknowledged", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing(db, "cluster_villages", "producer_registry", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "kiln_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "kiln_photo_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "kiln_photo_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "feedstock_class", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "last_layer_confirmed", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "flame_curtain_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "flame_curtain_photo_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "flame_curtain_photo_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_start_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_start_photo_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_start_photo_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_end_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_end_photo_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_end_photo_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_photos_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_video_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_video_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_video_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "quench_video_duration_seconds", "REAL");
+  await addColumnIfMissing(db, "pyrolysis_batches", "generated_batch_code", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "generated_batch_code", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_spots_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_pile_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_pile_photo_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_pile_photo_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_code", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_photo_url", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_photo_metadata_json", "TEXT");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_not_used", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_collected_at", "TEXT");
+
   return serializeDbMethods(db);
 }
 

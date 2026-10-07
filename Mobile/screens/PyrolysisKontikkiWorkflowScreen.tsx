@@ -12,7 +12,8 @@ import {
   MOISTURE_READING_COUNT,
   PYROLYSIS_KONTIKKI_SECTIONS,
   RAINBOW_KONTIKKI_SECTIONS,
-  RAINBOW_MOISTURE_READING_COUNT,
+  rainbowRequiredMoistureCount,
+  rainbowMoistureMeanLimit,
   emptyMoistureReadings,
   emptyRainbowMoistureReadings,
   isKontikkiWorkflowSectionCompleted,
@@ -26,6 +27,8 @@ import {
   pyrolysisWorkflowSectionLabel,
   rainbowKontikkiWorkflowProgress,
   rainbowWorkflowSectionLabel,
+  formatQuenchDuration,
+  quenchDurationSeconds,
   type FieldPhotoMetadata,
   type PyrolysisKontikkiData,
   type PyrolysisKontikkiWorkflowSection,
@@ -40,7 +43,7 @@ import FormPicker from "../components/FormPicker";
 import KeyboardSafeScroll from "../components/KeyboardSafeScroll";
 import PyrolysisCollapsibleSection from "../components/PyrolysisCollapsibleSection";
 import PyrolysisPhotoSlot from "../components/PyrolysisPhotoSlot";
-import { LocationUnavailableError } from "../services/fieldPhoto";
+import { captureApplicationVideo, LocationUnavailableError } from "../services/fieldPhoto";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import {
   autoSaveKontikkiSectionLocal,
@@ -79,6 +82,23 @@ function rainbowFlags(row: SessionKontikkiView) {
     yieldCompleted: Boolean(row.yieldCompleted),
     sampleCompleted: row.sampleCompleted,
   };
+}
+
+function rainbowMoistureHint(
+  feedstockClass: "woody" | "other" | null | undefined,
+  readings: { reading: number | null }[],
+): string {
+  const limit = rainbowMoistureMeanLimit(feedstockClass);
+  const values = readings
+    .map((item) => item.reading)
+    .filter((value): value is number => value != null && !Number.isNaN(value));
+  const mean = values.length
+    ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)
+    : "—";
+  if (limit == null) {
+    return "Set the feedstock class in batch info. No reading may be above 25%.";
+  }
+  return `Mean so far ${mean}%. Rainbow allows up to ${limit}% for this feedstock, and no reading above 25%.`;
 }
 
 function firstOpenSection(row: SessionKontikkiView): PyrolysisKontikkiWorkflowSection | RainbowKontikkiWorkflowSection {
@@ -127,6 +147,9 @@ function emptyInfoDraft(): PyrolysisKontikkiData {
     avg_feedstock_size_cm: null,
     feedstock_id: null,
     feedstock_name: "",
+    kiln_photo_local_uri: null,
+    kiln_photo_url: null,
+    kiln_photo_metadata: null,
     feedstock_photo_local_uri: null,
     feedstock_photo_url: null,
     feedstock_photo_metadata: null,
@@ -154,6 +177,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   const [locationLoading, setLocationLoading] = useState(false);
   const [stagePhotos, setStagePhotos] = useState<PyrolysisStagePhotos>({});
   const [biomassLoads, setBiomassLoads] = useState<RainbowBiomassLoad[]>([]);
+  const [quenchMode, setQuenchMode] = useState<"photos" | "video">("photos");
   const [yieldDraft, setYieldDraft] = useState({
     yield_percent: null as number | null,
     comment: "",
@@ -231,7 +255,45 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       avg_feedstock_size_cm: payload.avg_feedstock_size_cm ?? null,
       feedstock_id: payload.feedstock_id ?? null,
       feedstock_name: payload.feedstock_name ?? "",
+      feedstock_class: payload.feedstock_class ?? null,
+      last_layer_confirmed: Boolean(payload.last_layer_confirmed),
+      flame_curtain_photo_local_uri: payload.flame_curtain_photo_local_uri ?? null,
+      flame_curtain_photo_url: payload.flame_curtain_photo_url ?? null,
+      flame_curtain_photo_metadata: payload.flame_curtain_photo_metadata ?? null,
+      quench_start_photo_local_uri: payload.quench_start_photo_local_uri ?? null,
+      quench_start_photo_url: payload.quench_start_photo_url ?? null,
+      quench_start_photo_metadata: payload.quench_start_photo_metadata ?? null,
+      quench_end_photo_local_uri: payload.quench_end_photo_local_uri ?? null,
+      quench_end_photo_url: payload.quench_end_photo_url ?? null,
+      quench_end_photo_metadata: payload.quench_end_photo_metadata ?? null,
+      quench_photos: payload.quench_photos?.length
+        ? payload.quench_photos
+        : [
+            payload.quench_start_photo_local_uri || payload.quench_start_photo_url
+              ? {
+                  id: "quench-start",
+                  photo_local_uri: payload.quench_start_photo_local_uri,
+                  photo_url: payload.quench_start_photo_url,
+                  photo_metadata: payload.quench_start_photo_metadata,
+                }
+              : null,
+            payload.quench_end_photo_local_uri || payload.quench_end_photo_url
+              ? {
+                  id: "quench-end",
+                  photo_local_uri: payload.quench_end_photo_local_uri,
+                  photo_url: payload.quench_end_photo_url,
+                  photo_metadata: payload.quench_end_photo_metadata,
+                }
+              : null,
+          ].filter((photo) => photo != null),
+      quench_video_local_uri: payload.quench_video_local_uri ?? null,
+      quench_video_url: payload.quench_video_url ?? null,
+      quench_video_metadata: payload.quench_video_metadata ?? null,
+      quench_video_duration_seconds: payload.quench_video_duration_seconds ?? null,
       location: payload.location ?? null,
+      kiln_photo_local_uri: payload.kiln_photo_local_uri ?? null,
+      kiln_photo_url: payload.kiln_photo_url ?? null,
+      kiln_photo_metadata: payload.kiln_photo_metadata ?? null,
       feedstock_photo_local_uri: payload.feedstock_photo_local_uri ?? null,
       feedstock_photo_url: payload.feedstock_photo_url ?? null,
       feedstock_photo_metadata: payload.feedstock_photo_metadata ?? null,
@@ -240,15 +302,24 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       feedstock_size_photo_metadata: payload.feedstock_size_photo_metadata ?? null,
       info_saved_at: payload.info_saved_at ?? null,
     });
+    setQuenchMode(
+      payload.quench_video_local_uri || payload.quench_video_url ? "video" : "photos",
+    );
     const expectedMoisture =
       kontikki.standard === "rainbow"
-        ? RAINBOW_MOISTURE_READING_COUNT
+        ? Math.max(
+            rainbowRequiredMoistureCount(payload.feedstock_quantity),
+            payload.moisture_readings?.length ?? 0,
+          )
         : MOISTURE_READING_COUNT;
+    const storedMoisture = payload.moisture_readings ?? [];
     const moisture =
-      payload.moisture_readings?.length === expectedMoisture
-        ? payload.moisture_readings
-        : kontikki.standard === "rainbow"
-          ? emptyRainbowMoistureReadings()
+      kontikki.standard === "rainbow"
+        ? emptyRainbowMoistureReadings(expectedMoisture).map(
+            (empty, index) => storedMoisture[index] ?? empty,
+          )
+        : storedMoisture.length === expectedMoisture
+          ? storedMoisture
           : emptyMoistureReadings();
     setMoistureDraft(moisture);
     const firstIncompleteMoisture = moisture.findIndex(
@@ -343,7 +414,11 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                 payload.moisture_readings ?? moistureDraft,
               );
             } else if (section === "biomass_loads") {
-              await saveRainbowBiomassLoadsLocal(kontikkiRowId, loads ?? biomassLoads);
+              await saveRainbowBiomassLoadsLocal(
+                kontikkiRowId,
+                loads ?? biomassLoads,
+                { ...infoDraft, ...payload },
+              );
             } else if (section === "yield") {
               await saveRainbowYieldLocal(kontikkiRowId, { ...yieldDraft, ...payload });
             } else if (section === "sample") {
@@ -437,6 +512,29 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     [],
   );
 
+  async function handleKilnPhoto() {
+    await reviewCapturedPhoto("kiln", async (photo) => {
+      const nextInfo = {
+        ...infoDraft,
+        kiln_photo_local_uri: photo.uri,
+        kiln_photo_metadata: photo.metadata,
+      };
+      setInfoDraft(nextInfo);
+      queueAutoSave("info", nextInfo);
+    });
+  }
+
+  function handleRemoveKilnPhoto() {
+    const nextInfo = {
+      ...infoDraft,
+      kiln_photo_local_uri: null,
+      kiln_photo_url: null,
+      kiln_photo_metadata: null,
+    };
+    setInfoDraft(nextInfo);
+    queueAutoSave("info", nextInfo);
+  }
+
   async function handleFeedstockPhoto(kind: "feedstock" | "feedstock_size") {
     await reviewCapturedPhoto(kind, async (photo) => {
       if (kind === "feedstock") {
@@ -465,6 +563,133 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         queueAutoSave("info", nextInfo);
       }
     });
+  }
+
+  function saveProcessDraft(patch: Partial<PyrolysisKontikkiData>) {
+    setInfoDraft((prev) => {
+      const next = { ...prev, ...patch };
+      queueAutoSave("biomass_loads", next, biomassLoads);
+      return next;
+    });
+  }
+
+  function applyQuenchPhotos(
+    photos: NonNullable<PyrolysisKontikkiData["quench_photos"]>,
+  ) {
+    const filled = photos.filter((photo) => photo.photo_local_uri || photo.photo_url);
+    const first = filled[0];
+    const last = filled.length >= 2 ? filled[filled.length - 1] : undefined;
+    saveProcessDraft({
+      quench_photos: photos,
+      quench_start_photo_local_uri: first?.photo_local_uri ?? null,
+      quench_start_photo_url: first?.photo_url ?? null,
+      quench_start_photo_metadata: first?.photo_metadata ?? null,
+      quench_end_photo_local_uri: last?.photo_local_uri ?? null,
+      quench_end_photo_url: last?.photo_url ?? null,
+      quench_end_photo_metadata: last?.photo_metadata ?? null,
+    });
+  }
+
+  async function retakeQuenchPhoto(id: string) {
+    await reviewCapturedPhoto(id, async (photo) => {
+      const current = infoDraft.quench_photos ?? [];
+      applyQuenchPhotos(
+        current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                photo_local_uri: photo.uri,
+                photo_url: null,
+                photo_metadata: photo.metadata,
+              }
+            : item,
+        ),
+      );
+    });
+  }
+
+  async function handleAddQuenchPhoto() {
+    await reviewCapturedPhoto(`quench-${Date.now()}`, async (photo) => {
+      const current = infoDraft.quench_photos ?? [];
+      applyQuenchPhotos([
+        ...current,
+        {
+          id: `quench-${Date.now()}`,
+          photo_local_uri: photo.uri,
+          photo_metadata: photo.metadata,
+        },
+      ]);
+    });
+  }
+
+  async function handleQuenchVideo() {
+    try {
+      setCapturingKey("quench-video");
+      const captured = await captureApplicationVideo({
+        requireLocation: true,
+        maxDurationSeconds: 90,
+      });
+      if (!captured) return;
+      saveProcessDraft({
+        quench_video_local_uri: captured.uri,
+        quench_video_metadata: captured.metadata,
+        quench_video_duration_seconds: captured.durationSeconds,
+      });
+    } catch (err) {
+      if (err instanceof LocationUnavailableError) {
+        Alert.alert("Location error", err.message);
+        return;
+      }
+      Alert.alert(
+        "Camera",
+        err instanceof Error ? err.message : "Could not record the quench video.",
+      );
+    } finally {
+      setCapturingKey(null);
+    }
+  }
+
+  async function handleProcessPhoto(kind: "flame" | "quench-start" | "quench-end") {
+    await reviewCapturedPhoto(kind, async (photo) => {
+      if (kind === "flame") {
+        saveProcessDraft({
+          flame_curtain_photo_local_uri: photo.uri,
+          flame_curtain_photo_metadata: photo.metadata,
+        });
+      } else if (kind === "quench-start") {
+        saveProcessDraft({
+          quench_start_photo_local_uri: photo.uri,
+          quench_start_photo_metadata: photo.metadata,
+        });
+      } else {
+        saveProcessDraft({
+          quench_end_photo_local_uri: photo.uri,
+          quench_end_photo_metadata: photo.metadata,
+        });
+      }
+    });
+  }
+
+  function handleRemoveProcessPhoto(kind: "flame" | "quench-start" | "quench-end") {
+    if (kind === "flame") {
+      saveProcessDraft({
+        flame_curtain_photo_local_uri: null,
+        flame_curtain_photo_url: null,
+        flame_curtain_photo_metadata: null,
+      });
+    } else if (kind === "quench-start") {
+      saveProcessDraft({
+        quench_start_photo_local_uri: null,
+        quench_start_photo_url: null,
+        quench_start_photo_metadata: null,
+      });
+    } else {
+      saveProcessDraft({
+        quench_end_photo_local_uri: null,
+        quench_end_photo_url: null,
+        quench_end_photo_metadata: null,
+      });
+    }
   }
 
   async function handleMoisturePhoto(index: number) {
@@ -544,6 +769,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     await reviewCapturedPhoto("sample", async (photo) => {
       const next = {
         ...sampleDraft,
+        sample_id: infoDraft.batch_number?.trim() || sampleDraft.sample_id,
         sample_photo_local_uri: photo.uri,
         sample_photo_metadata: photo.metadata,
       };
@@ -628,7 +854,20 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       return next;
     });
 
-    if (patch.batch_number !== undefined && !sampleIdManuallyEdited.current) {
+    if (isRainbow && patch.feedstock_quantity !== undefined) {
+      const required = rainbowRequiredMoistureCount(patch.feedstock_quantity);
+      setMoistureDraft((prev) => {
+        if (prev.length >= required) return prev;
+        const next = [...prev];
+        while (next.length < required) {
+          next.push({ reading: null, photo_local_uri: null, photo_url: null });
+        }
+        queueAutoSave("moisture", { moisture_readings: next });
+        return next;
+      });
+    }
+
+    if (patch.batch_number !== undefined) {
       const nextSampleId = patch.batch_number ?? "";
       setSampleDraft((prev) => {
         const next = { ...prev, sample_id: nextSampleId };
@@ -770,6 +1009,23 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
             >
               {section === "info" ? (
                 <View style={styles.form}>
+                  {isRainbow ? (
+                    <>
+                      <PyrolysisPhotoSlot
+                        label="Kiln photo"
+                        required
+                        localUri={infoDraft.kiln_photo_local_uri}
+                        remoteUrl={infoDraft.kiln_photo_url}
+                        metadata={infoDraft.kiln_photo_metadata}
+                        capturing={capturingKey === "kiln"}
+                        onCapture={() => void handleKilnPhoto()}
+                        onRemove={handleRemoveKilnPhoto}
+                      />
+                      <Text style={styles.savedAt}>
+                        Photograph the permanent mark and the cone together, before biomass goes in.
+                      </Text>
+                    </>
+                  ) : null}
                   <FormInput
                     label="Batch number"
                     value={infoDraft.batch_number ?? ""}
@@ -811,6 +1067,29 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                     onValueChange={handleFeedstockChange}
                     enabled={!optionsLoading}
                   />
+                  {isRainbow ? (
+                    <FormPicker
+                      label="Feedstock class *"
+                      placeholder="Woody or other"
+                      value={infoDraft.feedstock_class ?? ""}
+                      options={[
+                        { value: "woody", label: "Woody (mean moisture at or below 20%)" },
+                        { value: "other", label: "Other or mixed (mean moisture at or below 15%)" },
+                      ]}
+                      onValueChange={(value) =>
+                        updateInfoDraft({
+                          feedstock_class: value === "woody" || value === "other" ? value : null,
+                        })
+                      }
+                    />
+                  ) : null}
+                  {isRainbow ? (
+                    <Text style={styles.savedAt}>
+                      Rainbow needs{" "}
+                      {rainbowRequiredMoistureCount(infoDraft.feedstock_quantity)} moisture
+                      photos for this amount: one per 100 kg, and at least 10.
+                    </Text>
+                  ) : null}
 
                   <PyrolysisPhotoSlot
                     label="Feedstock photo"
@@ -851,6 +1130,11 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "moisture" ? (
                 <View style={styles.form}>
+                  {isRainbow ? (
+                    <Text style={styles.savedAt}>
+                      {rainbowMoistureHint(infoDraft.feedstock_class, moistureDraft)}
+                    </Text>
+                  ) : null}
                   {moistureDraft.map((reading, index) => {
                     const readingCompleted = isMoistureReadingCompleted(reading);
                     const readingUnlocked =
@@ -919,15 +1203,13 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "biomass_loads" ? (
                 <View style={styles.form}>
-                  {biomassLoads.length === 0 ? (
-                    <Text style={styles.savedAt}>
-                      Add a photo every time biomass is loaded into this kontikki.
-                    </Text>
-                  ) : null}
+                  <Text style={styles.savedAt}>
+                    Photograph each layer as it goes into the kontikki. After the last layer, photograph the flame curtain, then record quenching with photos or one short video.
+                  </Text>
                   {biomassLoads.map((load, index) => (
                     <View key={load.id} style={styles.form}>
                       <PyrolysisPhotoSlot
-                        label={`Biomass load ${index + 1}`}
+                        label={`Layer ${index + 1}`}
                         required
                         localUri={load.photo_local_uri}
                         remoteUrl={load.photo_url}
@@ -939,8 +1221,112 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                     </View>
                   ))}
                   <TouchableOpacity onPress={addBiomassLoad} style={styles.metaRetryWrap}>
-                    <Text style={styles.metaRetry}>+ Add biomass-in photo</Text>
+                    <Text style={styles.metaRetry}>+ Add layer photo</Text>
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() =>
+                      saveProcessDraft({
+                        last_layer_confirmed: !infoDraft.last_layer_confirmed,
+                      })
+                    }
+                    style={styles.metaRetryWrap}
+                  >
+                    <Text style={styles.metaRetry}>
+                      {infoDraft.last_layer_confirmed
+                        ? "Last layer recorded"
+                        : "Mark the last layer"}
+                    </Text>
+                  </TouchableOpacity>
+                  {infoDraft.last_layer_confirmed ? (
+                    <>
+                      <PyrolysisPhotoSlot
+                        label="Flame curtain after the last layer"
+                        required
+                        localUri={infoDraft.flame_curtain_photo_local_uri}
+                        remoteUrl={infoDraft.flame_curtain_photo_url}
+                        metadata={infoDraft.flame_curtain_photo_metadata}
+                        capturing={capturingKey === "flame"}
+                        onCapture={() => handleProcessPhoto("flame")}
+                        onRemove={() => handleRemoveProcessPhoto("flame")}
+                      />
+                      <View style={styles.quenchModeRow}>
+                        <TouchableOpacity
+                          style={[
+                            styles.quenchModeButton,
+                            quenchMode === "photos" ? styles.quenchModeButtonOn : null,
+                          ]}
+                          onPress={() => setQuenchMode("photos")}
+                        >
+                          <Text style={styles.metaRetry}>Quench photos</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.quenchModeButton,
+                            quenchMode === "video" ? styles.quenchModeButtonOn : null,
+                          ]}
+                          onPress={() => setQuenchMode("video")}
+                        >
+                          <Text style={styles.metaRetry}>Short video</Text>
+                        </TouchableOpacity>
+                      </View>
+                      {quenchMode === "photos" ? (
+                        <>
+                          {(infoDraft.quench_photos ?? []).map((photo, index, list) => (
+                            <PyrolysisPhotoSlot
+                              key={photo.id}
+                              label={
+                                index === 0
+                                  ? "Quenching start"
+                                  : index === list.length - 1 && list.length > 1
+                                    ? "Quenching end"
+                                    : `Quenching photo ${index + 1}`
+                              }
+                              required={index === 0 || index === list.length - 1}
+                              localUri={photo.photo_local_uri}
+                              remoteUrl={photo.photo_url}
+                              metadata={photo.photo_metadata}
+                              capturing={false}
+                              onCapture={() => retakeQuenchPhoto(photo.id)}
+                              onRemove={() =>
+                                applyQuenchPhotos(list.filter((item) => item.id !== photo.id))
+                              }
+                            />
+                          ))}
+                          <TouchableOpacity onPress={handleAddQuenchPhoto} style={styles.metaRetryWrap}>
+                            <Text style={styles.metaRetry}>
+                              {(infoDraft.quench_photos ?? []).length === 0
+                                ? "+ Photograph quenching start"
+                                : "+ Add quench photo"}
+                            </Text>
+                          </TouchableOpacity>
+                          <Text style={styles.savedAt}>
+                            {formatQuenchDuration(quenchDurationSeconds(infoDraft.quench_photos ?? []))
+                              ? `Quench lasted ${formatQuenchDuration(quenchDurationSeconds(infoDraft.quench_photos ?? []))}, from the time printed on the first and last photos.`
+                              : "Take at least the start and the end. Each photo keeps the GPS and time that are printed on it."}
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <TouchableOpacity onPress={handleQuenchVideo} style={styles.metaRetryWrap}>
+                            <Text style={styles.metaRetry}>
+                              {infoDraft.quench_video_local_uri || infoDraft.quench_video_url
+                                ? "Retake quench video"
+                                : "Record quench video"}
+                            </Text>
+                          </TouchableOpacity>
+                          <Text style={styles.savedAt}>
+                            {infoDraft.quench_video_local_uri || infoDraft.quench_video_url
+                              ? `Video saved${
+                                  infoDraft.quench_video_duration_seconds
+                                    ? `, ${formatQuenchDuration(infoDraft.quench_video_duration_seconds)} long`
+                                    : ""
+                                }. GPS and the recording time are stored with it.`
+                              : "One video up to 90 seconds can stand in for the quench photos."}
+                          </Text>
+                        </>
+                      )}
+                    </>
+                  ) : null}
                 </View>
               ) : null}
 
@@ -1012,11 +1398,9 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                 <View style={styles.form}>
           <FormInput
                     label="Sample ID"
-                    value={sampleDraft.sample_id}
-                    onChangeText={(text) => {
-                      sampleIdManuallyEdited.current = true;
-                      updateSampleDraft({ sample_id: text });
-                    }}
+                    value={infoDraft.batch_number?.trim() || sampleDraft.sample_id}
+                    editable={false}
+                    onChangeText={() => undefined}
                     onFocus={() => {
                       setTimeout(() => {
                         scrollRef.current?.scrollToEnd({ animated: true });
@@ -1112,7 +1496,27 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   metaRetryWrap: {
+    minHeight: 48,
+    justifyContent: "center",
     paddingVertical: spacing.sm,
+  },
+  quenchModeRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  quenchModeButton: {
+    flex: 1,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.white,
+  },
+  quenchModeButtonOn: {
+    backgroundColor: colors.chalk,
+    borderColor: colors.brunswick,
   },
   optionsLoading: {
     flexDirection: "row",
@@ -1134,8 +1538,7 @@ const styles = StyleSheet.create({
   },
   savedAt: {
     fontFamily: fonts.regular,
-    fontSize: 11,
-    color: colors.smoke,
-    fontStyle: "italic",
+    fontSize: 13,
+    color: colors.textSecondary,
   },
 });

@@ -94,6 +94,14 @@ export default function FarmersNetworkScreen({ navigation }) {
               })
             }
           />
+          {isSupervisor ? (
+            <PathCard
+              title="Farmers stats"
+              badge="Stats"
+              subtitle="Farmers, farms, consent, and soil entered"
+              onPress={() => navigation.navigate("FieldActivity")}
+            />
+          ) : null}
         </Section>
 
         <Section

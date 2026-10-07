@@ -9,13 +9,17 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
+  isRainbowMoistureComplete,
+  isRainbowProductionComplete,
   pyrolysisProtocolForRegistry,
+  rainbowRequiredMoistureCount,
   type PyrolysisBatchRecord,
   type PyrolysisSessionRecord,
   type PyrolysisStep,
   type RainbowPyrolysisBatchRecord,
   type StartPyrolysisSessionPayload,
 } from '@krishecarbon/shared';
+import { randomUUID } from 'crypto';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
@@ -94,18 +98,23 @@ export class PyrolysisSessionsService {
   async listSessions(user: AuthenticatedUser): Promise<PyrolysisSessionRecord[]> {
     this.assertMobileAccess(user);
 
-    const { data, error } = await this.supabase
-      .from('pyrolysis_sessions')
-      .select('id, operator_id, status, current_step, created_at, updated_at')
-      .eq('operator_id', user.id)
-      .order('created_at', { ascending: false });
+    const rows: Array<{ id: string; created_at?: string }> = [];
+    for (const table of this.sessionTables) {
+      const { data, error } = await this.supabase
+        .from(table)
+        .select('id, created_at')
+        .eq('operator_id', user.id);
+      if (error) throw new BadRequestException(error.message);
+      rows.push(...((data ?? []) as Array<{ id: string; created_at?: string }>));
+    }
 
-    if (error) throw new BadRequestException(error.message);
-
-    const sessions = await Promise.all(
-      (data ?? []).map((row) => this.getSession(user, row.id as string)),
+    const byId = new Map<string, { id: string; created_at?: string }>();
+    for (const row of rows) byId.set(row.id, row);
+    const ordered = [...byId.values()].sort((left, right) =>
+      String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')),
     );
-    return sessions;
+
+    return Promise.all(ordered.map((row) => this.getSession(user, row.id)));
   }
 
   async startSession(
@@ -153,18 +162,7 @@ export class PyrolysisSessionsService {
       throw new BadRequestException('Only active kontikkis can start a batch.');
     }
 
-    const { data: session, error: sessionError } = await this.supabase
-      .from('pyrolysis_sessions')
-      .insert({
-        operator_id: user.id,
-        status: 'active',
-        current_step: 'info',
-      })
-      .select('id')
-      .single();
-
-    if (sessionError) throw new BadRequestException(sessionError.message);
-
+    const sessionId = randomUUID();
     const csiRows = [];
     const rainbowRows = [];
     for (const row of kontikkis ?? []) {
@@ -176,7 +174,7 @@ export class PyrolysisSessionsService {
       const protocol = pyrolysisProtocolForRegistry(producer?.registry);
       if (protocol === 'rainbow') {
         rainbowRows.push({
-          session_id: session.id,
+          session_id: sessionId,
           kontikki_id: row.id,
           kontikki_code: row.kontikki_code,
           producer_id: row.biochar_producer_id,
@@ -184,19 +182,41 @@ export class PyrolysisSessionsService {
         });
       } else {
         csiRows.push({
-          session_id: session.id,
+          session_id: sessionId,
           kontikki_id: row.id,
           kontikki_code: row.kontikki_code,
         });
       }
     }
 
+    const sessionRow = {
+      id: sessionId,
+      operator_id: user.id,
+      status: 'active',
+      current_step: 'info',
+    };
+    if (csiRows.length > 0) {
+      const { error: sessionError } = await this.supabase
+        .from('csi_pyrolysis_sessions')
+        .insert(sessionRow);
+      if (sessionError) throw new BadRequestException(sessionError.message);
+    }
+    if (rainbowRows.length > 0) {
+      const { error: sessionError } = await this.supabase
+        .from('rainbow_pyrolysis_sessions')
+        .insert(sessionRow);
+      if (sessionError) {
+        await this.deleteSessions(sessionId);
+        throw new BadRequestException(sessionError.message);
+      }
+    }
+
     if (csiRows.length > 0) {
       const { error: batchError } = await this.supabase
-        .from('pyrolysis_batches')
+        .from('csi_pyrolysis_batches')
         .insert(csiRows);
       if (batchError) {
-        await this.supabase.from('pyrolysis_sessions').delete().eq('id', session.id);
+        await this.deleteSessions(sessionId);
         throw new BadRequestException(batchError.message);
       }
     }
@@ -207,7 +227,7 @@ export class PyrolysisSessionsService {
         .insert(rainbowRows)
         .select('id');
       if (rainbowError) {
-        await this.supabase.from('pyrolysis_sessions').delete().eq('id', session.id);
+        await this.deleteSessions(sessionId);
         throw new BadRequestException(rainbowError.message);
       }
       const moistureRows = (rainbowBatches ?? []).flatMap((batch) =>
@@ -221,13 +241,13 @@ export class PyrolysisSessionsService {
           .from('rainbow_pyrolysis_moisture')
           .insert(moistureRows);
         if (moistureError) {
-          await this.supabase.from('pyrolysis_sessions').delete().eq('id', session.id);
+          await this.deleteSessions(sessionId);
           throw new BadRequestException(moistureError.message);
         }
       }
     }
 
-    return this.getSession(user, session.id as string);
+    return this.getSession(user, sessionId);
   }
 
   async getSession(
@@ -236,13 +256,7 @@ export class PyrolysisSessionsService {
   ): Promise<PyrolysisSessionRecord> {
     this.assertMobileAccess(user);
 
-    const { data, error } = await this.supabase
-      .from('pyrolysis_sessions')
-      .select('id, operator_id, status, current_step, created_at, updated_at')
-      .eq('id', sessionId)
-      .maybeSingle();
-
-    if (error) throw new BadRequestException(error.message);
+    const data = await this.readSessionRow(sessionId);
     if (!data) throw new NotFoundException('Pyrolysis session not found.');
     if (data.operator_id !== user.id) {
       throw new ForbiddenException('Not allowed to view this session.');
@@ -269,12 +283,10 @@ export class PyrolysisSessionsService {
   ): Promise<PyrolysisSessionRecord> {
     await this.getSession(user, sessionId);
 
-    const { error } = await this.supabase
-      .from('pyrolysis_sessions')
-      .update({ current_step: currentStep, updated_at: new Date().toISOString() })
-      .eq('id', sessionId);
-
-    if (error) throw new BadRequestException(error.message);
+    await this.patchSessions(sessionId, {
+      current_step: currentStep,
+      updated_at: new Date().toISOString(),
+    });
     return this.getSession(user, sessionId);
   }
 
@@ -284,24 +296,42 @@ export class PyrolysisSessionsService {
     batchId: string,
     payload: UpdatePyrolysisBatchPayload,
   ): Promise<PyrolysisSessionRecord> {
-    await this.getSession(user, sessionId);
+    const session = await this.getSession(user, sessionId);
+    const existing = session.batches.find((row) => row.id === batchId);
+    if (!existing) throw new NotFoundException('Batch not found in this session.');
+    if (existing.submission_status === 'submitted') {
+      throw new ConflictException('This kiln run is uploaded and can no longer be changed.');
+    }
 
     const batchUpdates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
+    if (payload.submission_status === 'submitted') {
+      batchUpdates.uploaded_at = new Date().toISOString();
+    }
 
     for (const field of BATCH_UPDATABLE_FIELDS) {
       if (payload[field] !== undefined) batchUpdates[field] = payload[field];
     }
 
     const { error: batchError } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .update(batchUpdates)
       .eq('id', batchId)
       .eq('session_id', sessionId);
 
     if (batchError) throw new BadRequestException(batchError.message);
 
+    if (payload.batch_number !== undefined) {
+      const { error: sampleError } = await this.supabase
+        .from('csi_pyrolysis_batches')
+        .update({ sample_id: payload.batch_number })
+        .eq('id', batchId)
+        .eq('session_id', sessionId);
+      if (sampleError) throw new BadRequestException(sampleError.message);
+    }
+
+    await this.assignGeneratedBatchCode('csi', batchId);
     return this.getSession(user, sessionId);
   }
 
@@ -323,7 +353,7 @@ export class PyrolysisSessionsService {
     }
 
     const { error } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .delete()
       .eq('id', batchId)
       .eq('session_id', sessionId);
@@ -333,11 +363,10 @@ export class PyrolysisSessionsService {
     const remaining = session.batches.filter((row) => row.id !== batchId);
     const rainbowRemaining = session.rainbow_batches ?? [];
     if (remaining.length === 0 && rainbowRemaining.length === 0) {
-      const { error: cancelError } = await this.supabase
-        .from('pyrolysis_sessions')
-        .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-        .eq('id', sessionId);
-      if (cancelError) throw new BadRequestException(cancelError.message);
+      await this.patchSessions(sessionId, {
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      });
       return { session: null };
     }
 
@@ -350,17 +379,12 @@ export class PyrolysisSessionsService {
   ): Promise<PyrolysisSessionRecord> {
     await this.getSession(user, sessionId);
 
-    const { error } = await this.supabase
-      .from('pyrolysis_sessions')
-      .update({
-        status: 'completed',
-        current_step: 'complete',
-        completed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', sessionId);
-
-    if (error) throw new BadRequestException(error.message);
+    await this.patchSessions(sessionId, {
+      status: 'completed',
+      current_step: 'complete',
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
     return this.getSession(user, sessionId);
   }
 
@@ -373,24 +397,26 @@ export class PyrolysisSessionsService {
   > {
     this.assertMobileAccess(user);
 
-    const { data: sessions, error: sessionError } = await this.supabase
-      .from('pyrolysis_sessions')
-      .select('id')
-      .eq('operator_id', user.id);
-
-    if (sessionError) throw new BadRequestException(sessionError.message);
-    const sessionIds = (sessions ?? []).map((row) => row.id as string);
+    const sessionIds: string[] = [];
+    for (const table of this.sessionTables) {
+      const { data: sessions, error: sessionError } = await this.supabase
+        .from(table)
+        .select('id')
+        .eq('operator_id', user.id);
+      if (sessionError) throw new BadRequestException(sessionError.message);
+      sessionIds.push(...(sessions ?? []).map((row) => row.id as string));
+    }
     if (sessionIds.length === 0) return [];
 
     const { data, error } = await this.supabase
-      .from('pyrolysis_batches')
-      .select('id, pyrolysis_batch_status ( status, reviewer_notes )')
+      .from('csi_pyrolysis_batches')
+      .select('id, csi_pyrolysis_batch_status ( status, reviewer_notes )')
       .in('session_id', sessionIds);
 
     if (error) throw new BadRequestException(error.message);
 
     return (data ?? []).map((row) => {
-      const statusRow = this.unwrapRecord(row.pyrolysis_batch_status);
+      const statusRow = this.unwrapRecord(row.csi_pyrolysis_batch_status);
       return {
         batch_id: row.id as string,
         review_status: (statusRow?.status as string | undefined) ?? 'pending',
@@ -401,11 +427,11 @@ export class PyrolysisSessionsService {
 
   private async loadBatchesForSession(sessionId: string): Promise<PyrolysisBatchRecord[]> {
     const { data: batches, error } = await this.supabase
-      .from('pyrolysis_batches')
+      .from('csi_pyrolysis_batches')
       .select(
         `
         *,
-        pyrolysis_batch_status (
+        csi_pyrolysis_batch_status (
           status,
           reviewer_notes
         )
@@ -421,7 +447,7 @@ export class PyrolysisSessionsService {
 
   private mapBatch(row: Record<string, unknown>): PyrolysisBatchRecord {
     const numeric = (value: unknown) => (value != null ? Number(value) : null);
-    const batchStatus = this.unwrapRecord(row.pyrolysis_batch_status);
+    const batchStatus = this.unwrapRecord(row.csi_pyrolysis_batch_status);
 
     return {
       id: row.id as string,
@@ -432,6 +458,7 @@ export class PyrolysisSessionsService {
       review_status: (batchStatus?.status as string | undefined) ?? 'pending',
       reviewer_notes: (batchStatus?.reviewer_notes as string | null | undefined) ?? null,
       batch_number: (row.batch_number as string) ?? null,
+      generated_batch_code: (row.generated_batch_code as string) ?? null,
       feedstock_quantity: numeric(row.feedstock_quantity),
       avg_feedstock_size_cm: numeric(row.avg_feedstock_size_cm),
       feedstock_id: (row.feedstock_id as string) ?? null,
@@ -537,17 +564,53 @@ export class PyrolysisSessionsService {
     );
   }
 
+  private readonly sessionTables = [
+    'csi_pyrolysis_sessions',
+    'rainbow_pyrolysis_sessions',
+  ] as const;
+
+  private async readSessionRow(sessionId: string) {
+    for (const table of this.sessionTables) {
+      const { data, error } = await this.supabase
+        .from(table)
+        .select('id, operator_id, status, current_step, created_at, updated_at')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (error) throw new BadRequestException(error.message);
+      if (data) return data;
+    }
+    return null;
+  }
+
+  private async patchSessions(
+    sessionId: string,
+    patch: Record<string, unknown>,
+    onlyActive = false,
+  ) {
+    for (const table of this.sessionTables) {
+      let query = this.supabase.from(table).update(patch).eq('id', sessionId);
+      if (onlyActive) query = query.eq('status', 'active');
+      const { error } = await query;
+      if (error) throw new BadRequestException(error.message);
+    }
+  }
+
+  private async deleteSessions(sessionId: string) {
+    for (const table of this.sessionTables) {
+      const { error } = await this.supabase.from(table).delete().eq('id', sessionId);
+      if (error) throw new BadRequestException(error.message);
+    }
+  }
+
   private async cancelSession(sessionId: string): Promise<void> {
-    const { error } = await this.supabase
-      .from('pyrolysis_sessions')
-      .update({
+    await this.patchSessions(
+      sessionId,
+      {
         status: 'cancelled',
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', sessionId)
-      .eq('status', 'active');
-
-    if (error) throw new BadRequestException(error.message);
+      },
+      true,
+    );
   }
 
   private async resumeOrClearActiveKontikkiUse(
@@ -557,17 +620,43 @@ export class PyrolysisSessionsService {
     // Only draft (not-yet-submitted) batches keep a kontikki reserved —
     // once an entry is submitted it no longer blocks starting a new batch
     // for that kontikki, even while the rest of its session is still active.
-    const { data: activeUse, error: activeError } = await this.supabase
-      .from('pyrolysis_batches')
+    const { data: csiUse, error: activeError } = await this.supabase
+      .from('csi_pyrolysis_batches')
       .select(
-        'kontikki_id, kontikki_code, session_id, pyrolysis_sessions!inner(id, status, operator_id)',
+        'kontikki_id, kontikki_code, session_id, csi_pyrolysis_sessions!inner(id, status, operator_id)',
       )
       .in('kontikki_id', kontikkiIds)
       .eq('submission_status', 'draft')
-      .eq('pyrolysis_sessions.status', 'active');
+      .eq('csi_pyrolysis_sessions.status', 'active');
 
     if (activeError) throw new BadRequestException(activeError.message);
-    if (!activeUse?.length) return null;
+
+    const { data: rainbowUse, error: rainbowActiveError } = await this.supabase
+      .from('rainbow_pyrolysis_batches')
+      .select(
+        'kontikki_id, kontikki_code, session_id, rainbow_pyrolysis_sessions!inner(id, status, operator_id)',
+      )
+      .in('kontikki_id', kontikkiIds)
+      .eq('submission_status', 'draft')
+      .eq('rainbow_pyrolysis_sessions.status', 'active');
+
+    if (rainbowActiveError) throw new BadRequestException(rainbowActiveError.message);
+
+    const activeUse = [
+      ...(csiUse ?? []).map((row) => ({
+        kontikki_id: row.kontikki_id,
+        kontikki_code: row.kontikki_code,
+        session_id: row.session_id,
+        session: row.csi_pyrolysis_sessions,
+      })),
+      ...(rainbowUse ?? []).map((row) => ({
+        kontikki_id: row.kontikki_id,
+        kontikki_code: row.kontikki_code,
+        session_id: row.session_id,
+        session: row.rainbow_pyrolysis_sessions,
+      })),
+    ];
+    if (activeUse.length === 0) return null;
 
     const bySession = new Map<
       string,
@@ -575,7 +664,7 @@ export class PyrolysisSessionsService {
     >();
 
     for (const row of activeUse) {
-      const session = this.unwrapSession(row.pyrolysis_sessions);
+      const session = this.unwrapSession(row.session);
       const sessionId = (session?.id as string | undefined) ?? (row.session_id as string);
       if (!sessionId) continue;
 
@@ -625,17 +714,27 @@ export class PyrolysisSessionsService {
     }
 
     const { data: stillLocked, error: lockedError } = await this.supabase
-      .from('pyrolysis_batches')
-      .select('kontikki_code, pyrolysis_sessions!inner(status, operator_id)')
+      .from('csi_pyrolysis_batches')
+      .select('kontikki_code, csi_pyrolysis_sessions!inner(status, operator_id)')
       .in('kontikki_id', kontikkiIds)
       .eq('submission_status', 'draft')
-      .eq('pyrolysis_sessions.status', 'active');
+      .eq('csi_pyrolysis_sessions.status', 'active');
 
     if (lockedError) throw new BadRequestException(lockedError.message);
-    if (stillLocked?.length) {
+
+    const { data: rainbowLocked, error: rainbowLockedError } = await this.supabase
+      .from('rainbow_pyrolysis_batches')
+      .select('kontikki_code, rainbow_pyrolysis_sessions!inner(status)')
+      .in('kontikki_id', kontikkiIds)
+      .eq('submission_status', 'draft')
+      .eq('rainbow_pyrolysis_sessions.status', 'active');
+
+    if (rainbowLockedError) throw new BadRequestException(rainbowLockedError.message);
+    const lockedRows = [...(stillLocked ?? []), ...(rainbowLocked ?? [])];
+    if (lockedRows.length) {
       const codes = [
         ...new Set(
-          stillLocked
+          lockedRows
             .map((row) => row.kontikki_code as string | null)
             .filter((code): code is string => Boolean(code)),
         ),
@@ -703,13 +802,22 @@ export class PyrolysisSessionsService {
         producer_name: (row.producer_name as string) ?? null,
         protocol: 'rainbow' as const,
         batch_number: (row.batch_number as string) ?? null,
+      generated_batch_code: (row.generated_batch_code as string) ?? null,
         feedstock_quantity: numeric(row.feedstock_quantity),
         avg_feedstock_size_cm: numeric(row.avg_feedstock_size_cm),
         feedstock_id: (row.feedstock_id as string) ?? null,
         feedstock_name: (row.feedstock_name as string) ?? null,
+        feedstock_class:
+          row.feedstock_class === 'woody' || row.feedstock_class === 'other'
+            ? row.feedstock_class
+            : null,
         location_lat: numeric(row.location_lat),
         location_lng: numeric(row.location_lng),
         location_address: (row.location_address as string) ?? null,
+        kiln_photo_url: (row.kiln_photo_url as string) ?? null,
+        kiln_photo_metadata:
+          (row.kiln_photo_metadata as RainbowPyrolysisBatchRecord['kiln_photo_metadata']) ??
+          null,
         feedstock_photo_url: (row.feedstock_photo_url as string) ?? null,
         feedstock_size_photo_url: (row.feedstock_size_photo_url as string) ?? null,
         feedstock_photo_metadata:
@@ -718,7 +826,12 @@ export class PyrolysisSessionsService {
         feedstock_size_photo_metadata:
           (row.feedstock_size_photo_metadata as RainbowPyrolysisBatchRecord['feedstock_size_photo_metadata']) ??
           null,
-        moisture: Array.from({ length: 10 }, (_, index) => {
+        moisture: Array.from({
+          length: Math.max(
+            rainbowRequiredMoistureCount(numeric(row.feedstock_quantity)),
+            moistureRows.reduce((max, item) => Math.max(max, Number(item.slot) || 0), 0),
+          ),
+        }, (_, index) => {
           const slot = moistureRows.find((item) => Number(item.slot) === index + 1);
           return {
             reading: slot?.reading != null ? Number(slot.reading) : null,
@@ -755,6 +868,31 @@ export class PyrolysisSessionsService {
           (row.sample_photo_metadata as RainbowPyrolysisBatchRecord['sample_photo_metadata']) ??
           null,
         sample_saved_at: (row.sample_saved_at as string) ?? null,
+        sample_spots: Array.isArray(row.sample_spots) ? row.sample_spots : [],
+        sample_pile_photo_url: (row.sample_pile_photo_url as string) ?? null,
+        sample_pile_photo_metadata:
+          (row.sample_pile_photo_metadata as RainbowPyrolysisBatchRecord['sample_pile_photo_metadata']) ??
+          null,
+        sample_bag_code: (row.sample_bag_code as string) ?? null,
+        sample_bag_photo_url: (row.sample_bag_photo_url as string) ?? null,
+        sample_bag_photo_metadata:
+          (row.sample_bag_photo_metadata as RainbowPyrolysisBatchRecord['sample_bag_photo_metadata']) ??
+          null,
+        sample_bag_not_used: Boolean(row.sample_bag_not_used),
+        sample_collected_at: (row.sample_collected_at as string) ?? null,
+        last_layer_confirmed: Boolean(row.last_layer_confirmed),
+        flame_curtain_photo_url: (row.flame_curtain_photo_url as string) ?? null,
+        flame_curtain_photo_metadata:
+          (row.flame_curtain_photo_metadata as RainbowPyrolysisBatchRecord['flame_curtain_photo_metadata']) ??
+          null,
+        quench_start_photo_url: (row.quench_start_photo_url as string) ?? null,
+        quench_start_photo_metadata:
+          (row.quench_start_photo_metadata as RainbowPyrolysisBatchRecord['quench_start_photo_metadata']) ??
+          null,
+        quench_end_photo_url: (row.quench_end_photo_url as string) ?? null,
+        quench_end_photo_metadata:
+          (row.quench_end_photo_metadata as RainbowPyrolysisBatchRecord['quench_end_photo_metadata']) ??
+          null,
         submission_status: ((row.submission_status as string) ?? 'draft') as
           | 'draft'
           | 'submitted',
@@ -770,7 +908,7 @@ export class PyrolysisSessionsService {
     batchId: string,
     payload: Partial<RainbowPyrolysisBatchRecord>,
   ): Promise<PyrolysisSessionRecord> {
-    await this.getSession(user, sessionId);
+    const session = await this.getSession(user, sessionId);
 
     const header: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
@@ -781,9 +919,12 @@ export class PyrolysisSessionsService {
       'avg_feedstock_size_cm',
       'feedstock_id',
       'feedstock_name',
+      'feedstock_class',
       'location_lat',
       'location_lng',
       'location_address',
+      'kiln_photo_url',
+      'kiln_photo_metadata',
       'feedstock_photo_url',
       'feedstock_size_photo_url',
       'feedstock_photo_metadata',
@@ -803,11 +944,76 @@ export class PyrolysisSessionsService {
       'sample_photo_url',
       'sample_photo_metadata',
       'sample_saved_at',
+      'last_layer_confirmed',
+      'flame_curtain_photo_url',
+      'flame_curtain_photo_metadata',
+      'quench_start_photo_url',
+      'quench_start_photo_metadata',
+      'quench_end_photo_url',
+      'quench_end_photo_metadata',
+      'quench_photos',
+      'quench_video_url',
+      'quench_video_metadata',
+      'quench_video_duration_seconds',
       'submission_status',
     ] as const;
 
+    const existing = (session.rainbow_batches ?? []).find((row) => row.id === batchId);
+    if (!existing) throw new NotFoundException('Rainbow batch not found in this session.');
+    if (existing.submission_status === 'submitted') {
+      throw new ConflictException('This kiln run is uploaded and can no longer be changed.');
+    }
+    const kilnPhoto =
+      payload.kiln_photo_url !== undefined
+        ? payload.kiln_photo_url
+        : existing?.kiln_photo_url;
+    if (
+      (payload.info_completed || payload.submission_status === 'submitted') &&
+      !kilnPhoto
+    ) {
+      throw new BadRequestException(
+        'A Rainbow kiln run needs a photo of the kiln, showing the permanent mark and the cone, before it can be completed.',
+      );
+    }
+
+    if (payload.moisture_completed && payload.moisture) {
+      const ok = isRainbowMoistureComplete(
+        payload.moisture,
+        payload.feedstock_quantity,
+        payload.feedstock_class,
+      );
+      if (!ok) {
+        throw new BadRequestException(
+          'Rainbow moisture needs one photo per 100 kg (at least 10), a mean within the feedstock limit, and no reading above 25%.',
+        );
+      }
+    }
+    if (payload.production_completed) {
+      const photos = payload.quench_photos ?? [];
+      const filled = photos.filter((photo) => photo.photo_url);
+      const ok = isRainbowProductionComplete(payload.biomass_loads ?? [], {
+        lastLayerConfirmed: Boolean(payload.last_layer_confirmed),
+        flameCurtainPhoto: payload.flame_curtain_photo_url,
+        quenchStartPhoto: filled[0]?.photo_url ?? payload.quench_start_photo_url,
+        quenchEndPhoto:
+          filled.length >= 2
+            ? filled[filled.length - 1]?.photo_url
+            : payload.quench_end_photo_url,
+        quenchVideo: payload.quench_video_url,
+        quenchPhotoCount: filled.length,
+      });
+      if (!ok) {
+        throw new BadRequestException(
+          'Rainbow pyrolysis needs a photo of every layer, the flame curtain after the last layer, and either quench photos or a short quench video.',
+        );
+      }
+    }
+
     for (const field of headerFields) {
       if (payload[field] !== undefined) header[field] = payload[field];
+    }
+    if (payload.submission_status === 'submitted') {
+      header.uploaded_at = new Date().toISOString();
     }
 
     const { error } = await this.supabase
@@ -817,19 +1023,35 @@ export class PyrolysisSessionsService {
       .eq('session_id', sessionId);
     if (error) throw new BadRequestException(error.message);
 
+    const fieldBatchNumber =
+      payload.batch_number !== undefined ? payload.batch_number : existing?.batch_number;
+    if (fieldBatchNumber) {
+      const { error: sampleError } = await this.supabase
+        .from('rainbow_pyrolysis_batches')
+        .update({ sample_id: fieldBatchNumber })
+        .eq('id', batchId)
+        .eq('session_id', sessionId);
+      if (sampleError) throw new BadRequestException(sampleError.message);
+    }
+
+    await this.assignGeneratedBatchCode('rainbow', batchId);
+
     if (payload.moisture) {
       for (let index = 0; index < payload.moisture.length; index += 1) {
         const reading = payload.moisture[index];
         const { error: moistureError } = await this.supabase
           .from('rainbow_pyrolysis_moisture')
-          .update({
-            reading: reading.reading ?? null,
-            photo_url: reading.photo_url ?? null,
-            photo_metadata: reading.photo_metadata ?? null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('batch_id', batchId)
-          .eq('slot', index + 1);
+          .upsert(
+            {
+              batch_id: batchId,
+              slot: index + 1,
+              reading: reading.reading ?? null,
+              photo_url: reading.photo_url ?? null,
+              photo_metadata: reading.photo_metadata ?? null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'batch_id,slot' },
+          );
         if (moistureError) throw new BadRequestException(moistureError.message);
       }
     }
@@ -887,6 +1109,14 @@ export class PyrolysisSessionsService {
     }
 
     return { session: await this.getSession(user, sessionId) };
+  }
+
+  private async assignGeneratedBatchCode(registry: 'csi' | 'rainbow', batchId: string) {
+    const { error } = await this.supabase.rpc('assign_generated_batch_code_if_missing', {
+      p_registry: registry,
+      p_batch_id: batchId,
+    });
+    if (error) throw new BadRequestException(error.message);
   }
 
   private async getAllowedKontikkiIds(user: AuthenticatedUser): Promise<Set<string>> {

@@ -48,6 +48,7 @@ export interface KontikkiOperatorAssignment extends DbRow {
   users?: {
     id: string;
     full_name?: string;
+    role?: string;
   };
 }
 
@@ -75,7 +76,12 @@ export interface KontikkiDetail extends Kontikki {
   side_photo_url?: string;
   plan_pdf_url?: string;
   artisan_pro?: { id: string; name: string };
-  biochar_producer?: { id: string; name: string; producer_code?: string };
+  biochar_producer?: {
+    id: string;
+    name: string;
+    producer_code?: string;
+    registry?: string | null;
+  };
   producer?: { id: string; name: string };
 }
 
@@ -359,6 +365,7 @@ export interface ProducerKontikkiRow extends DbRow {
   id: string;
   kontikki_code?: string;
   status?: string;
+  module_id?: string | null;
   kontikki_operators?: KontikkiOperatorAssignment[];
 }
 
@@ -486,6 +493,24 @@ export interface KilnTemperatureReading {
   time_offset_seconds: number;
   temperature: number;
   recorded_at: string;
+  top_c?: number | null;
+  middle_c?: number | null;
+  bottom_c?: number | null;
+  kiln_state?: string | null;
+  top_valid?: boolean | null;
+  middle_valid?: boolean | null;
+  bottom_valid?: boolean | null;
+  top_open?: boolean | null;
+  middle_open?: boolean | null;
+  bottom_open?: boolean | null;
+  top_rate?: number | null;
+  middle_rate?: number | null;
+  bottom_rate?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  satellites?: number | null;
+  utc_epoch?: number | null;
+  uptime_s?: number | null;
 }
 
 export interface KilnBatchSummary extends DbRow {

@@ -277,11 +277,12 @@ export default function LoginScreen() {
               <TextInput
                 ref={otpRef}
                 style={styles.input}
-                placeholder="Enter 6-digit code"
+                placeholder="Enter 8-digit code"
                 placeholderTextColor={colors.smokeLight}
                 value={otp}
-                onChangeText={setOtp}
+                onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 8))}
                 keyboardType="number-pad"
+                maxLength={8}
                 returnKeyType="go"
                 onSubmitEditing={handleSubmit}
               />

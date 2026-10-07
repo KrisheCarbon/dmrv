@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Share,
 } from "react-native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
@@ -22,6 +23,8 @@ import {
 } from "../services/kiln/kilnSyncService";
 import { processSyncQueue } from "../services/syncService";
 import type { EncryptedBatch } from "../database/types";
+import * as FileSystem from "expo-file-system/legacy";
+import { describeSavedKilnBatch, kilnBatchToCsv } from "../utils/kilnBatch";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 
 type Props = {
@@ -173,13 +176,38 @@ export default function KilnSavedBatchesScreen({ navigation }: Props) {
               <View style={styles.cardHeader}>
                 <Text style={styles.cardTitle}>#{index + 1} {item.sourceFilename}</Text>
                 <View style={[styles.badge, item.isSynced ? styles.badgeSynced : styles.badgePending]}>
-                  <Text style={styles.badgeText}>{item.isSynced ? "Synced" : "Pending"}</Text>
+                  <Text style={styles.badgeText}>
+                    {item.isSynced ? "Synced to cloud" : "On this phone"}
+                  </Text>
                 </View>
               </View>
-              <Text style={styles.meta}>Kiln: {item.kilnId}</Text>
-              <Text style={styles.meta}>Received: {item.createdAt.toLocaleString()}</Text>
-              <Text style={styles.meta}>Payload: JSON batch recording</Text>
+              <Text style={styles.meta}>
+                {item.isSynced ? "Synced to cloud" : "Received on this phone, waiting to sync"}
+              </Text>
+              <Text style={styles.meta}>Received {item.createdAt.toLocaleString()}</Text>
+              {describeSavedKilnBatch(item.payloadBase64).map((line) => (
+                <Text key={line} style={styles.meta}>
+                  {line}
+                </Text>
+              ))}
               <View style={styles.actions}>
+                <TouchableOpacity
+                  style={styles.syncBtn}
+                  onPress={() => {
+                    void (async () => {
+                      try {
+                        const csv = kilnBatchToCsv(item.payloadBase64);
+                        const path = `${FileSystem.cacheDirectory}${item.sourceFilename.replace(/\.json$/i, "")}.csv`;
+                        await FileSystem.writeAsStringAsync(path, csv);
+                        await Share.share({ url: path, message: csv.slice(0, 500), title: item.sourceFilename });
+                      } catch (err) {
+                        Alert.alert("Export failed", err instanceof Error ? err.message : String(err));
+                      }
+                    })();
+                  }}
+                >
+                  <Text style={styles.syncBtnText}>Export CSV</Text>
+                </TouchableOpacity>
                 {!item.isSynced ? (
                   <TouchableOpacity
                     style={styles.syncBtn}
@@ -258,8 +286,8 @@ const styles = StyleSheet.create({
   badge: { borderRadius: radius.sm, paddingHorizontal: 8, paddingVertical: 4 },
   badgeSynced: { backgroundColor: colors.successBg },
   badgePending: { backgroundColor: colors.warningBg },
-  badgeText: { fontFamily: fonts.medium, fontSize: 11, color: colors.text },
-  meta: { fontFamily: fonts.regular, fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+  badgeText: { fontFamily: fonts.medium, fontSize: 13, color: colors.text },
+  meta: { fontFamily: fonts.regular, fontSize: 15, color: colors.textSecondary, marginTop: 4 },
   actions: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   syncBtn: {
     backgroundColor: colors.brunswick,

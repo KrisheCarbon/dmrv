@@ -185,6 +185,7 @@ export interface Farmer extends DbRow {
   prior_biochar_acreage?: number | null;
   estimated_biomass?: number;
   farmer_photo_url?: string | null;
+  credit_rights_acknowledged?: boolean | null;
   created_by?: string;
   assigned_to?: string;
   created_at?: string;
@@ -225,6 +226,8 @@ export interface FarmUpsertPayload {
   owned_land_size?: number | null;
   leased_land_size?: number | null;
   farmer_photo_url?: string | null;
+  /** Rainbow: the farmer agrees this project holds the sole credit right. */
+  credit_rights_acknowledged?: boolean;
 }
 
 /** Resolves the tonnes/acre rate for a crop, preferring any rate stored on the crop itself. */
@@ -392,11 +395,19 @@ export {
 export type { ProducerRegistry, AssignableProducerRegistry, PyrolysisProtocol } from "./producerRegistry";
 export {
   RAINBOW_MOISTURE_READING_COUNT,
+  RAINBOW_KG_PER_MOISTURE_READING,
   RAINBOW_KONTIKKI_SECTIONS,
   emptyRainbowMoistureReadings,
+  rainbowRequiredMoistureCount,
+  rainbowMoistureMeanLimit,
+  isRainbowInfoComplete,
   isRainbowMoistureComplete,
   isRainbowBiomassLoadComplete,
   isRainbowProductionComplete,
+  isRainbowQuenchComplete,
+  isRainbowSampleCollectionComplete,
+  quenchDurationSeconds,
+  formatQuenchDuration,
   rainbowWorkflowSectionLabel,
   rainbowWorkflowSectionSubtitle,
   isRainbowSectionCompleted,
@@ -404,9 +415,36 @@ export {
   rainbowKontikkiWorkflowProgress,
   protocolForKontikkiRegistry,
 } from "./rainbowPyrolysis";
+export {
+  CO2_PER_CARBON,
+  BIOGENIC_METHANE_GWP_100,
+  RAINBOW_BUFFER_SHARE,
+  MIN_BIOMASS_SEQUESTRATION,
+  RAINBOW_HCORG_MAX,
+  METHANE_RUNS_REQUIRED,
+  METHANE_KILNS_REQUIRED,
+  permanenceCoefficients,
+  fperm100,
+  dryBiocharTonnes,
+  sampleStandardDeviation,
+  methaneEmissionFactor,
+  creditYear,
+  assessRainbowCredits,
+} from "./rainbowCredits";
+export type {
+  RainbowCreditRun,
+  RainbowCreditDelivery,
+  RainbowMethaneSample,
+  RainbowYearFactors,
+  RainbowCreditLine,
+} from "./rainbowCredits";
 export type {
   RainbowKontikkiWorkflowSection,
   RainbowBiomassLoad,
+  RainbowFeedstockClass,
+  RainbowProcessProof,
+  RainbowQuenchPhoto,
+  RainbowSampleSpot,
   RainbowPyrolysisBatchRecord,
   RainbowWorkflowFlags,
 } from "./rainbowPyrolysis";
@@ -474,6 +512,8 @@ export {
   MIXING_MATERIAL_LABELS,
   MIXING_ENTRY_SUBMISSION_STATUS,
   mixingMaterialLabel,
+  biocharShareOfMix,
+  isRainbowMixVolumeAllowed,
 } from "./mixing";
 export type {
   MixingMaterialType,

@@ -64,6 +64,8 @@ export type SessionKontikkiView = {
   kontikkiId: string;
   kontikkiCode: string;
   producerName: string | null;
+  batchNumber: string | null;
+  generatedBatchCode: string | null;
   standard: PyrolysisProtocol;
   infoCompleted: boolean;
   moistureCompleted: boolean;
@@ -90,6 +92,8 @@ function toView(batch: PyrolysisBatch, payload: PyrolysisKontikkiData): SessionK
     kontikkiId: batch.kontikkiId,
     kontikkiCode: batch.kontikkiCode,
     producerName: batch.producerName,
+    batchNumber: batch.batchNumber,
+    generatedBatchCode: batch.generatedBatchCode,
     standard: "csi",
     infoCompleted: batch.infoCompleted,
     moistureCompleted: batch.moistureCompleted,
@@ -222,6 +226,8 @@ export async function getSessionKontikkis(sessionId: string): Promise<SessionKon
       kontikkiId: batch.kontikkiId,
       kontikkiCode: batch.kontikkiCode,
       producerName: batch.producerName,
+      batchNumber: batch.batchNumber,
+      generatedBatchCode: batch.generatedBatchCode,
       standard: "rainbow",
       infoCompleted: batch.infoCompleted,
       moistureCompleted: batch.moistureCompleted,
@@ -314,6 +320,7 @@ export async function createPyrolysisSessionLocal(
         kontikkiCode: kontikki.kontikki_code,
         producerName: kontikki.producer_name ?? null,
         batchNumber: null,
+        generatedBatchCode: null,
         feedstockQuantity: null,
         avgFeedstockSizeCm: null,
         feedstockId: null,
@@ -716,6 +723,11 @@ export function kontikkiSectionProgress(row: SessionKontikkiView): number {
   );
 }
 
+export async function queuePyrolysisSessionSync(sessionLocalId: string) {
+  await enqueuePyrolysisBatchSync(sessionLocalId);
+  await triggerBackgroundSync();
+}
+
 async function enqueuePyrolysisBatchSync(sessionLocalId: string) {
   const db = await getDb();
 
@@ -838,11 +850,15 @@ async function persistServerSessionMapping(
       if (!serverBatch) continue;
 
       await db.runAsync(
-        "UPDATE pyrolysis_batches SET server_id = ?, updated_at = ? WHERE id = ?",
-        [serverBatch.id, Date.now(), localBatch.id],
+        "UPDATE pyrolysis_batches SET server_id = ?, generated_batch_code = COALESCE(?, generated_batch_code), updated_at = ? WHERE id = ?",
+        [serverBatch.id, serverBatch.generated_batch_code ?? null, Date.now(), localBatch.id],
       );
     }
   });
+}
+
+function isUploadedLockError(error: unknown) {
+  return error instanceof Error && error.message.includes("can no longer be changed");
 }
 
 export async function syncPyrolysisBatch(session: PyrolysisSession) {
@@ -871,8 +887,8 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
       const serverBatch = rainbowByKontikki.get(localBatch.kontikkiId);
       if (!serverBatch) continue;
       await db.runAsync(
-        "UPDATE rainbow_pyrolysis_batches SET server_id = ?, updated_at = ? WHERE id = ?",
-        [serverBatch.id, Date.now(), localBatch.id],
+        "UPDATE rainbow_pyrolysis_batches SET server_id = ?, generated_batch_code = COALESCE(?, generated_batch_code), updated_at = ? WHERE id = ?",
+        [serverBatch.id, serverBatch.generated_batch_code ?? null, Date.now(), localBatch.id],
       );
     }
   });
@@ -885,6 +901,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     if (!serverBatchId) {
       throw new Error(`Server batch missing for kontikki ${localBatch.kontikkiCode}.`);
     }
+    if (localBatch.uploadStatus === "synced") continue;
 
     let payload = await assembleBatchPayload(localBatch.id);
     payload = await uploadPyrolysisBatchPhotos(serverBatchId, localBatch.id, payload);
@@ -893,20 +910,34 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     apiRecord.id = serverBatchId;
     apiRecord.submission_status = "submitted";
 
-    await backendFetch(`/pyrolysis-sessions/${serverId}/batches/${serverBatchId}`, {
-      method: "PATCH",
-      body: JSON.stringify(
-        sanitizeApiBatchPayload({
-          ...apiRecord,
-          id: undefined,
-          session_id: undefined,
-          kontikki_id: undefined,
-          kontikki_code: undefined,
-          created_at: undefined,
-          updated_at: undefined,
-        }),
-      ),
-    });
+    try {
+        const uploadedSession = await backendFetch<PyrolysisSessionRecord>(
+          `/pyrolysis-sessions/${serverId}/batches/${serverBatchId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(
+              sanitizeApiBatchPayload({
+                ...apiRecord,
+                id: undefined,
+                session_id: undefined,
+                kontikki_id: undefined,
+                kontikki_code: undefined,
+                created_at: undefined,
+                updated_at: undefined,
+              }),
+            ),
+          },
+        );
+        const uploadedBatch = uploadedSession.batches.find((row) => row.id === serverBatchId);
+        if (uploadedBatch?.generated_batch_code) {
+          await db.runAsync(
+            "UPDATE pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
+            [uploadedBatch.generated_batch_code, localBatch.id],
+          );
+        }
+      } catch (error) {
+        if (!isUploadedLockError(error)) throw error;
+      }
 
     await applyBatchPayload(localBatch.id, payload);
 
@@ -923,6 +954,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     if (!serverBatchId) {
       throw new Error(`Server Rainbow batch missing for kontikki ${localBatch.kontikkiCode}.`);
     }
+    if (localBatch.uploadStatus === "synced") continue;
 
     const draft = await loadRainbowDraft(localBatch.id);
     const { data: uploaded, loads } = await uploadRainbowPhotos(
@@ -932,7 +964,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     );
     await saveRainbowInfoLocal(localBatch.id, uploaded);
     await saveRainbowMoistureLocal(localBatch.id, uploaded.moisture_readings ?? []);
-    await saveRainbowBiomassLoadsLocal(localBatch.id, loads);
+    await saveRainbowBiomassLoadsLocal(localBatch.id, loads, uploaded);
     await saveRainbowYieldLocal(localBatch.id, uploaded);
     await saveRainbowSampleLocal(localBatch.id, uploaded);
 
@@ -940,19 +972,36 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     const apiRecord = toRainbowApiRecord(refreshed);
     apiRecord.submission_status = "submitted";
 
-    await backendFetch(`/pyrolysis-sessions/${serverId}/rainbow-batches/${serverBatchId}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        ...apiRecord,
-        id: undefined,
-        session_id: undefined,
-        kontikki_id: undefined,
-        kontikki_code: undefined,
-        protocol: undefined,
-        created_at: undefined,
-        updated_at: undefined,
-      }),
-    });
+    try {
+        const uploadedSession = await backendFetch<PyrolysisSessionRecord>(
+          `/pyrolysis-sessions/${serverId}/rainbow-batches/${serverBatchId}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              ...apiRecord,
+              id: undefined,
+              session_id: undefined,
+              kontikki_id: undefined,
+              kontikki_code: undefined,
+              protocol: undefined,
+              created_at: undefined,
+              updated_at: undefined,
+            }),
+          },
+        );
+        const uploadedBatch = (uploadedSession.rainbow_batches ?? []).find(
+          (row) => row.id === serverBatchId,
+        );
+        if (uploadedBatch?.generated_batch_code) {
+          await db.runAsync(
+            "UPDATE rainbow_pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
+            [uploadedBatch.generated_batch_code, localBatch.id],
+          );
+        }
+      } catch (error) {
+        if (!isUploadedLockError(error)) throw error;
+      }
+    }
 
     await db.runAsync(
       "UPDATE rainbow_pyrolysis_batches SET server_id = ?, sync_status = ?, sync_error = NULL, review_status = COALESCE(review_status, ?), updated_at = ? WHERE id = ?",

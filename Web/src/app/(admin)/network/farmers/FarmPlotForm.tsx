@@ -80,6 +80,10 @@ export default function FarmPlotForm({
       setError(`Area cannot exceed remaining cultivated land (${remaining} acres).`);
       return;
     }
+    if (!sowing || !harvest) {
+      setError("Sowing date and harvest date are required.");
+      return;
+    }
     if (!isHarvestAfterSowing(sowing, harvest)) {
       setError("Harvest date must be after the sowing date.");
       return;
@@ -199,12 +203,12 @@ export default function FarmPlotForm({
           </select>
         </div>
         <div className="space-y-1.5">
-          <label className={labelClass}>Sowing date</label>
-          <input type="date" className={inputClass} value={sowing} onChange={(e) => setSowing(e.target.value)} />
+          <label className={labelClass}>Sowing date *</label>
+          <input type="date" required className={inputClass} value={sowing} onChange={(e) => setSowing(e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <label className={labelClass}>Harvest date</label>
-          <input type="date" className={inputClass} value={harvest} onChange={(e) => setHarvest(e.target.value)} />
+          <label className={labelClass}>Harvest date *</label>
+          <input type="date" required className={inputClass} value={harvest} onChange={(e) => setHarvest(e.target.value)} />
         </div>
       </div>
       <div className="space-y-1.5">

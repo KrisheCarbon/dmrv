@@ -43,7 +43,7 @@ export default function DashboardSensorData() {
         <div>
           <h3 className="text-sm uppercase tracking-wide text-gray-500">Sensor data</h3>
           <p className="text-sm text-gray-600">
-            Latest kiln temperature recording from synced sensor batches.
+            Latest kiln temperature recording. Hardware sessions stay separate from manual pyrolysis entries.
           </p>
         </div>
         <Link
@@ -70,6 +70,12 @@ export default function DashboardSensorData() {
               <p className="text-sm text-gray-500">
                 {latestBatch.kontikki_code ? `${latestBatch.kontikki_code} · ` : ""}
                 Sensor {latestBatch.kiln_id} · {latestBatch.readings.length} readings
+                {latestBatch.readings.at(-1)?.kiln_state
+                  ? ` · ${latestBatch.readings.at(-1)?.kiln_state}`
+                  : ""}
+                {latestBatch.readings.at(-1)?.satellites != null
+                  ? ` · ${latestBatch.readings.at(-1)?.satellites} satellites`
+                  : ""}
               </p>
             </div>
             <p className="text-sm text-gray-500">
@@ -80,8 +86,8 @@ export default function DashboardSensorData() {
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">
-          No sensor batches synced yet. Use the mobile app to download kiln recordings, then
-          return here to view temperature graphs.
+          No sensor batches synced yet. Save a recording from the mobile kiln sensor
+          screen, then return here to view the temperature graph.
         </div>
       )}
     </section>

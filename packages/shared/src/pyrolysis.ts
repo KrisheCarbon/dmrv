@@ -75,7 +75,13 @@ export interface PyrolysisKontikkiData {
   avg_feedstock_size_cm?: number | null;
   feedstock_id?: string | null;
   feedstock_name?: string | null;
+  /** Rainbow only: woody biomass uses a 20% mean moisture limit, anything else 15%. */
+  feedstock_class?: "woody" | "other" | null;
   location?: LocationValue | null;
+  /** Rainbow only: the kiln mark and cone, taken before this run. */
+  kiln_photo_local_uri?: string | null;
+  kiln_photo_url?: string | null;
+  kiln_photo_metadata?: FieldPhotoMetadata | null;
   feedstock_photo_local_uri?: string | null;
   feedstock_photo_url?: string | null;
   feedstock_photo_metadata?: FieldPhotoMetadata | null;
@@ -93,9 +99,47 @@ export interface PyrolysisKontikkiData {
   sample_photo_url?: string | null;
   sample_photo_metadata?: FieldPhotoMetadata | null;
   sample_saved_at?: string | null;
+  /** Rainbow collect-sample: three spots from this kiln run. */
+  sample_spots?: Array<{
+    spot: number;
+    photo_local_uri?: string | null;
+    photo_url?: string | null;
+    photo_metadata?: FieldPhotoMetadata | null;
+  }>;
+  sample_pile_photo_local_uri?: string | null;
+  sample_pile_photo_url?: string | null;
+  sample_pile_photo_metadata?: FieldPhotoMetadata | null;
+  sample_bag_code?: string | null;
+  sample_bag_photo_local_uri?: string | null;
+  sample_bag_photo_url?: string | null;
+  sample_bag_photo_metadata?: FieldPhotoMetadata | null;
+  sample_bag_not_used?: boolean;
+  sample_collected_at?: string | null;
   info_saved_at?: string | null;
   moisture_saved_at?: string | null;
   pyrolysis_saved_at?: string | null;
+  /** Rainbow: the operator has photographed every biomass layer. */
+  last_layer_confirmed?: boolean;
+  flame_curtain_photo_local_uri?: string | null;
+  flame_curtain_photo_url?: string | null;
+  flame_curtain_photo_metadata?: FieldPhotoMetadata | null;
+  quench_start_photo_local_uri?: string | null;
+  quench_start_photo_url?: string | null;
+  quench_start_photo_metadata?: FieldPhotoMetadata | null;
+  quench_end_photo_local_uri?: string | null;
+  quench_end_photo_url?: string | null;
+  quench_end_photo_metadata?: FieldPhotoMetadata | null;
+  /** Rainbow: ordered quench photos. The first and last watermark times are the quench length. */
+  quench_photos?: Array<{
+    id: string;
+    photo_local_uri?: string | null;
+    photo_url?: string | null;
+    photo_metadata?: FieldPhotoMetadata | null;
+  }>;
+  quench_video_local_uri?: string | null;
+  quench_video_url?: string | null;
+  quench_video_metadata?: FieldPhotoMetadata | null;
+  quench_video_duration_seconds?: number | null;
 }
 
 export interface PyrolysisKontikkiOption {
@@ -118,6 +162,7 @@ export type PyrolysisSubmissionStatus = (typeof PYROLYSIS_SUBMISSION_STATUSES)[n
 
 export interface PyrolysisBatchRecord extends PyrolysisBatchFlatRow {
   id: string;
+  generated_batch_code?: string | null;
   session_id: string;
   kontikki_id: string;
   kontikki_code: string;

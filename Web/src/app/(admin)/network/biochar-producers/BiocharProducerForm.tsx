@@ -1263,12 +1263,16 @@ function ProjectSitesSection({
   confirmedSites: ProducerSiteDraft[];
   onConfirmedChange: (sites: ProducerSiteDraft[]) => void;
   draftSites: ProducerSiteDraft[];
-  onDraftChange: (sites: ProducerSiteDraft[]) => void;
+  onDraftChange: (
+    sites:
+      | ProducerSiteDraft[]
+      | ((current: ProducerSiteDraft[]) => ProducerSiteDraft[]),
+  ) => void;
   required?: boolean;
 }) {
   function updateDraft(clientId: string, patch: Partial<ProducerSiteDraft>) {
-    onDraftChange(
-      draftSites.map((s) =>
+    onDraftChange((current) =>
+      current.map((s) =>
         s.clientId === clientId ? { ...s, ...patch } : s,
       ),
     );

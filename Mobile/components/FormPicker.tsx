@@ -1,14 +1,20 @@
 import React, { useMemo, useState } from "react";
 import {
+  Dimensions,
   View,
   Text,
   Pressable,
   Modal,
   FlatList,
-  TextInput,
   StyleSheet,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import SearchField from "./SearchField";
+import {
+  sheetListMaxHeight,
+  useKeyboardOverlap,
+} from "../hooks/useKeyboardOverlap";
 
 export type FormPickerOption = {
   value: string;
@@ -40,6 +46,8 @@ export default function FormPicker({
 }: FormPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const keyboardOverlap = useKeyboardOverlap();
+  const insets = useSafeAreaInsets();
 
   const selectedLabel = useMemo(() => {
     const match = options.find((option) => option.value === value);
@@ -70,6 +78,16 @@ export default function FormPicker({
     closePicker();
   }
 
+  const listMaxHeight = sheetListMaxHeight(
+    keyboardOverlap,
+    84 + (keyboardOverlap > 0 ? 0 : 48),
+  );
+  const windowHeight = Dimensions.get("window").height;
+  const searchableSheetHeight = Math.max(
+    280,
+    windowHeight - keyboardOverlap - insets.top - 8,
+  );
+
   return (
     <View style={styles.wrapper}>
       <Text style={styles.label}>{label}</Text>
@@ -97,28 +115,39 @@ export default function FormPicker({
         animationType="fade"
         onRequestClose={closePicker}
       >
-        <View style={styles.overlay}>
+        <View style={[styles.overlay, { paddingBottom: keyboardOverlap }]}>
           <Pressable style={styles.backdrop} onPress={closePicker} />
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>{label}</Text>
+          <View
+            style={[
+              styles.sheet,
+              searchable && { height: searchableSheetHeight },
+            ]}
+          >
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>{label}</Text>
+              {keyboardOverlap > 0 ? (
+                <Pressable onPress={closePicker} hitSlop={8}>
+                  <Text style={styles.sheetClose}>Close</Text>
+                </Pressable>
+              ) : null}
+            </View>
             {searchable ? (
-              <TextInput
+              <SearchField
                 value={query}
                 onChangeText={setQuery}
                 placeholder={searchPlaceholder}
-                placeholderTextColor={colors.smokeLight}
                 style={styles.search}
-                autoCorrect={false}
-                autoCapitalize="none"
-                returnKeyType="search"
-                clearButtonMode="while-editing"
               />
             ) : null}
             <FlatList
               data={filteredOptions}
               keyExtractor={(item) => item.value}
               keyboardShouldPersistTaps="handled"
-              style={styles.list}
+              keyboardDismissMode="on-drag"
+              style={[
+                styles.list,
+                searchable ? styles.listFill : { maxHeight: listMaxHeight },
+              ]}
               ListEmptyComponent={
                 <Text style={styles.empty}>
                   {query.trim()
@@ -155,9 +184,11 @@ export default function FormPicker({
                 );
               }}
             />
-            <Pressable style={styles.cancelBtn} onPress={closePicker}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
+            {keyboardOverlap === 0 ? (
+              <Pressable style={styles.cancelBtn} onPress={closePicker}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -219,29 +250,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    maxHeight: "70%",
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
   },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
   sheetTitle: {
+    flex: 1,
     fontFamily: fonts.bold,
     fontSize: 16,
     color: colors.brunswick,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
+  },
+  sheetClose: {
+    fontFamily: fonts.medium,
+    fontSize: 15,
+    color: colors.brunswick,
   },
   search: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    fontFamily: fonts.regular,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.white,
   },
   empty: {
     paddingHorizontal: spacing.md,
@@ -253,6 +286,10 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: spacing.sm,
+  },
+  listFill: {
+    flex: 1,
+    minHeight: 0,
   },
   option: {
     minHeight: 48,

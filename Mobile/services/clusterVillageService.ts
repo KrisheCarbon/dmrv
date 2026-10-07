@@ -12,6 +12,7 @@ export async function getLocalClusterVillages(): Promise<ClusterVillageRecord[]>
     mandal: string | null;
     district: string | null;
     state: string | null;
+    producer_registry: string | null;
   }>("SELECT * FROM cluster_villages ORDER BY cluster_name, village_name");
 
   return rows.map((row) => ({
@@ -22,6 +23,7 @@ export async function getLocalClusterVillages(): Promise<ClusterVillageRecord[]>
     mandal: row.mandal,
     district: row.district,
     state: row.state,
+    producer_registry: row.producer_registry,
   }));
 }
 
@@ -37,8 +39,8 @@ export async function pullClusterVillages(): Promise<ClusterVillageRecord[]> {
     for (const village of remote) {
       await db.runAsync(
         `INSERT INTO cluster_villages (
-          id, cluster_id, cluster_name, village_name, mandal, district, state, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, cluster_id, cluster_name, village_name, mandal, district, state, producer_registry, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           village.id,
           village.cluster_id,
@@ -47,6 +49,7 @@ export async function pullClusterVillages(): Promise<ClusterVillageRecord[]> {
           village.mandal ?? null,
           village.district ?? null,
           village.state ?? null,
+          village.producer_registry ?? null,
           now,
         ],
       );
