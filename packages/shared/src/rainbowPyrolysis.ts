@@ -4,9 +4,14 @@ import {
   type PyrolysisProtocol,
 } from "./producerRegistry";
 
-/** Minimum moisture photos on every Rainbow kiln run. */
+/**
+ * Moisture photos for cotton on a 1,000 L kiln.
+ * A full kiln is about 780 kg, and Rainbow's floor is 10 readings.
+ */
 export const RAINBOW_MOISTURE_READING_COUNT = 10;
-/** One extra moisture photo for each 100 kg of ready-to-pyrolyze feedstock. */
+/** Corn cobs fill a 1,000 L kiln to about 1,200 kg, so one reading per 100 kg is 12. */
+export const RAINBOW_CORN_MOISTURE_READING_COUNT = 12;
+/** Kept for the Rainbow rate. The app uses the feedstock minimum above for a full kiln. */
 export const RAINBOW_KG_PER_MOISTURE_READING = 100;
 export const RAINBOW_MOISTURE_READING_MAX = 25;
 export const RAINBOW_WOODY_MOISTURE_MEAN_MAX = 20;
@@ -60,14 +65,13 @@ export function isRainbowQuenchComplete(proof?: RainbowProcessProof | null): boo
 }
 
 export function rainbowRequiredMoistureCount(
-  feedstockKg: number | null | undefined,
+  feedstockName?: string | null,
 ): number {
-  const kg = Number(feedstockKg);
-  if (!Number.isFinite(kg) || kg <= 0) return RAINBOW_MOISTURE_READING_COUNT;
-  return Math.max(
-    RAINBOW_MOISTURE_READING_COUNT,
-    Math.ceil(kg / RAINBOW_KG_PER_MOISTURE_READING),
-  );
+  const name = (feedstockName ?? "").toLowerCase();
+  if (name.includes("corn") || name.includes("maize")) {
+    return RAINBOW_CORN_MOISTURE_READING_COUNT;
+  }
+  return RAINBOW_MOISTURE_READING_COUNT;
 }
 
 export function rainbowMoistureMeanLimit(
@@ -216,10 +220,10 @@ function moistureSlotFilled(item: MoistureReading | undefined): boolean {
 
 export function isRainbowMoistureComplete(
   readings: MoistureReading[],
-  feedstockKg?: number | null,
+  feedstockName?: string | null,
   feedstockClass?: RainbowFeedstockClass | null,
 ): boolean {
-  const required = rainbowRequiredMoistureCount(feedstockKg);
+  const required = rainbowRequiredMoistureCount(feedstockName);
   if (readings.length < required) return false;
   const used = readings.slice(0, required);
   if (!used.every(moistureSlotFilled)) return false;
@@ -277,7 +281,7 @@ export function rainbowWorkflowSectionSubtitle(
     return "Kiln photo, batch number, feedstock, and location";
   }
   if (section === "moisture") {
-    return "One moisture photo per 100 kg, at least 10";
+    return "10 moisture photos for cotton, 12 for corn";
   }
   if (section === "biomass_loads") {
     return "A photo for every layer, the flame curtain, then quench photos or a short video";

@@ -34,6 +34,20 @@ export async function updateFeedstock(
   });
 }
 
+export async function getRainbowFeedstockDesk(id: string) {
+  return backendFetch<RainbowFeedstockDesk>(`/feedstocks/${id}/rainbow`);
+}
+
+export interface RainbowFeedstockDesk {
+  labSamples: Record<string, unknown>[];
+  pollutants: Record<string, unknown>[];
+  methane: Record<string, unknown>[];
+  emissions: Record<string, unknown>[];
+  mixing: Record<string, unknown>[];
+  kontikkis: { id: string; kontikki_code: string }[];
+  notices: string[];
+}
+
 export async function deleteFeedstock(id: string) {
   await backendFetch<void>(`/feedstocks/${id}`, {
     method: "DELETE",

@@ -11,9 +11,11 @@ function formatAmount(value: number | null | undefined, unit: string) {
 
 export default function VolumePercentField({
   batch,
+  readOnly = false,
   onSaved,
 }: {
   batch: PyrolysisBatchDetail;
+  readOnly?: boolean;
   onSaved?: (batch: PyrolysisBatchDetail) => void;
 }) {
   const [draft, setDraft] = useState(
@@ -25,6 +27,10 @@ export default function VolumePercentField({
   useEffect(() => {
     setDraft(batch.volume_percent != null ? String(batch.volume_percent) : "");
   }, [batch.volume_percent]);
+
+  if (readOnly) {
+    return <>{batch.volume_percent != null ? `${batch.volume_percent}%` : "—"}</>;
+  }
 
   async function handleSave() {
     const trimmed = draft.trim();

@@ -16,6 +16,7 @@ import {
   resolveFeedstockProducer,
 } from "./feedstockLib";
 import type { FeedstockDetail, FeedstockLabStatus } from "@/types";
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 
 type FeedstockListRow = {
   id: string;
@@ -61,7 +62,10 @@ export default function FeedstockPage() {
             lab_status: formatLabStatus(feedstock.lab_status),
             lab_status_raw: feedstock.lab_status,
             bulk_density: `${feedstock.biochar_bulk_density_kg_m3} kg/m³`,
-            carbon_content: `${feedstock.carbon_content_percent}%`,
+            carbon_content:
+              feedstock.carbon_content_percent == null
+                ? "—"
+                : `${feedstock.carbon_content_percent}%`,
             search_index: feedstockSearchIndex(feedstock),
           };
         }),
@@ -93,6 +97,7 @@ export default function FeedstockPage() {
   );
 
   const filtersActive = hasActiveListFilters(searchFilters, labStatusFilter);
+  const readOnly = useIsDmrvViewer();
 
   return (
     <div className="space-y-4">
@@ -106,12 +111,14 @@ export default function FeedstockPage() {
             chains.
           </p>
         </div>
+        {readOnly ? null : (
         <Link
           href="/biochar/feedstock/new"
-          className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+          className="inline-flex min-h-14 items-center rounded-xl bg-brand-dark px-4 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
         >
           + Add feedstock
         </Link>
+        )}
       </div>
 
       {error ? (

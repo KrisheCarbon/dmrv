@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canManageProducers } from '@krishecarbon/shared';
+import { canManageProducers, isDmrvViewer } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -58,13 +58,13 @@ export interface CreateFeedstockPayload {
   biomass_type: string;
   biochar_producer_id: string;
   biochar_bulk_density_kg_m3: number;
-  carbon_content_percent: number;
-  hc_ratio: number;
-  lab_status: FeedstockLabStatus;
-  lab_submission_date: string;
-  lab_analysis_date: string;
+  carbon_content_percent?: number | null;
+  hc_ratio?: number | null;
+  lab_status?: FeedstockLabStatus;
+  lab_submission_date?: string | null;
+  lab_analysis_date?: string | null;
   biomass_preparation_instruction?: string | null;
-  methane_compensation_strategy: MethaneCompensationStrategy;
+  methane_compensation_strategy?: MethaneCompensationStrategy | null;
   lab_report_doc_url?: string | null;
   lab_report_image_url?: string | null;
   ghg_avoidance_approval_doc_url?: string | null;
@@ -87,7 +87,8 @@ const FEEDSTOCK_LIST_SELECT = `
   biochar_producer:biochar_producers (
     id,
     name,
-    producer_code
+    producer_code,
+    registry
   )
 `;
 
@@ -96,7 +97,8 @@ const FEEDSTOCK_DETAIL_SELECT = `
   biochar_producer:biochar_producers (
     id,
     name,
-    producer_code
+    producer_code,
+    registry
   )
 `;
 
@@ -106,6 +108,12 @@ export class FeedstocksService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  private assertCanView(user: AuthenticatedUser): void {
+    if (!canManageProducers(user.role) && !isDmrvViewer(user.role)) {
+      throw new ForbiddenException('Not allowed to view feedstock records');
+    }
+  }
+
   private assertCanManage(user: AuthenticatedUser): void {
     if (!canManageProducers(user.role)) {
       throw new ForbiddenException('Not allowed to manage feedstock records');
@@ -113,7 +121,7 @@ export class FeedstocksService {
   }
 
   async findAll(user: AuthenticatedUser): Promise<FeedstockRecord[]> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('feedstocks')
@@ -129,7 +137,7 @@ export class FeedstocksService {
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<FeedstockRecord> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('feedstocks')
@@ -154,7 +162,8 @@ export class FeedstocksService {
     payload: CreateFeedstockPayload,
   ): Promise<FeedstockRecord> {
     this.assertCanManage(user);
-    this.validatePayload(payload);
+    const registry = await this.registryFor(payload.biochar_producer_id);
+    this.validatePayload(payload, false, registry);
 
     const { data, error } = await this.supabase
       .from('feedstocks')
@@ -182,8 +191,9 @@ export class FeedstocksService {
     const existing = await this.findById(user, id);
 
     if (Object.keys(payload).length > 0) {
-      this.validatePayload(payload, true);
-      this.assertLabReportPresent(existing, payload);
+      const registry = await this.registryFor(existing.biochar_producer_id);
+      this.validatePayload(payload, true, registry);
+      if (registry !== 'rainbow') this.assertLabReportPresent(existing, payload);
     }
 
     const { error } = await this.supabase
@@ -220,10 +230,23 @@ export class FeedstocksService {
     }
   }
 
+  private async registryFor(producerId?: string | null): Promise<string | null> {
+    if (!producerId) return null;
+    const { data, error } = await this.supabase
+      .from('biochar_producers')
+      .select('registry')
+      .eq('id', producerId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    return (data?.registry as string | undefined) ?? null;
+  }
+
   private validatePayload(
     payload: CreateFeedstockPayload | UpdateFeedstockPayload,
     partial = false,
+    registry: string | null = null,
   ): void {
+    const rainbowOnly = registry === 'rainbow';
     if (!partial || payload.biomass_type !== undefined) {
       if (!payload.biomass_type?.trim()) {
         throw new BadRequestException('Biomass type is required.');
@@ -247,7 +270,7 @@ export class FeedstocksService {
     }
 
     if (
-      payload.carbon_content_percent !== undefined &&
+      payload.carbon_content_percent != null &&
       (payload.carbon_content_percent <= 0 ||
         payload.carbon_content_percent > 100)
     ) {
@@ -256,10 +279,8 @@ export class FeedstocksService {
       );
     }
 
-    if (payload.hc_ratio !== undefined && payload.hc_ratio >= 0.4) {
-      throw new BadRequestException(
-        'Feedstock catalog H/C must be under 0.4. Rainbow H/Corg is stored on the kiln-run lab sample and must be under 0.7.',
-      );
+    if (!rainbowOnly && payload.hc_ratio !== undefined && payload.hc_ratio != null && payload.hc_ratio >= 0.4) {
+      throw new BadRequestException('CSI catalog H/C must be under 0.4.');
     }
 
     if (payload.lab_status !== undefined) {
@@ -274,7 +295,7 @@ export class FeedstocksService {
       }
     }
 
-    if (payload.methane_compensation_strategy !== undefined) {
+    if (payload.methane_compensation_strategy != null) {
       const allowed: MethaneCompensationStrategy[] = [
         'offsetting_from_scp_fraction',
         'csi_approved_avoidance_of_ghg',
@@ -284,14 +305,23 @@ export class FeedstocksService {
       }
     }
 
-    if (!partial) {
+    if (!partial && !rainbowOnly) {
+      if (payload.carbon_content_percent == null) {
+        throw new BadRequestException('Carbon content is required.');
+      }
+      if (payload.hc_ratio == null) {
+        throw new BadRequestException('Catalog H/C is required.');
+      }
       if (!payload.lab_submission_date) {
         throw new BadRequestException('Lab submission date is required.');
       }
       if (!payload.lab_analysis_date) {
         throw new BadRequestException('Lab analysis date is required.');
       }
-    } else {
+      if (!payload.methane_compensation_strategy) {
+        throw new BadRequestException('Methane compensation strategy is required.');
+      }
+    } else if (!rainbowOnly) {
       if (
         payload.lab_submission_date !== undefined &&
         !payload.lab_submission_date

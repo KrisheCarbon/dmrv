@@ -4,6 +4,7 @@ export const USER_ROLES = [
   "manager",
   "supervisor",
   "climapreneur",
+  "dmrv_viewer",
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -13,6 +14,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   manager: "Manager",
   supervisor: "Supervisor",
   climapreneur: "Climapreneur",
+  dmrv_viewer: "dMRV viewer",
 };
 
 /** Roles that can sign in to the web admin portal. */
@@ -20,6 +22,7 @@ export const PORTAL_ROLES: readonly UserRole[] = [
   "admin",
   "manager",
   "supervisor",
+  "dmrv_viewer",
 ];
 
 /** Mobile / field app roles (enforced on mobile later). */
@@ -48,6 +51,25 @@ export function canAccessWebPortal(role: string): boolean {
 
 export function canAccessMobileApp(role: string): boolean {
   return isUserRole(role) && MOBILE_APP_ROLES.includes(role);
+}
+
+/** Rainbow or CSI reviewer. Web dashboard only, and only to look. */
+export function isDmrvViewer(role: string): boolean {
+  return role === "dmrv_viewer";
+}
+
+export function dmrvViewerPathAllowed(pathname: string): boolean {
+  if (pathname.includes("/new") || pathname.includes("/edit")) return false;
+  if (pathname === "/" || pathname === "/biochar" || pathname === "/operations") return true;
+  const allowed = [
+    "/biochar/production",
+    "/biochar/mixing",
+    "/biochar/feedstock",
+    "/biochar/sensor-data",
+    "/operations/trainings",
+    "/network/farmers",
+  ];
+  return allowed.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 /** Roles allowed to open the Users page and invite/edit accounts. */

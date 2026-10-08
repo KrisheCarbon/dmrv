@@ -13,7 +13,6 @@ import {
   PYROLYSIS_KONTIKKI_SECTIONS,
   RAINBOW_KONTIKKI_SECTIONS,
   rainbowRequiredMoistureCount,
-  rainbowMoistureMeanLimit,
   emptyMoistureReadings,
   emptyRainbowMoistureReadings,
   isKontikkiWorkflowSectionCompleted,
@@ -27,8 +26,6 @@ import {
   pyrolysisWorkflowSectionLabel,
   rainbowKontikkiWorkflowProgress,
   rainbowWorkflowSectionLabel,
-  formatQuenchDuration,
-  quenchDurationSeconds,
   type FieldPhotoMetadata,
   type PyrolysisKontikkiData,
   type PyrolysisKontikkiWorkflowSection,
@@ -84,21 +81,17 @@ function rainbowFlags(row: SessionKontikkiView) {
   };
 }
 
-function rainbowMoistureHint(
-  feedstockClass: "woody" | "other" | null | undefined,
-  readings: { reading: number | null }[],
-): string {
-  const limit = rainbowMoistureMeanLimit(feedstockClass);
-  const values = readings
-    .map((item) => item.reading)
-    .filter((value): value is number => value != null && !Number.isNaN(value));
-  const mean = values.length
-    ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)
-    : "—";
-  if (limit == null) {
-    return "Set the feedstock class in batch info. No reading may be above 25%.";
-  }
-  return `Mean so far ${mean}%. Rainbow allows up to ${limit}% for this feedstock, and no reading above 25%.`;
+function fittedRainbowMoisture<T extends { reading: number | null; photo_local_uri?: string | null; photo_url?: string | null }>(
+  stored: T[],
+  feedstockName: string | null | undefined,
+): T[] {
+  const required = rainbowRequiredMoistureCount(feedstockName);
+  const blanks = emptyRainbowMoistureReadings(required);
+  const base = blanks.map((empty, index) => stored[index] ?? (empty as T));
+  const extras = stored.slice(required).filter(
+    (item) => item.reading != null || item.photo_local_uri || item.photo_url,
+  );
+  return [...base, ...extras];
 }
 
 function firstOpenSection(row: SessionKontikkiView): PyrolysisKontikkiWorkflowSection | RainbowKontikkiWorkflowSection {
@@ -305,20 +298,11 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
     setQuenchMode(
       payload.quench_video_local_uri || payload.quench_video_url ? "video" : "photos",
     );
-    const expectedMoisture =
-      kontikki.standard === "rainbow"
-        ? Math.max(
-            rainbowRequiredMoistureCount(payload.feedstock_quantity),
-            payload.moisture_readings?.length ?? 0,
-          )
-        : MOISTURE_READING_COUNT;
     const storedMoisture = payload.moisture_readings ?? [];
     const moisture =
       kontikki.standard === "rainbow"
-        ? emptyRainbowMoistureReadings(expectedMoisture).map(
-            (empty, index) => storedMoisture[index] ?? empty,
-          )
-        : storedMoisture.length === expectedMoisture
+        ? fittedRainbowMoisture(storedMoisture, payload.feedstock_name)
+        : storedMoisture.length === MOISTURE_READING_COUNT
           ? storedMoisture
           : emptyMoistureReadings();
     setMoistureDraft(moisture);
@@ -854,14 +838,12 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       return next;
     });
 
-    if (isRainbow && patch.feedstock_quantity !== undefined) {
-      const required = rainbowRequiredMoistureCount(patch.feedstock_quantity);
+    if (isRainbow && patch.feedstock_name !== undefined) {
       setMoistureDraft((prev) => {
-        if (prev.length >= required) return prev;
-        const next = [...prev];
-        while (next.length < required) {
-          next.push({ reading: null, photo_local_uri: null, photo_url: null });
-        }
+        const next = fittedRainbowMoisture(prev, patch.feedstock_name);
+        const unchanged =
+          next.length === prev.length && next.every((item, index) => item === prev[index]);
+        if (unchanged) return prev;
         queueAutoSave("moisture", { moisture_readings: next });
         return next;
       });
@@ -1021,9 +1003,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                         onCapture={() => void handleKilnPhoto()}
                         onRemove={handleRemoveKilnPhoto}
                       />
-                      <Text style={styles.savedAt}>
-                        Photograph the permanent mark and the cone together, before biomass goes in.
-                      </Text>
                     </>
                   ) : null}
                   <FormInput
@@ -1073,8 +1052,8 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                       placeholder="Woody or other"
                       value={infoDraft.feedstock_class ?? ""}
                       options={[
-                        { value: "woody", label: "Woody (mean moisture at or below 20%)" },
-                        { value: "other", label: "Other or mixed (mean moisture at or below 15%)" },
+                        { value: "woody", label: "Woody" },
+                        { value: "other", label: "Other or mixed" },
                       ]}
                       onValueChange={(value) =>
                         updateInfoDraft({
@@ -1082,13 +1061,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                         })
                       }
                     />
-                  ) : null}
-                  {isRainbow ? (
-                    <Text style={styles.savedAt}>
-                      Rainbow needs{" "}
-                      {rainbowRequiredMoistureCount(infoDraft.feedstock_quantity)} moisture
-                      photos for this amount: one per 100 kg, and at least 10.
-                    </Text>
                   ) : null}
 
                   <PyrolysisPhotoSlot
@@ -1130,11 +1102,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "moisture" ? (
                 <View style={styles.form}>
-                  {isRainbow ? (
-                    <Text style={styles.savedAt}>
-                      {rainbowMoistureHint(infoDraft.feedstock_class, moistureDraft)}
-                    </Text>
-                  ) : null}
                   {moistureDraft.map((reading, index) => {
                     const readingCompleted = isMoistureReadingCompleted(reading);
                     const readingUnlocked =
@@ -1203,9 +1170,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "biomass_loads" ? (
                 <View style={styles.form}>
-                  <Text style={styles.savedAt}>
-                    Photograph each layer as it goes into the kontikki. After the last layer, photograph the flame curtain, then record quenching with photos or one short video.
-                  </Text>
                   {biomassLoads.map((load, index) => (
                     <View key={load.id} style={styles.form}>
                       <PyrolysisPhotoSlot
@@ -1299,11 +1263,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                                 : "+ Add quench photo"}
                             </Text>
                           </TouchableOpacity>
-                          <Text style={styles.savedAt}>
-                            {formatQuenchDuration(quenchDurationSeconds(infoDraft.quench_photos ?? []))
-                              ? `Quench lasted ${formatQuenchDuration(quenchDurationSeconds(infoDraft.quench_photos ?? []))}, from the time printed on the first and last photos.`
-                              : "Take at least the start and the end. Each photo keeps the GPS and time that are printed on it."}
-                          </Text>
                         </>
                       ) : (
                         <>
@@ -1314,15 +1273,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                                 : "Record quench video"}
                             </Text>
                           </TouchableOpacity>
-                          <Text style={styles.savedAt}>
-                            {infoDraft.quench_video_local_uri || infoDraft.quench_video_url
-                              ? `Video saved${
-                                  infoDraft.quench_video_duration_seconds
-                                    ? `, ${formatQuenchDuration(infoDraft.quench_video_duration_seconds)} long`
-                                    : ""
-                                }. GPS and the recording time are stored with it.`
-                              : "One video up to 90 seconds can stand in for the quench photos."}
-                          </Text>
                         </>
                       )}
                     </>

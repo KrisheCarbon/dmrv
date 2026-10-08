@@ -68,13 +68,7 @@ export default function PyrolysisPhotoSlot({
               {"\n"}
               {metadata.latitude.toFixed(5)}, {metadata.longitude.toFixed(5)}
             </Text>
-          ) : (
-            <Text style={styles.hint}>
-              {hasPhoto
-                ? "Use the red × on the photo to remove it."
-                : "Photo is watermarked automatically"}
-            </Text>
-          )}
+          ) : null}
 
           <TouchableOpacity
             style={[styles.button, capturing && styles.buttonDisabled]}
@@ -163,11 +157,6 @@ const styles = StyleSheet.create({
   },
   placeholderIcon: {
     fontSize: 22,
-  },
-  hint: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
   },
   meta: {
     fontFamily: fonts.regular,

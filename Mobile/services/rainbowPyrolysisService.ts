@@ -249,7 +249,7 @@ export async function loadRainbowDraft(batchId: string): Promise<RainbowDraft> {
     "SELECT * FROM rainbow_pyrolysis_moisture WHERE batch_id = ? ORDER BY slot ASC",
     [batchId],
   );
-  const required = rainbowRequiredMoistureCount(batch.feedstockQuantity);
+  const required = rainbowRequiredMoistureCount(batch.feedstockName);
   const storedCount = moistureRows.reduce(
     (max, row) => Math.max(max, Number(row.slot) || 0),
     0,
@@ -393,17 +393,23 @@ export async function saveRainbowInfoLocal(
   };
   const { sql, args } = buildUpdate("rainbow_pyrolysis_batches", patch, "id = ?", [batchId]);
   await db.runAsync(sql, args);
-  await ensureRainbowMoistureSlots(batchId, data.feedstock_quantity);
+  await ensureRainbowMoistureSlots(batchId, data.feedstock_name);
+  await refreshRainbowMoistureCompletion(batchId, data.feedstock_name, feedstockClass);
 }
 
 async function ensureRainbowMoistureSlots(
   batchId: string,
-  feedstockKg: number | null | undefined,
+  feedstockName: string | null | undefined,
 ) {
   const db = await getDb();
-  const required = rainbowRequiredMoistureCount(feedstockKg);
-  const rows = await db.getAllAsync<{ slot: number }>(
-    "SELECT slot FROM rainbow_pyrolysis_moisture WHERE batch_id = ?",
+  const required = rainbowRequiredMoistureCount(feedstockName);
+  const rows = await db.getAllAsync<{
+    slot: number;
+    reading: number | null;
+    photo_local_uri: string | null;
+    photo_url: string | null;
+  }>(
+    "SELECT slot, reading, photo_local_uri, photo_url FROM rainbow_pyrolysis_moisture WHERE batch_id = ?",
     [batchId],
   );
   const have = new Set(rows.map((row) => Number(row.slot)));
@@ -423,6 +429,45 @@ async function ensureRainbowMoistureSlots(
     });
     await db.runAsync(insert.sql, insert.args);
   }
+  for (const row of rows) {
+    const slot = Number(row.slot);
+    const empty = row.reading == null && !row.photo_local_uri && !row.photo_url;
+    if (slot > required && empty) {
+      await db.runAsync(
+        "DELETE FROM rainbow_pyrolysis_moisture WHERE batch_id = ? AND slot = ?",
+        [batchId, slot],
+      );
+    }
+  }
+}
+
+async function refreshRainbowMoistureCompletion(
+  batchId: string,
+  feedstockName: string | null | undefined,
+  feedstockClass: RainbowFeedstockClass | null | undefined,
+) {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{
+    slot: number;
+    reading: number | null;
+    photo_local_uri: string | null;
+    photo_url: string | null;
+  }>(
+    "SELECT slot, reading, photo_local_uri, photo_url FROM rainbow_pyrolysis_moisture WHERE batch_id = ? ORDER BY slot ASC",
+    [batchId],
+  );
+  const readings = rows.map((row) => ({
+    reading: row.reading != null ? Number(row.reading) : null,
+    photo_local_uri: row.photo_local_uri,
+    photo_url: row.photo_url,
+  }));
+  const complete = isRainbowMoistureComplete(readings, feedstockName, feedstockClass);
+  await db.runAsync(
+    `UPDATE rainbow_pyrolysis_batches
+     SET moisture_completed = ?, moisture_saved_at = ?, updated_at = ?
+     WHERE id = ?`,
+    [complete ? 1 : 0, complete ? new Date().toISOString() : null, Date.now(), batchId],
+  );
 }
 
 export async function saveRainbowMoistureLocal(
@@ -434,7 +479,7 @@ export async function saveRainbowMoistureLocal(
   const batch = await getRainbowBatch(batchId);
   const complete = isRainbowMoistureComplete(
     readings,
-    batch?.feedstockQuantity,
+    batch?.feedstockName,
     batch?.feedstockClass,
   );
 

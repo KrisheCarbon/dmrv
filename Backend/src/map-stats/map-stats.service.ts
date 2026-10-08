@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canAccessWebPortal } from '@krishecarbon/shared';
+import { canAccessWebPortal, isDmrvViewer } from '@krishecarbon/shared';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
@@ -167,7 +167,7 @@ export class MapStatsService {
   ) {}
 
   async farmerStats(user: AuthenticatedUser): Promise<FarmerMapStats> {
-    if (!canAccessWebPortal(user.role)) {
+    if (!canAccessWebPortal(user.role) || isDmrvViewer(user.role)) {
       throw new ForbiddenException('Not allowed to view map stats');
     }
 

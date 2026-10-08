@@ -9,6 +9,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessNetwork,
+  isDmrvViewer,
   canReviewMixingEntries,
   isMixingEntryPhotoKey,
   isRainbowMixVolumeAllowed,
@@ -152,7 +153,7 @@ export class MixingEntriesService {
   async listEntries(
     user: AuthenticatedUser,
   ): Promise<MixingEntryRecord[] | MixingEntryPortalRecord[]> {
-    if (canAccessNetwork(user.role)) {
+    if (canAccessNetwork(user.role) || isDmrvViewer(user.role)) {
       return this.loadEntries(true, {});
     }
 
@@ -170,7 +171,7 @@ export class MixingEntriesService {
     user: AuthenticatedUser,
     id: string,
   ): Promise<MixingEntryRecord | MixingEntryPortalRecord> {
-    if (canAccessNetwork(user.role)) {
+    if (canAccessNetwork(user.role) || isDmrvViewer(user.role)) {
       const entry = await this.findEntry(id, true);
       if (!entry) throw new NotFoundException('Mixing entry not found.');
       return entry;

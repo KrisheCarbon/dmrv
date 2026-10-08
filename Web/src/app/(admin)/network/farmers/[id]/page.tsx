@@ -22,6 +22,7 @@ import ConsentCreateForm from "../ConsentCreateForm";
 import SoilSampleCreateForm from "../SoilSampleCreateForm";
 import { buildFarmerChecklist, consentExpiryLabel } from "../farmerLib";
 import FarmerPortrait from "@/components/FarmerPortrait";
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import {
   SOIL_REPORT_ACCEPT,
   uploadSoilReportPdf,
@@ -206,6 +207,7 @@ function errorMessage(err: unknown, fallback: string) {
 export default function FarmerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const readOnly = useIsDmrvViewer();
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("info");
   const [data, setData] = useState<FarmDetail | null>(null);
   const [fields, setFields] = useState<FarmFieldRecord[]>([]);
@@ -445,7 +447,7 @@ export default function FarmerDetailPage() {
         <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-4">
             <h2 className="text-lg font-semibold text-neutral-900">Farmer info</h2>
-            <div className="flex items-center gap-2">
+            {readOnly ? null : <div className="flex items-center gap-2">
               <Link
                 href={`/network/farmers/${data.id}/edit`}
                 className="inline-flex min-h-[38px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
@@ -460,7 +462,7 @@ export default function FarmerDetailPage() {
               >
                 {deleting ? "Deleting..." : "Delete"}
               </button>
-            </div>
+            </div>}
           </div>
           <dl className="px-6 py-2">
             <DetailRow label="Farmer photo">
@@ -561,13 +563,15 @@ export default function FarmerDetailPage() {
                 Farms mapped here or in the field app. Area is in acres.
               </p>
             </div>
+            {readOnly ? null : (
             <button
               type="button"
               onClick={() => setCreateKind("farm")}
-              className="rounded-xl bg-brand-dark px-3 py-1.5 text-sm font-medium text-white"
+              className="inline-flex min-h-14 items-center rounded-xl bg-brand-dark px-3 text-sm font-medium text-white"
             >
               + Add farm
             </button>
+            )}
           </div>
           {gpsPoint(data.latitude, data.longitude) ? (
             <div className="border-b border-neutral-100 px-6 py-4">
@@ -685,7 +689,7 @@ export default function FarmerDetailPage() {
                         }
                       />
                     </dl>
-                    {field.status === "active" ? (
+                    {readOnly ? null : field.status === "active" ? (
                       <div className="mt-2 flex gap-3">
                         <button
                           type="button"
@@ -728,13 +732,15 @@ export default function FarmerDetailPage() {
                 Yellow = collected or waiting, red = rejected, green = accepted.
               </p>
             </div>
+            {readOnly ? null : (
             <button
               type="button"
               onClick={() => setCreateKind("sample")}
-              className="rounded-xl bg-brand-dark px-3 py-1.5 text-sm font-medium text-white"
+              className="inline-flex min-h-14 items-center rounded-xl bg-brand-dark px-3 text-sm font-medium text-white"
             >
               + Add sample
             </button>
+            )}
           </div>
           <div className="px-6 py-4">
             {soilTests.length === 0 ? (
@@ -846,7 +852,7 @@ export default function FarmerDetailPage() {
                         }
                       />
                     </dl>
-                    {test.status === "submitted" || test.status === "stored" ? (
+                    {!readOnly && (test.status === "submitted" || test.status === "stored") ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -883,7 +889,7 @@ export default function FarmerDetailPage() {
                         </button>
                       </div>
                     ) : null}
-                    <button
+                    {readOnly ? null : <button
                       type="button"
                       onClick={() => {
                         setSelected(test);
@@ -893,7 +899,7 @@ export default function FarmerDetailPage() {
                       className="mt-3 text-sm font-medium text-brand-dark hover:underline"
                     >
                       {test.reports?.length ? "Replace report PDF" : "Upload report PDF"}
-                    </button>
+                    </button>}
                   </div>
                 ))}
               </div>
@@ -951,13 +957,15 @@ export default function FarmerDetailPage() {
             <div>
               <h2 className="text-lg font-semibold text-neutral-900">Farmer consent</h2>
             </div>
+            {readOnly ? null : (
             <button
               type="button"
               onClick={() => setCreateKind("consent")}
-              className="rounded-xl bg-brand-dark px-3 py-1.5 text-sm font-medium text-white"
+              className="inline-flex min-h-14 items-center rounded-xl bg-brand-dark px-3 text-sm font-medium text-white"
             >
               + Add consent
             </button>
+            )}
           </div>
           <div className="px-6 py-4">
             {consents.length === 0 ? (

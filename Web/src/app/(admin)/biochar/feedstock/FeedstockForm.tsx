@@ -69,14 +69,18 @@ function feedstockToFormState(feedstock: FeedstockDetail): FeedstockFormState {
     biomass_type: feedstock.biomass_type,
     biochar_producer_id: producer?.id ?? feedstock.biochar_producer_id ?? "",
     biochar_bulk_density_kg_m3: String(feedstock.biochar_bulk_density_kg_m3),
-    carbon_content_percent: String(feedstock.carbon_content_percent),
-    hc_ratio: String(feedstock.hc_ratio),
-    lab_status: feedstock.lab_status,
+    carbon_content_percent:
+      feedstock.carbon_content_percent == null
+        ? ""
+        : String(feedstock.carbon_content_percent),
+    hc_ratio: feedstock.hc_ratio == null ? "" : String(feedstock.hc_ratio),
+    lab_status: feedstock.lab_status ?? "estimated",
     lab_submission_date: toDateInput(feedstock.lab_submission_date),
     lab_analysis_date: toDateInput(feedstock.lab_analysis_date),
     biomass_preparation_instruction:
       feedstock.biomass_preparation_instruction ?? "",
-    methane_compensation_strategy: feedstock.methane_compensation_strategy,
+    methane_compensation_strategy:
+      feedstock.methane_compensation_strategy ?? "offsetting_from_scp_fraction",
   };
 }
 
@@ -301,6 +305,18 @@ export default function FeedstockForm({
       return null;
     }
 
+    const registry = producers.find((producer) => producer.id === form.biochar_producer_id)
+      ?.registry;
+    if (registry === "rainbow") {
+      return {
+        biomass_type: form.biomass_type.trim(),
+        biochar_producer_id: form.biochar_producer_id,
+        biochar_bulk_density_kg_m3: bulkDensity,
+        biomass_preparation_instruction:
+          form.biomass_preparation_instruction.trim() || null,
+      };
+    }
+
     const carbonContent = Number(form.carbon_content_percent);
     if (
       !form.carbon_content_percent ||
@@ -315,7 +331,7 @@ export default function FeedstockForm({
     const hcRatio = Number(form.hc_ratio);
     if (!form.hc_ratio || Number.isNaN(hcRatio) || hcRatio >= 0.4) {
       setError(
-        "Catalog H/C must be under 0.4. Rainbow H/Corg is a separate kiln-run lab result and must be under 0.7.",
+        "Catalog H/C must be under 0.4.",
       );
       return null;
     }
@@ -467,6 +483,14 @@ export default function FeedstockForm({
     }
   }
 
+  const savedProducer = Array.isArray(data?.biochar_producer)
+    ? data?.biochar_producer[0]
+    : data?.biochar_producer;
+  const registry =
+    producers.find((producer) => producer.id === form.biochar_producer_id)?.registry ??
+    savedProducer?.registry;
+  const rainbowOnly = registry === "rainbow";
+
   return (
     <div className="space-y-6 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm shadow-neutral-200/40">
       <section className={sectionClass}>
@@ -501,11 +525,17 @@ export default function FeedstockForm({
                 <option key={producer.id} value={producer.id}>
                   {producer.name}
                   {producer.producer_code ? ` (${producer.producer_code})` : ""}
+                  {producer.registry ? ` · ${producer.registry.toUpperCase()}` : ""}
                 </option>
               ))}
             </select>
           </div>
         </div>
+        {rainbowOnly || registry === "both" ? (
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            Rainbow lab samples, pollutant tests, and methane are saved on this feedstock after you create it. One organic-carbon and H/Corg sample covers 200 tonnes or 6 months. Pollutants are once a year.
+          </p>
+        ) : null}
       </section>
 
       <section className={sectionClass}>
@@ -531,7 +561,7 @@ export default function FeedstockForm({
               placeholder="100–700"
             />
           </div>
-          <div className="space-y-1.5">
+          {rainbowOnly ? null : <div className="space-y-1.5">
             <label className={labelClass}>Carbon content (%) *</label>
             <input
               type="number"
@@ -557,13 +587,13 @@ export default function FeedstockForm({
               onChange={(e) => updateField("hc_ratio", e.target.value)}
             />
             <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              CSI catalog value. Rainbow organic carbon and H/Corg are entered on the kiln-run lab sample.
+              CSI catalog value. Rainbow uses a separate lab sample on this feedstock.
             </p>
-          </div>
+          </div>}
         </div>
       </section>
 
-      <section className={sectionClass}>
+      {rainbowOnly ? null : <section className={sectionClass}>
         <h3 className="text-lg font-semibold text-neutral-950">
           Lab status and dates
         </h3>
@@ -609,7 +639,7 @@ export default function FeedstockForm({
             />
           </div>
         </div>
-      </section>
+      </section>}
 
       <section className={sectionClass}>
         <h3 className="text-lg font-semibold text-neutral-950">
@@ -631,7 +661,7 @@ export default function FeedstockForm({
               placeholder="Optional notes on drying, sizing, or pre-treatment."
             />
           </div>
-          <div className="space-y-1.5 md:max-w-xl">
+          {rainbowOnly ? null : <div className="space-y-1.5 md:max-w-xl">
             <label className={labelClass}>
               Methane compensation strategy *
             </label>
@@ -651,11 +681,11 @@ export default function FeedstockForm({
                 </option>
               ))}
             </select>
-          </div>
+          </div>}
         </div>
       </section>
 
-      <section className={sectionClass}>
+      {rainbowOnly ? null : <section className={sectionClass}>
         <h3 className="text-lg font-semibold text-neutral-950">
           Lab report and GHG approval
         </h3>
@@ -678,7 +708,7 @@ export default function FeedstockForm({
             onRemovePending={() => removePendingFile(setGhgApprovalUpload)}
           />
         </div>
-      </section>
+      </section>}
 
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

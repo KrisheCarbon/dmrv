@@ -10,6 +10,7 @@ import {
   canAccessMobileApp,
   canAccessNetwork,
   canAccessWebPortal,
+  isDmrvViewer,
   pyrolysisProtocolForRegistry,
   type FarmUpsertPayload,
   type Farmer,
@@ -27,6 +28,20 @@ export class FarmsService {
   ) {}
 
   async findAll(user: AuthenticatedUser): Promise<Farmer[]> {
+    if (isDmrvViewer(user.role)) {
+      const mixingIds = await this.mixingFarmIds();
+      const rows = await fetchAllPages<Farmer>((from, to) =>
+        this.supabase
+          .from('farms')
+          .select(FARM_SELECT)
+          .order('created_at', { ascending: false })
+          .range(from, to),
+      );
+      return rows
+        .filter((row) => mixingIds.has(row.id))
+        .map((row) => this.withCluster(row));
+    }
+
     const seeAll = canAccessWebPortal(user.role);
 
     const rows = await fetchAllPages<Farmer>((from, to) => {
@@ -64,6 +79,13 @@ export class FarmsService {
     }
 
     const farm = this.withCluster(data as Farmer);
+    if (isDmrvViewer(user.role)) {
+      const mixingIds = await this.mixingFarmIds();
+      if (!mixingIds.has(farm.id)) {
+        throw new ForbiddenException('This farm has no mixing record.');
+      }
+      return farm;
+    }
     if (!this.canViewFarm(user, farm)) {
       throw new ForbiddenException('Not allowed to view this farm');
     }
@@ -149,6 +171,30 @@ export class FarmsService {
     if (error) {
       throw new BadRequestException(error.message);
     }
+  }
+
+  private async mixingFarmIds(): Promise<Set<string>> {
+    const [csi, rainbow] = await Promise.all([
+      fetchAllPages<{ farm_id: string | null }>((from, to) =>
+        this.supabase
+          .from('csi_mixing_entries')
+          .select('farm_id')
+          .not('farm_id', 'is', null)
+          .range(from, to),
+      ),
+      fetchAllPages<{ farm_id: string | null }>((from, to) =>
+        this.supabase
+          .from('rainbow_mixing_entries')
+          .select('farm_id')
+          .not('farm_id', 'is', null)
+          .range(from, to),
+      ),
+    ]);
+    return new Set(
+      [...csi, ...rainbow]
+        .map((row) => row.farm_id)
+        .filter((id): id is string => Boolean(id)),
+    );
   }
 
   private canViewFarm(user: AuthenticatedUser, farm: Farmer): boolean {

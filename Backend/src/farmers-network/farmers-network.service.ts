@@ -9,6 +9,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessWebPortal,
+  isDmrvViewer,
   parseSoilSampleSites,
   type FarmFieldRecord,
   type FarmFieldUpsertPayload,
@@ -151,10 +152,35 @@ export class FarmersNetworkService {
   }
 
   private canViewAll(user: AuthenticatedUser) {
-    return canAccessWebPortal(user.role);
+    return canAccessWebPortal(user.role) && !isDmrvViewer(user.role);
+  }
+
+  private async mixingFarmIds(): Promise<string[]> {
+    const [csi, rainbow] = await Promise.all([
+      fetchAllPages<{ farm_id: string | null }>((from, to) =>
+        this.supabase
+          .from('csi_mixing_entries')
+          .select('farm_id')
+          .not('farm_id', 'is', null)
+          .range(from, to),
+      ),
+      fetchAllPages<{ farm_id: string | null }>((from, to) =>
+        this.supabase
+          .from('rainbow_mixing_entries')
+          .select('farm_id')
+          .not('farm_id', 'is', null)
+          .range(from, to),
+      ),
+    ]);
+    return [...new Set(
+      [...csi, ...rainbow]
+        .map((row) => row.farm_id)
+        .filter((id): id is string => Boolean(id)),
+    )];
   }
 
   private async visibleFarmIds(user: AuthenticatedUser): Promise<string[] | null> {
+    if (isDmrvViewer(user.role)) return this.mixingFarmIds();
     if (this.canViewAll(user)) return null;
 
     const farms = await fetchAllPages<Farmer>((from, to) =>
@@ -179,6 +205,13 @@ export class FarmersNetworkService {
     if (!data) throw new NotFoundException('Farmer not found');
 
     const farm = data as Farmer;
+    if (isDmrvViewer(user.role)) {
+      const allowed = await this.mixingFarmIds();
+      if (!allowed.includes(farm.id)) {
+        throw new ForbiddenException('This farm has no mixing record.');
+      }
+      return farm;
+    }
     if (
       !this.canViewAll(user) &&
       farm.created_by !== user.id &&
@@ -848,7 +881,7 @@ export class FarmersNetworkService {
     payload: SoilTestReportPayload,
   ): Promise<SoilTestRecord> {
     this.assertAccess(user);
-    if (!canAccessWebPortal(user.role)) {
+    if (!canAccessWebPortal(user.role) || isDmrvViewer(user.role)) {
       throw new ForbiddenException('Soil reports are uploaded in the admin portal.');
     }
     if (!payload.document_url) {

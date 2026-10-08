@@ -9,6 +9,12 @@ export const MIN_BIOMASS_SEQUESTRATION = 0.005;
 export const RAINBOW_HCORG_MAX = 0.7;
 export const METHANE_RUNS_REQUIRED = 3;
 export const METHANE_KILNS_REQUIRED = 3;
+/** One lab sample covers this much dry biochar, then a new sample is required. */
+export const RAINBOW_LAB_BATCH_TONNES = 200;
+/** A run that starts inside the batch may finish up to this amount. */
+export const RAINBOW_LAB_BATCH_TOLERANCE_TONNES = 205;
+/** Operating window for one lab sample. Rainy-season pauses are not subtracted. */
+export const RAINBOW_LAB_BATCH_MONTHS = 6;
 
 export function permanenceCoefficients(soilTempC: number): {
   c: number;
@@ -293,11 +299,10 @@ function lineForGroup(
 
     const carbon = run.organicCarbonPercent;
     const hcorg = run.hcorg;
-    if (carbon == null || !(carbon > 0 && carbon <= 100)) {
-      reasons.push(`${label} has no organic-carbon lab result.`);
-    }
-    if (hcorg == null) {
-      reasons.push(`${label} has no H/Corg lab result.`);
+    if (carbon == null || hcorg == null || !(carbon > 0 && carbon <= 100)) {
+      reasons.push(
+        `${label} is outside the feedstock lab sample. One sample covers ${RAINBOW_LAB_BATCH_TONNES} tonnes or ${RAINBOW_LAB_BATCH_MONTHS} months, then a new report is required.`,
+      );
     } else if (!(hcorg > 0 && hcorg < RAINBOW_HCORG_MAX)) {
       reasons.push(`${label} H/Corg is ${hcorg}. Rainbow requires it under 0.7.`);
     }
@@ -455,5 +460,124 @@ function lineForGroup(
     issuableTco2e: issuable == null ? null : round6(issuable),
     status,
     reasons,
+  };
+}
+
+export interface RainbowFeedstockLabSample {
+  feedstockId: string;
+  analyzedOn: string;
+  organicCarbonPercent: number;
+  hcorg: number;
+}
+
+function time(value: string): number {
+  return new Date(value).getTime();
+}
+
+function plusMonths(value: string, months: number): number {
+  const date = new Date(value);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  return date.getTime();
+}
+
+/** Apply one feedstock lab sample across kiln runs until 200 tonnes or 6 months. */
+export function coverRunsWithFeedstockLab<T extends RainbowCreditRun>(
+  runs: T[],
+  samples: RainbowFeedstockLabSample[],
+): T[] {
+  const covered = runs.map((run) => ({
+    ...run,
+    organicCarbonPercent: null as number | null,
+    hcorg: null as number | null,
+  }));
+  const feedstockIds = new Set(
+    covered.map((run) => run.feedstockId).filter((id): id is string => Boolean(id)),
+  );
+
+  for (const feedstockId of feedstockIds) {
+    const sampleList = samples
+      .filter((sample) => sample.feedstockId === feedstockId)
+      .sort((left, right) => left.analyzedOn.localeCompare(right.analyzedOn));
+    const ordered = covered
+      .map((run, index) => ({ run, index }))
+      .filter((item) => item.run.feedstockId === feedstockId)
+      .sort((left, right) => (left.run.producedAt ?? "").localeCompare(right.run.producedAt ?? ""));
+
+    for (const item of ordered) {
+      const producedAt = item.run.producedAt;
+      const dry = dryBiocharTonnes(item.run.feedstockKg, item.run.yieldPercent);
+      if (!producedAt || dry == null) continue;
+      const producedMs = time(producedAt);
+      if (!Number.isFinite(producedMs)) continue;
+      const sample = [...sampleList]
+        .reverse()
+        .find((candidate) => time(candidate.analyzedOn) <= producedMs);
+      if (!sample) continue;
+      if (producedMs >= plusMonths(sample.analyzedOn, RAINBOW_LAB_BATCH_MONTHS)) continue;
+
+      const used = ordered.reduce((sum, earlier) => {
+        if (!earlier.run.producedAt || earlier.index === item.index) return sum;
+        const earlierMs = time(earlier.run.producedAt);
+        if (earlierMs >= producedMs || earlierMs < time(sample.analyzedOn)) return sum;
+        if (earlierMs >= plusMonths(sample.analyzedOn, RAINBOW_LAB_BATCH_MONTHS)) return sum;
+        return sum + (dryBiocharTonnes(earlier.run.feedstockKg, earlier.run.yieldPercent) ?? 0);
+      }, 0);
+      if (used >= RAINBOW_LAB_BATCH_TONNES) continue;
+      if (used + dry > RAINBOW_LAB_BATCH_TOLERANCE_TONNES) continue;
+
+      covered[item.index] = {
+        ...item.run,
+        organicCarbonPercent: sample.organicCarbonPercent,
+        hcorg: sample.hcorg,
+      };
+    }
+  }
+
+  return covered;
+}
+
+export function feedstockLabNotice(input: {
+  samples: { analyzedOn: string }[];
+  runs: { producedAt: string | null; dryTonnes: number | null }[];
+  now?: Date;
+}): { level: "missing" | "required" | "due" | "ok"; message: string } {
+  const now = input.now ?? new Date();
+  const latest = [...input.samples].sort((left, right) =>
+    right.analyzedOn.localeCompare(left.analyzedOn),
+  )[0];
+  if (!latest) {
+    return {
+      level: "missing",
+      message:
+        "No lab sample yet. One sample of organic carbon and H/Corg covers the next 200 tonnes, or 6 months, of this feedstock.",
+    };
+  }
+
+  const start = time(latest.analyzedOn);
+  const expires = plusMonths(latest.analyzedOn, RAINBOW_LAB_BATCH_MONTHS);
+  const tonnes = input.runs.reduce((sum, run) => {
+    if (!run.producedAt || run.dryTonnes == null) return sum;
+    const produced = time(run.producedAt);
+    if (produced < start || produced >= expires) return sum;
+    return sum + run.dryTonnes;
+  }, 0);
+  const daysLeft = Math.ceil((expires - now.getTime()) / 86_400_000);
+  const tonnesLeft = Math.max(0, RAINBOW_LAB_BATCH_TONNES - tonnes);
+
+  if (now.getTime() >= expires || tonnes >= RAINBOW_LAB_BATCH_TONNES) {
+    return {
+      level: "required",
+      message: `A new lab report is required for this feedstock. The last sample has covered ${tonnes.toFixed(1)} tonnes, and its 6-month window ${now.getTime() >= expires ? "has ended" : "is still open"}.`,
+    };
+  }
+  if (tonnes >= 160 || daysLeft <= 30) {
+    return {
+      level: "due",
+      message: `A new lab report will be needed soon. ${tonnesLeft.toFixed(1)} tonnes or ${daysLeft} days remain on the current sample.`,
+    };
+  }
+  return {
+    level: "ok",
+    message: `Current lab sample covers ${tonnesLeft.toFixed(1)} more tonnes, or ${daysLeft} more days, whichever comes first.`,
   };
 }

@@ -17,6 +17,7 @@ import { supabase } from "../services/supabase";
 import { assertActiveAccount, resolvePasswordLoginEmail } from "../services/auth";
 import {
   OTP_EMAIL_REQUIRED_ERROR,
+  canAccessMobileApp,
   isKrishecarbonEmail,
 } from "@krishecarbon/shared";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
@@ -55,6 +56,21 @@ export default function LoginScreen() {
     setPassword("");
   }
 
+  async function rejectWebOnlyAccount(userId: string) {
+    const { data } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!data?.role || canAccessMobileApp(data.role)) return false;
+    await supabase.auth.signOut();
+    Alert.alert(
+      "Web access only",
+      "This account can sign in on the web dashboard. It cannot use the field app.",
+    );
+    return true;
+  }
+
   async function handlePasswordLogin() {
     if (!email || !password) {
       Alert.alert("Missing details", "Enter your email or mobile number and password.");
@@ -74,6 +90,7 @@ export default function LoginScreen() {
         return;
       }
 
+      if (data.user && (await rejectWebOnlyAccount(data.user.id))) return;
       if (data.user && !(await assertActiveAccount(data.user.id))) {
         Alert.alert(
           "Account not active",
@@ -136,6 +153,7 @@ export default function LoginScreen() {
       return;
     }
 
+    if (data.user && (await rejectWebOnlyAccount(data.user.id))) return;
     if (data.user && !(await assertActiveAccount(data.user.id))) {
       Alert.alert(
         "Account not active",

@@ -8,6 +8,7 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessWebPortal,
+  isDmrvViewer,
   canReviewPyrolysisBatches,
   isRainbowMoistureComplete,
   quenchDurationSeconds,
@@ -386,7 +387,7 @@ export class PyrolysisBatchesService {
     batchId: string,
     yieldPercent: number,
   ): Promise<PyrolysisBatchDetail> {
-    this.assertPortalAccess(user);
+    this.assertCanEdit(user);
     const existing = await this.findById(user, batchId);
     if (existing.protocol === 'rainbow') {
       throw new BadRequestException('Rainbow yield is recorded on the kiln run and is not edited here.');
@@ -420,7 +421,7 @@ export class PyrolysisBatchesService {
     batchId: string,
     volumePercent: number | null | undefined,
   ): Promise<PyrolysisBatchDetail> {
-    this.assertPortalAccess(user);
+    this.assertCanEdit(user);
     const existing = await this.findById(user, batchId);
     if (existing.protocol !== 'rainbow') {
       throw new BadRequestException('Volume percent is only recorded on a Rainbow kiln run.');
@@ -921,7 +922,7 @@ export class PyrolysisBatchesService {
     return {
       feedstock_class: feedstockClass,
       required_moisture_count: rainbowRequiredMoistureCount(
-        row.feedstock_quantity != null ? Number(row.feedstock_quantity) : null,
+        (row.feedstock_name as string) ?? null,
       ),
       moisture_mean: mean,
       moisture_mean_limit: rainbowMoistureMeanLimit(feedstockClass),
@@ -931,7 +932,7 @@ export class PyrolysisBatchesService {
           reading: item.reading,
           photo_url: item.photo_url,
         })),
-        row.feedstock_quantity != null ? Number(row.feedstock_quantity) : null,
+        (row.feedstock_name as string) ?? null,
         feedstockClass,
       ),
       moisture,
@@ -1216,6 +1217,13 @@ export class PyrolysisBatchesService {
   private assertPortalAccess(user: AuthenticatedUser) {
     if (!canAccessWebPortal(user.role)) {
       throw new ForbiddenException('Not allowed to view pyrolysis batches.');
+    }
+  }
+
+  private assertCanEdit(user: AuthenticatedUser) {
+    this.assertPortalAccess(user);
+    if (isDmrvViewer(user.role)) {
+      throw new ForbiddenException('A dMRV viewer can look at kiln runs, not change them.');
     }
   }
 

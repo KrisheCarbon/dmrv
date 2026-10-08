@@ -21,6 +21,8 @@ export {
   formatRoleLabel,
   canAccessWebPortal,
   canAccessMobileApp,
+  isDmrvViewer,
+  dmrvViewerPathAllowed,
   canManageUsers,
   canAccessNetwork,
   NETWORK_ACCESS_ROLES,
@@ -395,6 +397,7 @@ export {
 export type { ProducerRegistry, AssignableProducerRegistry, PyrolysisProtocol } from "./producerRegistry";
 export {
   RAINBOW_MOISTURE_READING_COUNT,
+  RAINBOW_CORN_MOISTURE_READING_COUNT,
   RAINBOW_KG_PER_MOISTURE_READING,
   RAINBOW_KONTIKKI_SECTIONS,
   emptyRainbowMoistureReadings,
@@ -430,6 +433,11 @@ export {
   methaneEmissionFactor,
   creditYear,
   assessRainbowCredits,
+  coverRunsWithFeedstockLab,
+  feedstockLabNotice,
+  RAINBOW_LAB_BATCH_TONNES,
+  RAINBOW_LAB_BATCH_TOLERANCE_TONNES,
+  RAINBOW_LAB_BATCH_MONTHS,
 } from "./rainbowCredits";
 export type {
   RainbowCreditRun,

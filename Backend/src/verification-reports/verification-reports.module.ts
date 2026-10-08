@@ -6,5 +6,6 @@ import { VerificationReportsService } from './verification-reports.service';
 @Module({
   controllers: [VerificationReportsController],
   providers: [VerificationReportsService, RainbowRecordsService],
+  exports: [RainbowRecordsService],
 })
 export class VerificationReportsModule {}

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canAccessNetwork } from '@krishecarbon/shared';
+import { canAccessNetwork, isDmrvViewer } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
@@ -184,7 +184,7 @@ export class KilnBatchesService {
       )
       .order('created_at', { ascending: false });
 
-    if (!canAccessNetwork(user.role)) {
+    if (!canAccessNetwork(user.role) && !isDmrvViewer(user.role)) {
       query = query.eq('uploaded_by', user.id);
     }
 
@@ -230,7 +230,7 @@ export class KilnBatchesService {
       throw new NotFoundException('Kiln batch not found');
     }
 
-    if (!canAccessNetwork(user.role) && batch.uploaded_by !== user.id) {
+    if (!canAccessNetwork(user.role) && !isDmrvViewer(user.role) && batch.uploaded_by !== user.id) {
       throw new ForbiddenException('You do not have access to this batch.');
     }
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export default function DownloadCsiReportButton() {
+export default function DownloadRainbowReportButton() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -11,7 +11,7 @@ export default function DownloadCsiReportButton() {
     setError(null);
 
     try {
-      const response = await fetch("/verification-reports/download");
+      const response = await fetch("/verification-reports/rainbow/download");
       if (!response.ok) {
         const message = (await response.text()).trim();
         throw new Error(message || "Download failed.");
@@ -20,7 +20,7 @@ export default function DownloadCsiReportButton() {
       const blob = await response.blob();
       const disposition = response.headers.get("Content-Disposition") ?? "";
       const match = /filename="([^"]+)"/.exec(disposition);
-      const filename = match?.[1] ?? "global_biochar_csink.zip";
+      const filename = match?.[1] ?? "rainbow_credit_package.zip";
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -42,9 +42,9 @@ export default function DownloadCsiReportButton() {
         disabled={pending}
         className="inline-flex min-h-14 items-center rounded-xl bg-brand-dark px-4 text-sm font-medium text-white transition hover:bg-brand-dark-hover disabled:opacity-50"
       >
-        {pending ? "Preparing download…" : "Download CSI report"}
+        {pending ? "Preparing download…" : "Download Rainbow report"}
       </button>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
     </div>
   );
 }

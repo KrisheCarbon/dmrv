@@ -159,11 +159,9 @@ export default function PhotoSlot({
                   .filter(Boolean)
                   .join("\n")}
               </Text>
-            ) : (
-              <Text style={styles.hint}>
-                {hint || "Photo is watermarked automatically"}
-              </Text>
-            )}
+            ) : hint ? (
+              <Text style={styles.hint}>{hint}</Text>
+            ) : null}
 
             <TouchableOpacity
               style={[styles.button, capturing && styles.buttonDisabled]}

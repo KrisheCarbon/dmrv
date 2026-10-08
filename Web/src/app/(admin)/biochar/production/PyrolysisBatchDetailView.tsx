@@ -13,6 +13,7 @@ import {
 } from "@krishecarbon/shared";
 import type { PyrolysisBatchStatusPhotoKey } from "@krishecarbon/shared";
 import PyrolysisPhotoThumb from "./PyrolysisPhotoThumb";
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import PyrolysisBatchMixingSection from "./PyrolysisBatchMixingSection";
 import StatusBadge from "./StatusBadge";
 import VolumePercentField from "./VolumePercentField";
@@ -58,6 +59,7 @@ export default function PyrolysisBatchDetailView({
   showMixingSection?: boolean;
 }) {
   const workflow = flatRowToKontikkiData(data);
+  const readOnly = useIsDmrvViewer();
   const savedFlags = flagMap(data.batch_status?.flags);
   const reviewTone = reviewStatusTone(data.batch_status?.status ?? "pending");
 
@@ -107,7 +109,7 @@ export default function PyrolysisBatchDetailView({
             <YieldEditField
               batchId={data.id}
               yieldPercent={data.yield_percent}
-              canEdit={data.protocol !== "rainbow"}
+              canEdit={data.protocol !== "rainbow" && !readOnly}
               onSaved={onYieldUpdated}
             />
           </DetailRow>
@@ -230,13 +232,13 @@ export default function PyrolysisBatchDetailView({
                   <YieldEditField
                     batchId={data.id}
                     yieldPercent={workflow.yield_percent}
-                    canEdit={data.protocol !== "rainbow"}
+                    canEdit={data.protocol !== "rainbow" && !readOnly}
                     onSaved={onYieldUpdated}
                   />
                 </DetailRow>
                 {data.protocol === "rainbow" ? (
                   <DetailRow label="Volume %">
-                    <VolumePercentField batch={data} onSaved={onYieldUpdated} />
+                    <VolumePercentField batch={data} readOnly={readOnly} onSaved={onYieldUpdated} />
                   </DetailRow>
                 ) : null}
                 <DetailRow label="Comment">{workflow.comment?.trim() || "—"}</DetailRow>

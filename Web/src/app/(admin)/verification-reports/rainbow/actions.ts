@@ -9,11 +9,25 @@ async function save(path: string, payload: unknown): Promise<string | null> {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    revalidatePath("/verification-reports/rainbow");
+    revalidatePath("/verification-reports");
+    revalidatePath("/biochar/feedstock", "layout");
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : "Save failed.";
   }
+}
+
+export async function saveRainbowFeedstockLab(
+  feedstockId: string,
+  payload: {
+    organic_carbon_percent: number;
+    hcorg: number;
+    lab_name: string;
+    analyzed_on: string;
+    report_url: string;
+  },
+) {
+  return save(`/feedstocks/${feedstockId}/lab-samples`, payload);
 }
 
 export async function saveRainbowLabSample(payload: {
@@ -62,7 +76,8 @@ export async function deleteRainbowMethane(id: string) {
     await backendFetch(`/verification-reports/rainbow/methane/${id}`, {
       method: "DELETE",
     });
-    revalidatePath("/verification-reports/rainbow");
+    revalidatePath("/verification-reports");
+    revalidatePath("/biochar/feedstock", "layout");
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : "Delete failed.";

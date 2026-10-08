@@ -47,9 +47,6 @@ export default function PhotoReviewModal({
         <View style={styles.backdrop}>
           <View style={styles.card}>
             <Text style={styles.title}>Save this photo?</Text>
-            <Text style={styles.subtitle}>
-              GPS and time watermark will be saved on this device.
-            </Text>
 
             <View style={styles.metaBlock}>
               <Text style={styles.meta}>
@@ -70,7 +67,7 @@ export default function PhotoReviewModal({
               onPress={() => setPreviewOpen(true)}
               activeOpacity={0.85}
             >
-              <Text style={styles.previewLinkText}>Preview watermarked photo</Text>
+              <Text style={styles.previewLinkText}>Preview photo</Text>
             </TouchableOpacity>
 
             <View style={styles.actions}>
@@ -134,12 +131,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 18,
     color: colors.brunswick,
-  },
-  subtitle: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: colors.smoke,
-    lineHeight: 18,
   },
   metaBlock: {
     gap: 4,

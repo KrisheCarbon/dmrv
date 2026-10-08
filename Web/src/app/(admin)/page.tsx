@@ -4,7 +4,7 @@ import StatusCard from "@/components/StatusCard";
 import DashboardSectionCard from "@/components/DashboardSectionCard";
 import DashboardSensorData from "@/components/sensor/DashboardSensorData";
 import { getDashboardSectionsForRole } from "@/lib/nav-helpers";
-import { canAccessNetwork, formatRoleLabel } from "@/lib/roles";
+import { canAccessNetwork, formatRoleLabel, isDmrvViewer } from "@/lib/roles";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
 /** Sample placeholders until live MRV / payout data is wired up. */
@@ -39,6 +39,7 @@ export default async function Home() {
   }
 
   const dashboardSections = getDashboardSectionsForRole(profile.role);
+  const viewer = isDmrvViewer(profile.role);
   const showNetworkQuickActions = canAccessNetwork(profile.role);
   const metrics = DASHBOARD_PLACEHOLDER_METRICS;
 
@@ -53,7 +54,7 @@ export default async function Home() {
         </p>
       </div>
 
-      <section className="space-y-4">
+      {viewer ? null : <section className="space-y-4">
         <h3 className="text-sm uppercase tracking-wide text-gray-500">
           At a glance
         </h3>
@@ -89,7 +90,7 @@ export default async function Home() {
             hint="Coming soon"
           />
         </div>
-      </section>
+      </section>}
 
       {showNetworkQuickActions ? <DashboardSensorData /> : null}
 
@@ -110,7 +111,7 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-brand-dark/15 bg-brand-dark p-6 text-white">
+      {viewer ? null : <section className="rounded-2xl border border-brand-dark/15 bg-brand-dark p-6 text-white">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <p className="text-sm text-white/70 uppercase tracking-wide">
@@ -145,7 +146,7 @@ export default async function Home() {
             </Link>
           </div>
         </div>
-      </section>
+      </section>}
     </div>
   );
 }

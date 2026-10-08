@@ -149,10 +149,7 @@ export const DASHBOARD_SECTIONS = [
     title: "Verification Reports",
     description: "CSI C-Sink download and the Rainbow credit package.",
     href: "/verification-reports",
-    links: [
-      { href: "/verification-reports", label: "Download" },
-      { href: "/verification-reports/rainbow", label: "Rainbow credits" },
-    ],
+    links: [{ href: "/verification-reports", label: "Download" }],
   },
   {
     key: "users",

@@ -828,7 +828,7 @@ export class PyrolysisSessionsService {
           null,
         moisture: Array.from({
           length: Math.max(
-            rainbowRequiredMoistureCount(numeric(row.feedstock_quantity)),
+            rainbowRequiredMoistureCount((row.feedstock_name as string) ?? null),
             moistureRows.reduce((max, item) => Math.max(max, Number(item.slot) || 0), 0),
           ),
         }, (_, index) => {
@@ -977,14 +977,18 @@ export class PyrolysisSessionsService {
     }
 
     if (payload.moisture_completed && payload.moisture) {
+      const feedstockName =
+        payload.feedstock_name !== undefined
+          ? payload.feedstock_name
+          : existing.feedstock_name;
       const ok = isRainbowMoistureComplete(
         payload.moisture,
-        payload.feedstock_quantity,
+        feedstockName,
         payload.feedstock_class,
       );
       if (!ok) {
         throw new BadRequestException(
-          'Rainbow moisture needs one photo per 100 kg (at least 10), a mean within the feedstock limit, and no reading above 25%.',
+          'Cotton needs 10 moisture photos and corn needs 12. The mean must stay within the feedstock limit, and no reading may be above 25%.',
         );
       }
     }

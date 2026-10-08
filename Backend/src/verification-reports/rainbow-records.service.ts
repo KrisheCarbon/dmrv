@@ -8,11 +8,14 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   assessRainbowCredits,
+  coverRunsWithFeedstockLab,
+  dryBiocharTonnes,
+  feedstockLabNotice,
   canAccessCarbon,
+  isDmrvViewer,
   MIN_BIOMASS_SEQUESTRATION,
   RAINBOW_HCORG_MAX,
   type RainbowCreditDelivery,
-  type RainbowCreditRun,
   type RainbowYearFactors,
 } from '@krishecarbon/shared';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -112,6 +115,12 @@ export class RainbowRecordsService {
   private assertAccess(user: AuthenticatedUser): void {
     if (!canAccessCarbon(user.role)) {
       throw new ForbiddenException('You do not have access to verification reports.');
+    }
+  }
+
+  private assertCanViewFeedstockRecords(user: AuthenticatedUser): void {
+    if (!canAccessCarbon(user.role) && !isDmrvViewer(user.role)) {
+      throw new ForbiddenException('You do not have access to feedstock lab records.');
     }
   }
 
@@ -312,15 +321,117 @@ export class RainbowRecordsService {
     return row;
   }
 
+  async feedstockDesk(user: AuthenticatedUser, feedstockId: string) {
+    this.assertCanViewFeedstockRecords(user);
+    const [labs, pollutants, methane, emissions, batches, mixing, soilTemps, kontikkis, links] =
+      await Promise.all([
+        this.rowsFor('rainbow_feedstock_lab_samples', 'feedstock_id', feedstockId, 'analyzed_on'),
+        this.rowsFor('rainbow_pollutant_tests', 'feedstock_id', feedstockId, 'test_year'),
+        this.rowsFor('rainbow_methane_measurements', 'feedstock_id', feedstockId, 'measured_on'),
+        this.rowsFor('rainbow_emission_inputs', 'feedstock_id', feedstockId, 'period_year'),
+        this.rowsFor('rainbow_pyrolysis_batches', 'feedstock_id', feedstockId, 'created_at'),
+        this.loadMixing(),
+        this.loadTable('rainbow_mixing_soil_temperature', 'mixing_entry_id'),
+        this.loadKontikkis(),
+        this.loadLinks(),
+      ]);
+
+    const submittedBatches = (batches as Record<string, unknown>[]).filter(
+      (row) => row.submission_status === 'submitted',
+    );
+    const batchIds = new Set(submittedBatches.map((row) => String(row.id)));
+    const mixingIds = new Set(
+      (links as { mixing_entry_id: string; pyrolysis_batch_id: string }[])
+        .filter((link) => batchIds.has(link.pyrolysis_batch_id))
+        .map((link) => link.mixing_entry_id),
+    );
+    const soilByMixing = new Map(
+      (soilTemps as Record<string, unknown>[]).map((row) => [String(row.mixing_entry_id), row]),
+    );
+    const mixingForFeedstock = (mixing as Record<string, unknown>[])
+      .filter((row) => mixingIds.has(String(row.id)))
+      .map((row) => ({
+        ...row,
+        soil_temp_c: soilByMixing.get(String(row.id))?.soil_temp_c ?? null,
+        source_note: soilByMixing.get(String(row.id))?.source_note ?? null,
+      }));
+
+    const year = Number(
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric' }).format(new Date()),
+    );
+    const methaneThisYear = (methane as Record<string, unknown>[]).filter(
+      (row) => Number(row.period_year) === year,
+    );
+    const kilns = new Set(methaneThisYear.map((row) => String(row.kontikki_id)));
+    const notices = [
+      feedstockLabNotice({
+        samples: (labs as Record<string, unknown>[]).map((row) => ({
+          analyzedOn: String(row.analyzed_on),
+        })),
+        runs: submittedBatches.map((row) => ({
+          producedAt: (row.created_at as string) ?? null,
+          dryTonnes: dryBiocharTonnes(
+            numberOrNull(row.feedstock_quantity),
+            numberOrNull(row.yield_percent),
+          ),
+        })),
+      }).message,
+    ];
+    if (!(pollutants as Record<string, unknown>[]).some((row) => Number(row.test_year) === year)) {
+      notices.push(`No pollutant test for ${year}. One test a year covers this feedstock. Open kilns do not report PAH.`);
+    }
+    if (methaneThisYear.length < 3 || kilns.size < 3) {
+      notices.push(
+        `Methane for ${year} has ${methaneThisYear.length} run(s) on ${kilns.size} kiln(s). Credits need three runs on three kilns.`,
+      );
+    }
+    if (!(emissions as Record<string, unknown>[]).some((row) => Number(row.period_year) === year)) {
+      notices.push(`Leakage, transport, kiln steel, and processing are not entered for ${year}.`);
+    }
+
+    return {
+      labSamples: labs,
+      pollutants,
+      methane,
+      emissions,
+      mixing: mixingForFeedstock,
+      kontikkis,
+      notices,
+    };
+  }
+
+  async saveFeedstockLab(
+    user: AuthenticatedUser,
+    feedstockId: string,
+    body: LabPayload,
+  ) {
+    this.assertAccess(user);
+    await this.requireFeedstock(feedstockId);
+    const organic = requiredNumber(body.organic_carbon_percent, 'Organic carbon');
+    const hcorg = requiredNumber(body.hcorg, 'H/Corg');
+    if (!(organic > 0 && organic <= 100)) {
+      throw new BadRequestException('Organic carbon must be between 0 and 100%.');
+    }
+    if (!(hcorg > 0 && hcorg < RAINBOW_HCORG_MAX)) {
+      throw new BadRequestException('Rainbow H/Corg must be under 0.7.');
+    }
+    const row = {
+      feedstock_id: feedstockId,
+      organic_carbon_percent: organic,
+      hcorg,
+      lab_name: requiredText(body.lab_name, 'Laboratory'),
+      analyzed_on: requiredText(body.analyzed_on, 'Analysis date'),
+      report_url: optionalUrl(body.report_url),
+    };
+    const { error } = await this.supabase.from('rainbow_feedstock_lab_samples').insert(row);
+    if (error) throw new BadRequestException(error.message);
+    return row;
+  }
+
   async buildPackage(user: AuthenticatedUser): Promise<RainbowPackage> {
     this.assertAccess(user);
     const snapshot = await this.inputs(user);
-    const labByBatch = new Map(
-      (snapshot.labSamples as Record<string, unknown>[]).map((row) => [
-        String(row.pyrolysis_batch_id),
-        row,
-      ]),
-    );
+    const feedstockLabs = await this.loadTable('rainbow_feedstock_lab_samples', 'analyzed_on');
     const soilByMixing = new Map(
       (snapshot.soilTemps as Record<string, unknown>[]).map((row) => [
         String(row.mixing_entry_id),
@@ -328,9 +439,8 @@ export class RainbowRecordsService {
       ]),
     );
 
-    const runs: RainbowCreditRun[] = (snapshot.batches as Record<string, unknown>[]).map((row) => {
-      const lab = labByBatch.get(String(row.id));
-      return {
+    const runs = coverRunsWithFeedstockLab(
+      (snapshot.batches as Record<string, unknown>[]).map((row) => ({
         id: String(row.id),
         feedstockId: (row.feedstock_id as string) ?? null,
         feedstockName: (row.feedstock_name as string) || 'Feedstock',
@@ -338,10 +448,16 @@ export class RainbowRecordsService {
         feedstockKg: numberOrNull(row.feedstock_quantity),
         yieldPercent: numberOrNull(row.yield_percent),
         producedAt: (row.created_at as string) ?? null,
-        organicCarbonPercent: lab ? numberOrNull(lab.organic_carbon_percent) : null,
-        hcorg: lab ? numberOrNull(lab.hcorg) : null,
-      };
-    });
+        organicCarbonPercent: null,
+        hcorg: null,
+      })),
+      (feedstockLabs as Record<string, unknown>[]).map((row) => ({
+        feedstockId: String(row.feedstock_id),
+        analyzedOn: String(row.analyzed_on),
+        organicCarbonPercent: Number(row.organic_carbon_percent),
+        hcorg: Number(row.hcorg),
+      })),
+    );
 
     const links = await this.loadLinks();
     const linksByMixing = new Map<string, string[]>();
@@ -371,7 +487,9 @@ export class RainbowRecordsService {
     }
     const missingLab = runs.filter((run) => run.hcorg == null || run.organicCarbonPercent == null).length;
     if (missingLab) {
-      notes.push(`${missingLab} uploaded kiln run(s) still have no organic carbon and H/Corg lab sample.`);
+      notes.push(
+        `${missingLab} kiln run(s) are outside a feedstock lab sample. One sample covers 200 tonnes or 6 months.`,
+      );
     }
     return buildRainbowPackage({ lines, notes });
   }
@@ -481,6 +599,16 @@ export class RainbowRecordsService {
         .select('mixing_entry_id, pyrolysis_batch_id')
         .range(from, to),
     );
+  }
+
+  private async rowsFor(table: string, column: string, value: string, order: string) {
+    const { data, error } = await this.supabase
+      .from(table)
+      .select('*')
+      .eq(column, value)
+      .order(order, { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
   }
 
   private async loadTable(table: string, order: string) {

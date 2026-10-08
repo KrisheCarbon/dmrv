@@ -10,6 +10,7 @@ import { listSoilTests } from "../soil-tests/actions";
 import FarmerChecklist from "./FarmerChecklist";
 import { buildFarmerChecklist, sampleToneClass } from "./farmerLib";
 import FarmerPortrait from "@/components/FarmerPortrait";
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import type { FarmDetail } from "@/types";
 import type {
   FarmFieldRecord,
@@ -92,6 +93,7 @@ function positiveAcres(value: unknown) {
 
 export default function FarmersPage() {
   const router = useRouter();
+  const readOnly = useIsDmrvViewer();
   const [farms, setFarms] = useState<FarmDetail[]>([]);
   const [fields, setFields] = useState<FarmFieldRecord[]>([]);
   const [tests, setTests] = useState<SoilTestRecord[]>([]);
@@ -213,18 +215,22 @@ export default function FarmersPage() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-950">
-            Farmers
+            {readOnly ? "Mixing farms" : "Farmers"}
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Farmer info, farms, soil samples, and reports.
+            {readOnly
+              ? "Farms where biochar was mixed and applied."
+              : "Farmer info, farms, soil samples, and reports."}
           </p>
         </div>
+        {readOnly ? null : (
         <Link
           href="/network/farmers/new"
-          className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+          className="inline-flex min-h-14 items-center rounded-xl bg-brand-dark px-4 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
         >
           + Add farmer
         </Link>
+        )}
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

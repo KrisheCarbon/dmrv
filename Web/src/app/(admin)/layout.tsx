@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
+import DmrvViewerGate from "@/components/DmrvViewerGate";
 
 export default async function AdminLayout({
   children,
@@ -53,7 +54,7 @@ export default async function AdminLayout({
           id="admin-main-scroll"
           className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-6"
         >
-          {children}
+          <DmrvViewerGate role={profile.role}>{children}</DmrvViewerGate>
         </main>
       </div>
     </div>

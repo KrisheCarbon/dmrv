@@ -453,6 +453,7 @@ export interface FeedstockProducerRef extends DbRow {
   id: string;
   name?: string;
   producer_code?: string | null;
+  registry?: string | null;
 }
 
 export interface FeedstockDetail extends DbRow {
@@ -460,13 +461,13 @@ export interface FeedstockDetail extends DbRow {
   biomass_type: string;
   biochar_producer_id: string;
   biochar_bulk_density_kg_m3: number;
-  carbon_content_percent: number;
-  hc_ratio: number;
-  lab_status: FeedstockLabStatus;
+  carbon_content_percent?: number | null;
+  hc_ratio?: number | null;
+  lab_status?: FeedstockLabStatus | null;
   lab_submission_date?: string | null;
   lab_analysis_date?: string | null;
   biomass_preparation_instruction?: string | null;
-  methane_compensation_strategy: MethaneCompensationStrategy;
+  methane_compensation_strategy?: MethaneCompensationStrategy | null;
   lab_report_doc_url?: string | null;
   lab_report_image_url?: string | null;
   ghg_avoidance_approval_doc_url?: string | null;
