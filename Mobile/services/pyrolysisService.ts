@@ -1001,7 +1001,6 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
       } catch (error) {
         if (!isUploadedLockError(error)) throw error;
       }
-    }
 
     await db.runAsync(
       "UPDATE rainbow_pyrolysis_batches SET server_id = ?, sync_status = ?, sync_error = NULL, review_status = COALESCE(review_status, ?), updated_at = ? WHERE id = ?",
