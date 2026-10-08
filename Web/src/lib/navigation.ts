@@ -33,7 +33,7 @@ export const MAIN_NAV: NavEntry[] = [
     type: "item",
     href: "/map",
     label: "Stats",
-    icon: "/icons/reports.svg",
+    icon: "/icons/stats.svg",
   },
   {
     type: "group",
@@ -84,13 +84,13 @@ export const MAIN_NAV: NavEntry[] = [
     type: "item",
     href: "/carbon",
     label: "Carbon",
-    icon: "/icons/reports.svg",
+    icon: "/icons/carbon.svg",
   },
   {
     type: "item",
     href: "/verification-reports",
     label: "Verification Reports",
-    icon: "/icons/reports.svg",
+    icon: "/icons/verification.svg",
   },
   {
     type: "item",
