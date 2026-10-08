@@ -187,8 +187,11 @@ export function batchPhotoUrl(
 
 export function formatBatchLabel(batch: {
   batch_number?: string | null;
+  generated_batch_code?: string | null;
   kontikki_code: string;
 }) {
+  const productionBatch = batch.generated_batch_code?.trim();
+  if (productionBatch?.includes(" - ")) return productionBatch;
   if (batch.batch_number?.trim()) return batch.batch_number;
   return batch.kontikki_code;
 }

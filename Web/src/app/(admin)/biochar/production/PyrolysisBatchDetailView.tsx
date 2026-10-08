@@ -70,7 +70,7 @@ export default function PyrolysisBatchDetailView({
           <DetailRow label="Field batch">
             {data.batch_number?.trim() ? data.batch_number : "—"}
           </DetailRow>
-          <DetailRow label="Generated batch">
+          <DetailRow label="Production batch">
             {data.generated_batch_code?.trim() ? data.generated_batch_code : "—"}
           </DetailRow>
           <DetailRow label="Record id">{data.id}</DetailRow>

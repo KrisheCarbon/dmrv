@@ -123,9 +123,11 @@ function KontikkiCard({
             Field batch: {(row.batchNumber || row.payload?.batch_number || "").trim()}
           </Text>
         ) : null}
-        <Text style={styles.sampleMeta}>
-          Generated: {row.generatedBatchCode?.trim() || "Assigned when this run syncs"}
-        </Text>
+        {row.generatedBatchCode?.trim() ? (
+          <Text style={styles.sampleMeta}>
+            Production batch: {row.generatedBatchCode.trim()}
+          </Text>
+        ) : null}
       </TouchableOpacity>
 
       {isDraft && onDelete ? (
