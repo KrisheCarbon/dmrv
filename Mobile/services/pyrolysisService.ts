@@ -937,6 +937,16 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
         }
       } catch (error) {
         if (!isUploadedLockError(error)) throw error;
+        const current = await backendFetch<PyrolysisSessionRecord>(
+          `/pyrolysis-sessions/${serverId}`,
+        );
+        const locked = current.batches.find((row) => row.id === serverBatchId);
+        if (locked?.generated_batch_code) {
+          await db.runAsync(
+            "UPDATE pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
+            [locked.generated_batch_code, localBatch.id],
+          );
+        }
       }
 
     await applyBatchPayload(localBatch.id, payload);
@@ -1000,6 +1010,16 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
         }
       } catch (error) {
         if (!isUploadedLockError(error)) throw error;
+        const current = await backendFetch<PyrolysisSessionRecord>(
+          `/pyrolysis-sessions/${serverId}`,
+        );
+        const locked = (current.rainbow_batches ?? []).find((row) => row.id === serverBatchId);
+        if (locked?.generated_batch_code) {
+          await db.runAsync(
+            "UPDATE rainbow_pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
+            [locked.generated_batch_code, localBatch.id],
+          );
+        }
       }
 
     await db.runAsync(

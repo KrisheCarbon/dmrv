@@ -331,7 +331,11 @@ export class PyrolysisSessionsService {
       if (sampleError) throw new BadRequestException(sampleError.message);
     }
 
-    await this.assignGeneratedBatchCode('csi', batchId);
+    await this.assignGeneratedBatchCode(
+      'csi',
+      batchId,
+      payload.submission_status === 'submitted',
+    );
     return this.getSession(user, sessionId);
   }
 
@@ -988,27 +992,37 @@ export class PyrolysisSessionsService {
       );
       if (!ok) {
         throw new BadRequestException(
-          'Cotton needs 10 moisture photos and corn needs 12. The mean must stay within the feedstock limit, and no reading may be above 25%.',
+          'Each layer needs a moisture photo taken before that biomass goes in. Cotton needs at least 10 and corn at least 12. The mean must stay within the feedstock limit, and no reading may be above 25%.',
         );
       }
     }
     if (payload.production_completed) {
       const photos = payload.quench_photos ?? [];
       const filled = photos.filter((photo) => photo.photo_url);
-      const ok = isRainbowProductionComplete(payload.biomass_loads ?? [], {
-        lastLayerConfirmed: Boolean(payload.last_layer_confirmed),
-        flameCurtainPhoto: payload.flame_curtain_photo_url,
-        quenchStartPhoto: filled[0]?.photo_url ?? payload.quench_start_photo_url,
-        quenchEndPhoto:
-          filled.length >= 2
-            ? filled[filled.length - 1]?.photo_url
-            : payload.quench_end_photo_url,
-        quenchVideo: payload.quench_video_url,
-        quenchPhotoCount: filled.length,
-      });
+      const feedstockName =
+        payload.feedstock_name !== undefined
+          ? payload.feedstock_name
+          : existing.feedstock_name;
+      const ok = isRainbowProductionComplete(
+        payload.biomass_loads ?? [],
+        {
+          lastLayerConfirmed: Boolean(payload.last_layer_confirmed),
+          flameCurtainPhoto: payload.flame_curtain_photo_url,
+          quenchStartPhoto: filled[0]?.photo_url ?? payload.quench_start_photo_url,
+          quenchEndPhoto:
+            filled.length >= 2
+              ? filled[filled.length - 1]?.photo_url
+              : payload.quench_end_photo_url,
+          quenchVideo: payload.quench_video_url,
+          quenchPhotoCount: filled.length,
+        },
+        payload.moisture,
+        feedstockName,
+        payload.feedstock_class,
+      );
       if (!ok) {
         throw new BadRequestException(
-          'Rainbow pyrolysis needs a photo of every layer, the flame curtain after the last layer, and either quench photos or a short quench video.',
+          'Each charge needs a moisture photo before its layer photo. After the last layer, photograph the flame curtain, then record quenching with photos or a short video.',
         );
       }
     }
@@ -1038,7 +1052,11 @@ export class PyrolysisSessionsService {
       if (sampleError) throw new BadRequestException(sampleError.message);
     }
 
-    await this.assignGeneratedBatchCode('rainbow', batchId);
+    await this.assignGeneratedBatchCode(
+      'rainbow',
+      batchId,
+      payload.submission_status === 'submitted',
+    );
 
     if (payload.moisture) {
       for (let index = 0; index < payload.moisture.length; index += 1) {
@@ -1115,12 +1133,32 @@ export class PyrolysisSessionsService {
     return { session: await this.getSession(user, sessionId) };
   }
 
-  private async assignGeneratedBatchCode(registry: 'csi' | 'rainbow', batchId: string) {
+  private async assignGeneratedBatchCode(
+    registry: 'csi' | 'rainbow',
+    batchId: string,
+    submitted = false,
+  ) {
     const { error } = await this.supabase.rpc('assign_generated_batch_code_if_missing', {
       p_registry: registry,
       p_batch_id: batchId,
     });
-    if (error) throw new BadRequestException(error.message);
+    if (!error) return;
+
+    // The row is already marked submitted in a previous request. If the
+    // code cannot be saved, unlock it so the phone can retry the upload.
+    if (submitted) {
+      const table =
+        registry === 'rainbow' ? 'rainbow_pyrolysis_batches' : 'csi_pyrolysis_batches';
+      await this.supabase
+        .from(table)
+        .update({
+          submission_status: 'draft',
+          uploaded_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', batchId);
+    }
+    throw new BadRequestException(error.message);
   }
 
   private async getAllowedKontikkiIds(user: AuthenticatedUser): Promise<Set<string>> {

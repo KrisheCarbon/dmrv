@@ -38,6 +38,17 @@ async function uploadLocalPhoto(
     .upload(storagePath, arrayBuffer, { contentType, upsert: true });
 
   if (error) {
+    // A finished upload locks the object. A retry must keep that file
+    // instead of failing the whole batch sync.
+    if (/row-level security/i.test(error.message)) {
+      const { error: readError } = await supabase.storage
+        .from(PYROLYSIS_BUCKET)
+        .download(storagePath);
+      if (!readError) {
+        const { data } = supabase.storage.from(PYROLYSIS_BUCKET).getPublicUrl(storagePath);
+        return data.publicUrl;
+      }
+    }
     const hint =
       error.message?.includes("Bucket not found") ||
       error.message?.includes("not found")

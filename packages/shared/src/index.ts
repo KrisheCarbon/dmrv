@@ -405,6 +405,8 @@ export {
   rainbowMoistureMeanLimit,
   isRainbowInfoComplete,
   isRainbowMoistureComplete,
+  isRainbowLayeringComplete,
+  isRainbowLayerPairComplete,
   isRainbowBiomassLoadComplete,
   isRainbowProductionComplete,
   isRainbowQuenchComplete,

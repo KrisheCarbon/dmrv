@@ -570,7 +570,13 @@ export async function saveRainbowBiomassLoadsLocal(
         ...fromDraft,
       }
     : proofFromBatch(batch);
-  const complete = isRainbowProductionComplete(normalized, resolved);
+  const complete = isRainbowProductionComplete(
+    normalized,
+    resolved,
+    data?.moisture_readings,
+    batch?.feedstockName,
+    batch?.feedstockClass,
+  );
   const photos = data ?? {
     last_layer_confirmed: batch?.lastLayerConfirmed,
     flame_curtain_photo_local_uri: batch?.flameCurtainPhotoLocalUri,
