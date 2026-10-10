@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PAGE_SIZE_OPTIONS } from "@krishecarbon/shared";
 import type { DataTableColumn } from "@/types";
 import type { DbRow } from "@/types/entities";
+import RowsPerPageMenu, { Chevron } from "./RowsPerPageMenu";
 
 type SortDir = "asc" | "desc";
 
@@ -290,21 +291,15 @@ export default function DataTable<T extends DbRow = DbRow>({
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 text-sm text-neutral-700">
-        <label className="flex items-center gap-2">
-          Rows per page:
-          <select
+        <div className="flex items-center gap-2">
+          <span className="text-text-secondary">Rows per page</span>
+          <RowsPerPageMenu
             value={query.pageSize}
-            onChange={(event) => update({ pageSize: Number(event.target.value) })}
-            className="min-h-10 rounded-xl border border-neutral-200 bg-white px-2 text-sm"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span>
+            options={PAGE_SIZE_OPTIONS}
+            onChange={(pageSize) => update({ pageSize })}
+          />
+        </div>
+        <span className="tabular-nums text-text-secondary">
           {total} {total === 1 ? "entry" : "entries"}
         </span>
         <div className="flex items-center gap-1">
@@ -313,11 +308,11 @@ export default function DataTable<T extends DbRow = DbRow>({
             onClick={() => goToPage(page - 1)}
             disabled={page <= 1 || loading}
             aria-label="Previous page"
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-lg hover:bg-neutral-100 disabled:opacity-30"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-neutral-800 hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30"
           >
-            ‹
+            <Chevron direction="left" className="h-5 w-5" />
           </button>
-          <span className="min-w-[6.5rem] text-center">
+          <span className="min-w-[6.5rem] text-center tabular-nums">
             Page {page} of {pageCount}
           </span>
           <button
@@ -325,9 +320,9 @@ export default function DataTable<T extends DbRow = DbRow>({
             onClick={() => goToPage(page + 1)}
             disabled={page >= pageCount || loading}
             aria-label="Next page"
-            className="flex h-10 w-10 items-center justify-center rounded-xl text-lg hover:bg-neutral-100 disabled:opacity-30"
+            className="flex h-10 w-10 items-center justify-center rounded-xl text-neutral-800 hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-30"
           >
-            ›
+            <Chevron direction="right" className="h-5 w-5" />
           </button>
         </div>
       </div>
