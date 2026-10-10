@@ -188,7 +188,13 @@ export default function SoilSamplesInboxScreen({ navigation }) {
         }
         ListHeaderComponent={
           draftSummary ? (
-            <View style={[styles.card, styles.draftCard]}>
+            <Pressable
+              style={[styles.card, styles.draftCard]}
+              onPress={() => navigation.navigate("SoilTestForm", {})}
+              onLongPress={deleteDraft}
+              delayLongPress={400}
+              accessibilityHint="Long press to delete this draft"
+            >
               <Text style={styles.code}>Unfinished sample</Text>
               <Text style={styles.meta}>{draftSummary}</Text>
               <EntryStatusPill label="Draft · not submitted" tone="draft" />
@@ -208,7 +214,7 @@ export default function SoilSamplesInboxScreen({ navigation }) {
                   <Text style={styles.draftDeleteText}>Delete draft</Text>
                 </Pressable>
               </View>
-            </View>
+            </Pressable>
           ) : null
         }
         ListEmptyComponent={

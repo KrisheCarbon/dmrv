@@ -323,6 +323,11 @@ export default function NetworkEntriesScreen({ route, navigation }) {
               pressed && styles.cardPressed,
             ]}
             onPress={item.onPress}
+            onLongPress={
+              item.isDraft ? () => deleteDraft(() => load().catch(() => {})) : undefined
+            }
+            delayLongPress={400}
+            accessibilityHint={item.isDraft ? "Long press to delete this draft" : undefined}
           >
             <Text style={styles.cardTitle}>{item.title}</Text>
             {item.subtitle ? <Text style={styles.cardSubtitle}>{item.subtitle}</Text> : null}

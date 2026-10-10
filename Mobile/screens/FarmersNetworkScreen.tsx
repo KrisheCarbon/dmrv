@@ -9,6 +9,7 @@ import {
 import { ScreenShell } from "../components/ScreenHeader";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import { getUserProfile } from "../services/userProfile";
+import { countNetworkEntries, type NetworkModule } from "../utils/networkEntryCounts";
 
 function PathCard({
   title,
@@ -66,6 +67,27 @@ export default function FarmersNetworkScreen({ navigation }) {
   const isSupervisor =
     role === "supervisor" || role === "admin" || role === "manager";
 
+  /** First entry goes straight to the form; after that the card opens the list. */
+  async function openModule(module: NetworkModule) {
+    const count = await countNetworkEntries(module).catch(() => 1);
+    if (count === 0) {
+      const form: Record<NetworkModule, string> = {
+        farmer: "NewFarmerOnboarding",
+        farm: "FieldForm",
+        soil_sample: "SoilTestForm",
+        consent: "ConsentForm",
+        soil_report: "SoilReportUpload",
+      };
+      navigation.navigate(form[module], {});
+      return;
+    }
+    if (module === "soil_sample") {
+      navigation.navigate("SoilSamplesInbox");
+      return;
+    }
+    navigation.navigate("NetworkEntries", { kind: module });
+  }
+
   return (
     <ScreenShell>
       <View style={styles.header}>
@@ -112,13 +134,13 @@ export default function FarmersNetworkScreen({ navigation }) {
             title="New farmer"
             badge="Entries"
             subtitle="Registered farmers, drafts and upload status"
-            onPress={() => navigation.navigate("NetworkEntries", { kind: "farmer" })}
+            onPress={() => openModule("farmer")}
           />
           <PathCard
             title="Farms onboarding"
             badge="Entries"
             subtitle="Farms, boundary mapped or not, drafts"
-            onPress={() => navigation.navigate("NetworkEntries", { kind: "farm" })}
+            onPress={() => openModule("farm")}
           />
           <PathCard
             title="Soil testing"
@@ -128,20 +150,20 @@ export default function FarmersNetworkScreen({ navigation }) {
                 ? "Samples, drafts, pickup, ready to test, tested"
                 : "Samples, drafts, and their tracking status"
             }
-            onPress={() => navigation.navigate("SoilSamplesInbox")}
+            onPress={() => openModule("soil_sample")}
           />
           <PathCard
             title="Farmer consent"
             badge="Entries"
             subtitle="Consents, validity and drafts"
-            onPress={() => navigation.navigate("NetworkEntries", { kind: "consent" })}
+            onPress={() => openModule("consent")}
           />
           {isSupervisor ? (
             <PathCard
               title="Soil reports"
               badge="Entries"
               subtitle="Lab reports attached to samples, drafts"
-              onPress={() => navigation.navigate("NetworkEntries", { kind: "soil_report" })}
+              onPress={() => openModule("soil_report")}
             />
           ) : null}
         </Section>
