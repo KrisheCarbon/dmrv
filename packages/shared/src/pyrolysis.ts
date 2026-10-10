@@ -49,6 +49,8 @@ export interface FieldPhotoMetadata {
   address?: string | null;
   device_time_iso?: string | null;
   exif?: Record<string, unknown> | null;
+  /** GPS accuracy radius in metres, when a fresh fix was taken. */
+  accuracy_m?: number | null;
 }
 
 export interface MoistureReading {

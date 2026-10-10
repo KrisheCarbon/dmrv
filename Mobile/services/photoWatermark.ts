@@ -54,9 +54,16 @@ export type CapturedAndWatermarkedPhoto = {
  * permissions are missing or the location/time watermark could not be
  * resolved (see `LocationUnavailableError` in `./fieldPhoto`).
  */
-export async function captureAndSaveFieldPhoto(): Promise<CapturedAndWatermarkedPhoto | null> {
-  const raw = await captureFieldPhotoFromCamera();
+export async function captureAndSaveFieldPhoto(options?: {
+  preciseLocation?: boolean;
+  /** Runs before the watermark is applied; throw to discard the photo. */
+  validate?: (metadata: FieldPhotoMetadata) => void;
+}): Promise<CapturedAndWatermarkedPhoto | null> {
+  const raw = await captureFieldPhotoFromCamera({
+    preciseLocation: options?.preciseLocation,
+  });
   if (!raw) return null;
+  options?.validate?.(raw.metadata);
 
   const watermarkedUri = await watermarkFieldPhotoForReview(raw.uri, raw.metadata);
   const persistedUri = await persistAcceptedFieldPhoto(watermarkedUri);

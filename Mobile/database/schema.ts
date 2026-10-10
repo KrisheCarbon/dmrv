@@ -124,7 +124,11 @@ export const SCHEMA_STATEMENTS: string[] = [
 
   `CREATE TABLE IF NOT EXISTS soil_tests (
     id TEXT PRIMARY KEY NOT NULL,
+    sample_code TEXT,
     farmer_id TEXT NOT NULL,
+    farmer_name TEXT,
+    farmer_village TEXT,
+    collected_by_name TEXT,
     field_id TEXT,
     field_ids_json TEXT,
     crop_id TEXT,

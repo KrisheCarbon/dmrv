@@ -12,6 +12,8 @@ export interface UserProfile {
   role_label: string;
   email?: string | null;
   phone?: string | null;
+  /** Short permanent code used in soil sample numbers, e.g. "C14". */
+  collector_code?: string | null;
 }
 
 export async function clearUserProfileCache() {
@@ -47,7 +49,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   try {
     const { data: profile } = await supabase
       .from("users")
-      .select("full_name, role, email, phone")
+      .select("full_name, role, email, phone, collector_code")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -65,6 +67,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
       role_label: formatRoleLabel(role),
       email: profile?.email ?? cached?.email ?? user.email ?? null,
       phone: profile?.phone ?? cached?.phone ?? null,
+      collector_code: profile?.collector_code ?? cached?.collector_code ?? null,
     };
 
     await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(result));

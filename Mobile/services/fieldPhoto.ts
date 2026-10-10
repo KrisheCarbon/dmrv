@@ -135,7 +135,31 @@ async function locationForCapture(): Promise<LocationValue | null> {
   return getLocationForPhotoCapture();
 }
 
-export async function captureFieldPhotoFromCamera(): Promise<CapturedFieldPhoto | null> {
+/**
+ * A fresh high-accuracy fix taken right after the shutter. The shared cache
+ * uses balanced accuracy and only moves every 15 m, which is too coarse to
+ * tell whether a photo was taken inside a small farm boundary.
+ */
+async function preciseLocationForCapture(): Promise<
+  (LocationValue & { accuracy: number | null }) | null
+> {
+  const fix = await Promise.race([
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }).catch(
+      () => null,
+    ),
+    sleep(LOCATION_WAIT_TIMEOUT_MS).then(() => null),
+  ]);
+  if (!fix) return null;
+  return {
+    lat: fix.coords.latitude,
+    lng: fix.coords.longitude,
+    accuracy: fix.coords.accuracy ?? null,
+  };
+}
+
+export async function captureFieldPhotoFromCamera(options?: {
+  preciseLocation?: boolean;
+}): Promise<CapturedFieldPhoto | null> {
   const permission = await ImagePicker.requestCameraPermissionsAsync();
   if (permission.status !== "granted") {
     throw new Error(
@@ -157,7 +181,9 @@ export async function captureFieldPhotoFromCamera(): Promise<CapturedFieldPhoto 
   if (result.canceled || !result.assets[0]) return null;
 
   const asset = result.assets[0];
-  const location = getLocationForPhotoCapture() ?? (await locationForCapture());
+  const precise = options?.preciseLocation ? await preciseLocationForCapture() : null;
+  const location =
+    precise ?? getLocationForPhotoCapture() ?? (await locationForCapture());
 
   if (!location) {
     throw new LocationUnavailableError();
@@ -172,6 +198,7 @@ export async function captureFieldPhotoFromCamera(): Promise<CapturedFieldPhoto 
     address: location.address ?? null,
     device_time_iso: new Date().toISOString(),
     exif: (asset.exif as Record<string, unknown> | undefined) ?? null,
+    accuracy_m: precise?.accuracy ?? null,
   };
 
   return { uri: asset.uri, metadata };

@@ -24,7 +24,6 @@ import NewFarmerProgressScreen from "./screens/NewFarmerProgressScreen";
 import FieldFormScreen from "./screens/FieldFormScreen";
 import ConsentFormScreen from "./screens/ConsentFormScreen";
 import SoilTestFormScreen from "./screens/SoilTestFormScreen";
-import SoilSampleSubmitScreen from "./screens/SoilSampleSubmitScreen";
 import SoilSamplesInboxScreen from "./screens/SoilSamplesInboxScreen";
 import SoilSampleReceiveScreen from "./screens/SoilSampleReceiveScreen";
 import SoilReportUploadScreen from "./screens/SoilReportUploadScreen";
@@ -84,10 +83,6 @@ function MainStack() {
       <Stack.Screen name="FieldForm" component={screen(FieldFormScreen)} />
       <Stack.Screen name="ConsentForm" component={screen(ConsentFormScreen)} />
       <Stack.Screen name="SoilTestForm" component={screen(SoilTestFormScreen)} />
-      <Stack.Screen
-        name="SoilSampleSubmit"
-        component={screen(SoilSampleSubmitScreen)}
-      />
       <Stack.Screen
         name="SoilSamplesInbox"
         component={screen(SoilSamplesInboxScreen)}

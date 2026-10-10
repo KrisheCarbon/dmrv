@@ -1,8 +1,13 @@
 import {
   calculateEstimatedBiomass,
   completedSoilSampleSites,
+  fallbackCollectorCode,
+  farmContainingPoint,
+  formatSoilSampleCode,
+  hasMappedBoundary,
   isFarmerProfileComplete,
   MIN_SOIL_SAMPLE_SITES,
+  soilSampleCodeSerial,
   soilSampleToneFromStatuses,
   type FarmerCrop,
   type SoilSampleSite,
@@ -115,12 +120,27 @@ export async function listFieldsForFarmer(farmerId: string): Promise<FarmField[]
   return rows.map(rowToFarmField);
 }
 
-export async function listFarmerIdsWithActiveFields(): Promise<Set<string>> {
+/** Farmers with at least one active farm whose boundary has been mapped. */
+export async function listFarmerIdsWithMappedFields(): Promise<Set<string>> {
   const db = await getDb();
-  const rows = await db.getAllAsync<{ farmer_id: string }>(
-    "SELECT DISTINCT farmer_id FROM farm_fields WHERE status = 'active'",
+  const rows = await db.getAllAsync<{ farmer_id: string; boundary_geojson: string | null }>(
+    "SELECT farmer_id, boundary_geojson FROM farm_fields WHERE status = 'active' AND boundary_geojson IS NOT NULL",
   );
-  return new Set(rows.map((row) => row.farmer_id));
+  return new Set(
+    rows.filter((row) => hasMappedBoundary(row.boundary_geojson)).map((row) => row.farmer_id),
+  );
+}
+
+/** The selected farm whose mapped boundary contains this point, or null. */
+export function soilFarmContaining(
+  fields: FarmField[],
+  latitude: number,
+  longitude: number,
+): FarmField | null {
+  return farmContainingPoint(
+    { latitude, longitude },
+    fields.map((field) => ({ ...field, boundary_geojson: field.boundaryGeojson })),
+  );
 }
 
 export async function getFieldById(fieldId: string): Promise<FarmField> {
@@ -548,7 +568,10 @@ export type SoilTestFormInput = {
   submittedToSupervisorId?: string | null;
   submittedToSupervisorName?: string | null;
   collectedBy?: string | null;
+  collectedByName?: string | null;
   collectedByRole?: string | null;
+  /** Signed-in user's collector code, used in the sample number. */
+  collectorCode?: string | null;
   status?: string;
 };
 
@@ -561,23 +584,6 @@ export async function listSoilTestsForFarmer(farmerId: string): Promise<SoilTest
   return rows.map(rowToSoilTest);
 }
 
-export async function listIncomingSoilSamples(): Promise<SoilTest[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<any>(
-    "SELECT * FROM soil_tests WHERE status IN (?, ?) ORDER BY sample_date DESC, created_at DESC",
-    ["submitted", "stored"],
-  );
-  return rows.map(rowToSoilTest);
-}
-
-export async function listCollectedSoilSamples(): Promise<SoilTest[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<any>(
-    "SELECT * FROM soil_tests WHERE status = ? ORDER BY sample_date DESC, created_at DESC",
-    ["collected"],
-  );
-  return rows.map(rowToSoilTest);
-}
 
 export async function listReportableSoilSamples(): Promise<SoilTest[]> {
   const db = await getDb();
@@ -603,10 +609,36 @@ export async function getSoilTestById(id: string): Promise<SoilTest> {
   return rowToSoilTest(row);
 }
 
+/** Next VILLAGE-YYMMDD-COLLECTOR-NN number for this collector and day. */
+async function nextSoilSampleCode(
+  collector: { id: string; collectorCode?: string | null },
+  village: string | null,
+  sampleDate: string,
+): Promise<string> {
+  const db = await getDb();
+  const collectorCode = collector.collectorCode || fallbackCollectorCode(collector.id);
+  const rows = await db.getAllAsync<{ sample_code: string | null }>(
+    "SELECT sample_code FROM soil_tests WHERE sample_date = ? AND sample_code IS NOT NULL",
+    [sampleDate],
+  );
+  const highest = Math.max(
+    0,
+    ...rows.map(
+      (row) => soilSampleCodeSerial(row.sample_code, sampleDate, collectorCode) ?? 0,
+    ),
+  );
+  return formatSoilSampleCode({
+    village,
+    sampleDate,
+    collectorCode,
+    serial: highest + 1,
+  });
+}
+
 export async function saveSoilTestLocal(
   farmerId: string,
   form: SoilTestFormInput,
-): Promise<string> {
+): Promise<{ id: string; sampleCode: string }> {
   const db = await getDb();
   const now = Date.now();
   const id = generateId();
@@ -615,6 +647,13 @@ export async function saveSoilTestLocal(
     : form.fieldId
       ? [form.fieldId]
       : [];
+  const fields = await Promise.all(fieldIds.map((fieldId) => getFieldById(fieldId)));
+  const unmapped = fields.find((field) => !hasMappedBoundary(field.boundaryGeojson));
+  if (unmapped) {
+    throw new Error(
+      `Farm ${unmapped.fieldCode} has no mapped boundary. Map it in Farms onboarding first.`,
+    );
+  }
   const isSupervisor =
     form.collectedByRole === "supervisor" ||
     form.collectedByRole === "admin" ||
@@ -630,12 +669,45 @@ export async function saveSoilTestLocal(
   if (!form.samplePhotoUri) {
     throw new Error("Take a photo of the mixed soil sample.");
   }
+  const photoPoints = [
+    ...completedSoilSampleSites(sampleSites).map((site) => ({
+      name: site.name,
+      latitude: site.latitude,
+      longitude: site.longitude,
+    })),
+    { name: "Mixed sample photo", latitude: form.sampleLat, longitude: form.sampleLng },
+  ];
+  for (const point of photoPoints) {
+    if (
+      point.latitude == null ||
+      point.longitude == null ||
+      !soilFarmContaining(fields, point.latitude, point.longitude)
+    ) {
+      throw new Error(
+        `${point.name} is not inside the selected farm of this farmer. Retake it inside the farm boundary.`,
+      );
+    }
+  }
+  const farmer = await db.getFirstAsync<{ farmer_name: string | null; village: string | null }>(
+    "SELECT farmer_name, village FROM farmers WHERE id = ?",
+    [farmerId],
+  );
+  const sampleDate = form.sampleDate || todayIsoDate();
+  const sampleCode = await nextSoilSampleCode(
+    { id: form.collectedBy ?? "", collectorCode: form.collectorCode },
+    farmer?.village ?? null,
+    sampleDate,
+  );
   const row = soilTestToRow({
+    sampleCode,
     farmerId,
+    farmerName: farmer?.farmer_name ?? null,
+    farmerVillage: farmer?.village ?? null,
+    collectedByName: form.collectedByName ?? null,
     fieldId: fieldIds[0] ?? null,
     fieldIds,
     cropId: form.cropId ?? null,
-    sampleDate: form.sampleDate || todayIsoDate(),
+    sampleDate,
     sampleLat: form.sampleLat ?? null,
     sampleLng: form.sampleLng ?? null,
     sampleLocation: form.sampleLocation?.trim() || null,
@@ -678,25 +750,7 @@ export async function saveSoilTestLocal(
   const { sql, args } = buildInsert("soil_tests", { id, ...row });
   await db.runAsync(sql, args);
   await enqueueNetworkSync("soil_test", id, "create");
-  return id;
-}
-
-export async function submitSoilSampleLocal(
-  testId: string,
-  supervisor: { id: string; name: string },
-): Promise<void> {
-  const db = await getDb();
-  await db.runAsync(
-    `UPDATE soil_tests SET
-      submitted_to_supervisor_id = ?,
-      submitted_to_supervisor_name = ?,
-      status = ?,
-      sync_status = ?,
-      updated_at = ?
-     WHERE id = ?`,
-    [supervisor.id, supervisor.name, "submitted", "pending", Date.now(), testId],
-  );
-  await enqueueNetworkSync("soil_test", testId, "update");
+  return { id, sampleCode };
 }
 
 export async function reviewSoilSampleLocal(
@@ -711,6 +765,8 @@ export async function reviewSoilSampleLocal(
   await db.runAsync(
     `UPDATE soil_tests SET
       status = ?,
+      submitted_to_supervisor_id = COALESCE(submitted_to_supervisor_id, ?),
+      submitted_to_supervisor_name = COALESCE(submitted_to_supervisor_name, ?),
       received_at = ?,
       received_by = ?,
       received_by_name = ?,
@@ -720,6 +776,8 @@ export async function reviewSoilSampleLocal(
      WHERE id = ?`,
     [
       status,
+      receiver.id,
+      receiver.name,
       new Date().toISOString(),
       receiver.id,
       receiver.name,
@@ -777,11 +835,15 @@ export async function saveSoilReportLocal(
   const { sql, args } = buildInsert("soil_reports", { id, ...row });
   await db.runAsync(sql, args);
   if (form.soilTestId) {
+    // A report pulled from the server is already there; only push local ones.
+    const fromServer = Boolean(form.serverId);
     await db.runAsync(
       "UPDATE soil_tests SET status = ?, sync_status = ?, updated_at = ? WHERE id = ?",
-      ["reported", "pending", Date.now(), form.soilTestId],
+      ["reported", fromServer ? "synced" : "pending", Date.now(), form.soilTestId],
     );
-    await enqueueNetworkSync("soil_test", form.soilTestId, "update");
+    if (!fromServer) {
+      await enqueueNetworkSync("soil_test", form.soilTestId, "update");
+    }
   }
   return id;
 }

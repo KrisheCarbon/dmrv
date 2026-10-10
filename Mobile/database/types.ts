@@ -459,7 +459,13 @@ export function farmerConsentToRow(
 
 export interface SoilTest {
   id: string;
+  /** Readable number written on the sample bag, e.g. KOND-261010-C14-01. */
+  sampleCode: string | null;
   farmerId: string;
+  /** Snapshot from the server, for samples whose farmer is not on this phone. */
+  farmerName: string | null;
+  farmerVillage: string | null;
+  collectedByName: string | null;
   fieldId: string | null;
   fieldIds: string[];
   cropId: string | null;
@@ -493,7 +499,11 @@ export interface SoilTest {
 
 interface SoilTestRowRaw {
   id: string;
+  sample_code?: string | null;
   farmer_id: string;
+  farmer_name?: string | null;
+  farmer_village?: string | null;
+  collected_by_name?: string | null;
   field_id: string | null;
   field_ids_json?: string | null;
   crop_id: string | null;
@@ -531,7 +541,11 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
 
   return {
     id: row.id,
+    sampleCode: row.sample_code ?? null,
     farmerId: row.farmer_id,
+    farmerName: row.farmer_name ?? null,
+    farmerVillage: row.farmer_village ?? null,
+    collectedByName: row.collected_by_name ?? null,
     fieldId: row.field_id ?? fieldIds[0] ?? null,
     fieldIds,
     cropId: row.crop_id,
@@ -566,7 +580,11 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
 
 export function soilTestToRow(test: Omit<SoilTest, "id">): Record<string, unknown> {
   return {
+    sample_code: test.sampleCode,
     farmer_id: test.farmerId,
+    farmer_name: test.farmerName,
+    farmer_village: test.farmerVillage,
+    collected_by_name: test.collectedByName,
     field_id: test.fieldId,
     field_ids_json: JSON.stringify(test.fieldIds ?? []),
     crop_id: test.cropId,

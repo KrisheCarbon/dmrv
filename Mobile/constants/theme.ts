@@ -17,11 +17,11 @@ export const colors = {
   textSecondary: "#5C5C5E",
   border: "#E8E4DE",
   borderDark: "#D4CFC6",
-  error: "#C74444",
+  error: "#A83232",
   errorBg: "#FCECEC",
-  warning: "#D8A117",
+  warning: "#8A6400",
   warningBg: "#FFF6DD",
-  success: "#2E7D57",
+  success: "#276B49",
   successBg: "#EAF7F0",
   overlay: "rgba(26, 60, 42, 0.06)"
 };
@@ -33,6 +33,16 @@ export const spacing = {
   lg: 24,
   xl: 32,
   xxl: 48
+};
+
+/** Type scale (design system §4). 9–11px are banned. */
+export const typeScale = {
+  display: 28,
+  title: 22,
+  heading: 18,
+  body: 16,
+  bodySmall: 15,
+  label: 13
 };
 
 export const radius = {

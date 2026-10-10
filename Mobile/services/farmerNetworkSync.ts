@@ -166,17 +166,7 @@ export async function syncFarmerConsent(localId: string): Promise<void> {
 
 export async function syncSoilTest(localId: string, operation: string): Promise<void> {
   const test = await getSoilTestById(localId);
-  const farmId = await farmServerIdForFarmer(test.farmerId);
   const db = await getDb();
-
-  const fieldServerIds: string[] = [];
-  for (const fieldId of test.fieldIds) {
-    const field = await getFieldById(fieldId);
-    if (!field.serverId) {
-      throw new Error("Sync the selected farms first, then this sample will upload.");
-    }
-    fieldServerIds.push(field.serverId);
-  }
 
   let samplePhotoUrl = test.samplePhotoUrl;
   if (test.samplePhotoUri) {
@@ -213,10 +203,21 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
   }
 
   if (!test.serverId || operation === "create") {
+    const farmId = await farmServerIdForFarmer(test.farmerId);
+    const fieldServerIds: string[] = [];
+    for (const fieldId of test.fieldIds) {
+      const field = await getFieldById(fieldId);
+      if (!field.serverId) {
+        throw new Error("Sync the selected farms first, then this sample will upload.");
+      }
+      fieldServerIds.push(field.serverId);
+    }
+
     const remote = await backendFetch<SoilTestRecord>("/soil-tests", {
       method: "POST",
       body: JSON.stringify({
         id: test.serverId || undefined,
+        sample_code: test.sampleCode,
         farm_id: farmId,
         field_ids: fieldServerIds,
         sample_date: test.sampleDate,
@@ -232,6 +233,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
     await db.runAsync(
       `UPDATE soil_tests SET
         server_id = ?,
+        sample_code = COALESCE(?, sample_code),
         sample_photo_url = ?,
         sample_sites_json = ?,
         status = ?,
@@ -243,6 +245,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
        WHERE id = ?`,
       [
         remote.id,
+        remote.sample_code ?? null,
         samplePhotoUrl,
         JSON.stringify(uploadedSites),
         remote.status,
@@ -334,11 +337,13 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
 
   const db = await getDb();
   for (const test of tests) {
-    const farm = await db.getFirstAsync<{ id: string }>(
+    // A supervisor tracks samples from farmers who are not on this phone;
+    // keep those under the server farm id with the farmer's name copied in.
+    const localFarm = await db.getFirstAsync<{ id: string }>(
       "SELECT id FROM farmers WHERE server_id = ?",
       [test.farm_id],
     );
-    if (!farm) continue;
+    const farm = localFarm ?? { id: test.farm_id };
 
     let existing = await db.getFirstAsync<{ id: string }>(
       "SELECT id FROM soil_tests WHERE server_id = ? OR id = ?",
@@ -357,6 +362,11 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
     if (existing) {
       await db.runAsync(
         `UPDATE soil_tests SET
+          sample_code = COALESCE(?, sample_code),
+          farmer_name = ?,
+          farmer_village = ?,
+          collected_by_name = ?,
+          received_by_name = COALESCE(?, received_by_name),
           status = ?,
           received_at = ?,
           received_by = ?,
@@ -369,6 +379,11 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           updated_at = ?
          WHERE id = ?`,
         [
+          test.sample_code ?? null,
+          test.farm?.farmer_name ?? null,
+          test.farm?.village ?? null,
+          test.collected_by_user?.full_name ?? null,
+          test.received_by_user?.full_name ?? null,
           test.status,
           test.received_at ?? null,
           test.received_by ?? null,
@@ -385,6 +400,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
     } else {
       await db.runAsync(
         `INSERT INTO soil_tests (
+          sample_code, farmer_name, farmer_village, collected_by_name,
           id, farmer_id, field_id, field_ids_json, crop_id, sample_date,
           sample_lat, sample_lng, sample_location, sample_photo_uri, sample_photo_url,
           sample_sites_json,
@@ -392,8 +408,12 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           submitted_to_supervisor_id, submitted_to_supervisor_name,
           collected_by, collected_by_role, status, received_at, received_by,
           received_by_name, server_id, sync_status, sync_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         [
+          test.sample_code ?? null,
+          test.farm?.farmer_name ?? null,
+          test.farm?.village ?? null,
+          test.collected_by_user?.full_name ?? null,
           test.id,
           farm.id,
           fieldLocalIds[0] ?? null,

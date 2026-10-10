@@ -5,7 +5,11 @@ import Modal from "@/components/Modal";
 import SignedStorageLink from "@/components/SignedStorageLink";
 import DataTable from "@/components/table/DataTable";
 import { unwrapQuery } from "@/lib/queryResult";
-import { soilTestStatusLabel, SOIL_REPORTS_BUCKET } from "@krishecarbon/shared";
+import {
+  soilSampleStage,
+  soilTestStatusLabel,
+  SOIL_REPORTS_BUCKET,
+} from "@krishecarbon/shared";
 import type { SoilTestRecord } from "@krishecarbon/shared";
 import {
   SOIL_REPORT_ACCEPT,
@@ -15,6 +19,7 @@ import { attachSoilReport, listSoilTests, receiveSoilTest } from "./actions";
 
 interface SoilTableRow {
   id: string;
+  code: string;
   farmer: string;
   date: string;
   status: string;
@@ -27,6 +32,7 @@ interface SoilTableRow {
 function mapRow(record: SoilTestRecord): SoilTableRow {
   return {
     id: record.id,
+    code: record.sample_code || "—",
     farmer: record.farm?.farmer_name || "—",
     date: record.sample_date,
     status: soilTestStatusLabel(record.status),
@@ -117,7 +123,7 @@ export default function NetworkSoilTestsPage() {
           Soil tests
         </h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Receive climapreneur samples and upload the lab PDF. Climapreneurs see reports on the farmer record.
+          Mark samples received and upload the lab PDF. Climapreneurs see reports on the farmer record.
         </p>
       </div>
 
@@ -130,6 +136,7 @@ export default function NetworkSoilTestsPage() {
       <DataTable
         loading={loading}
         columns={[
+          { key: "code", label: "Sample number" },
           { key: "farmer", label: "Farmer" },
           { key: "fields", label: "Fields" },
           { key: "date", label: "Sample date" },
@@ -139,7 +146,7 @@ export default function NetworkSoilTestsPage() {
         rows={rows}
         actions={(row) => (
           <div className="flex justify-end gap-3">
-            {row.raw.status === "submitted" ? (
+            {soilSampleStage(row.raw.status) === "waiting_pickup" ? (
               <button
                 type="button"
                 onClick={() => handleReceive(row.raw)}
@@ -191,7 +198,8 @@ export default function NetworkSoilTestsPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-neutral-600">
-            Farmer: {selected?.farm?.farmer_name || "—"} · Sample {selected?.sample_date}
+            Sample {selected?.sample_code || "—"} · Farmer:{" "}
+            {selected?.farm?.farmer_name || "—"} · {selected?.sample_date}
           </p>
           {latestReport?.document_url ? (
             <p className="text-sm text-neutral-600">

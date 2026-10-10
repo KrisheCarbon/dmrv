@@ -123,17 +123,19 @@ export default function FarmersNetworkScreen({ navigation }) {
           <PathCard
             title="Soil testing"
             badge="Enter info"
-            subtitle="4+ points, mix, then photograph"
+            subtitle="4+ points inside the farm, mix, then photograph"
             onPress={() => navigation.navigate("SoilTestForm", {})}
           />
-          {role === "climapreneur" ? (
-            <PathCard
-              title="Submit samples"
-              badge="Enter info"
-              subtitle="Send samples to a supervisor"
-              onPress={() => navigation.navigate("SoilSampleSubmit")}
-            />
-          ) : null}
+          <PathCard
+            title="Soil sample tracking"
+            badge={isSupervisor ? "Pick up" : "Track"}
+            subtitle={
+              isSupervisor
+                ? "Pick up waiting samples; see ready and tested"
+                : "Waiting pickup, ready to test, tested"
+            }
+            onPress={() => navigation.navigate("SoilSamplesInbox")}
+          />
           <PathCard
             title="Farmer consent"
             badge="Enter info"
@@ -142,12 +144,6 @@ export default function FarmersNetworkScreen({ navigation }) {
           />
           {isSupervisor ? (
             <>
-              <PathCard
-                title="Sample receiving"
-                badge="Review"
-                subtitle="Accept, reject, or store samples"
-                onPress={() => navigation.navigate("SoilSamplesInbox")}
-              />
               <PathCard
                 title="Soil reports"
                 badge="Enter info"

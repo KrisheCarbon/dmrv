@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Text,
   ScrollView,
@@ -11,6 +11,7 @@ import {
   MIN_SOIL_SAMPLE_SITES,
   completedSoilSampleSites,
   createSoilSampleSites,
+  hasMappedBoundary,
   soilSampleSiteName,
   type SoilSampleSite,
 } from "@krishecarbon/shared";
@@ -22,14 +23,18 @@ import FarmerPicker from "../components/FarmerPicker";
 import {
   listFieldsForFarmer,
   saveSoilTestLocal,
+  soilFarmContaining,
 } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
-import { getUserProfile } from "../services/userProfile";
+import { getUserProfile, type UserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
 import { generateId } from "../database/sqlHelpers";
-import { colors, fonts, spacing, radius } from "../constants/theme";
+import type { FarmField } from "../database/types";
+import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 import PhotoSlot from "../components/PhotoSlot";
 import { usePersistedForm } from "../hooks/usePersistedForm";
+
+class OutsideFarmError extends Error {}
 
 function relabelSites(sites: SoilSampleSite[]): SoilSampleSite[] {
   return sites.map((site, index) => ({
@@ -51,13 +56,17 @@ function emptySoilForm(farmerId: string) {
   };
 }
 
+function isSupervisorRole(role: string) {
+  return role === "supervisor" || role === "admin" || role === "manager";
+}
+
 export default function SoilTestFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState("");
-  const [userId, setUserId] = useState("");
-  const [fields, setFields] = useState<{ value: string; label: string }[]>([]);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [farmerFields, setFarmerFields] = useState<FarmField[]>([]);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
+  const [savedCode, setSavedCode] = useState<string | null>(null);
   const {
     value: form,
     setValue: setForm,
@@ -66,6 +75,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
     clearDraft,
   } = usePersistedForm("soil-test", emptySoilForm(paramFarmerId));
   const farmerId = form.selectedFarmerId;
+  const role = profile?.role || "";
+  const isSupervisor = isSupervisorRole(role);
 
   useEffect(() => {
     if (!hydrated || restoredFromDraft) return;
@@ -76,105 +87,180 @@ export default function SoilTestFormScreen({ route, navigation }) {
 
   useEffect(() => {
     getUserProfile()
-      .then((profile) => {
-        setRole(profile?.role || "");
-        setUserId(profile?.id || "");
-      })
+      .then(setProfile)
       .catch(() => {});
   }, []);
 
-  const isSupervisor =
-    role === "supervisor" || role === "admin" || role === "manager";
   const sampleSites = Array.isArray(form.sampleSites)
     ? form.sampleSites
     : createSoilSampleSites();
   const completedSites = completedSoilSampleSites(sampleSites).length;
 
+  const activeFields = useMemo(
+    () => farmerFields.filter((field) => field.status === "active"),
+    [farmerFields],
+  );
+  const mappedFields = useMemo(
+    () => activeFields.filter((field) => hasMappedBoundary(field.boundaryGeojson)),
+    [activeFields],
+  );
+  const unmappedCount = activeFields.length - mappedFields.length;
+  const selectedFields = useMemo(
+    () => mappedFields.filter((field) => form.fieldIds.includes(field.id)),
+    [mappedFields, form.fieldIds],
+  );
+  const fieldOptions = useMemo(
+    () =>
+      mappedFields.map((field) => ({
+        value: field.id,
+        label: `${field.fieldCode} · ${field.ownershipType} · ${field.calculatedArea ?? "?"} ac`,
+      })),
+    [mappedFields],
+  );
+
   const loadFields = useCallback(async () => {
     if (!farmerId) {
-      setFields([]);
+      setFarmerFields([]);
       setForm((p) => ({ ...p, fieldIds: [] }));
       return;
     }
     const list = await listFieldsForFarmer(farmerId);
-    const options = list
-      .filter((f) => f.status === "active")
-      .map((f) => ({
-        value: f.id,
-        label: `${f.fieldCode} · ${f.ownershipType} · ${f.calculatedArea ?? "?"} ac`,
-      }));
-    setFields(options);
-    setForm((p) => ({
-      ...p,
-      fieldIds: p.fieldIds.filter((id) => options.some((o) => o.value === id)),
-    }));
-  }, [farmerId]);
+    setFarmerFields(list);
+    const usable = list.filter(
+      (field) => field.status === "active" && hasMappedBoundary(field.boundaryGeojson),
+    );
+    setForm((p) => {
+      const kept = p.fieldIds.filter((id) => usable.some((field) => field.id === id));
+      return {
+        ...p,
+        fieldIds: kept.length === 0 && usable.length === 1 ? [usable[0].id] : kept,
+      };
+    });
+  }, [farmerId, setForm]);
 
   useEffect(() => {
     if (!hydrated) return;
     loadFields().catch(() => {});
   }, [loadFields, hydrated]);
 
-  async function captureSitePhoto(siteId: string) {
+  function farmLabelFor(latitude: number | null | undefined, longitude: number | null | undefined) {
+    if (latitude == null || longitude == null) return null;
+    return soilFarmContaining(selectedFields, latitude, longitude)?.fieldCode ?? null;
+  }
+
+  function outsideMessage() {
+    const farms = selectedFields.map((field) => field.fieldCode).join(", ");
+    return `This photo was taken outside the selected farm (${farms}). Walk inside the farm boundary and take it again.`;
+  }
+
+  async function capturePhotoInsideFarm(key: string) {
+    if (selectedFields.length === 0) {
+      Alert.alert("Select a farm", "Choose the farm you are sampling before taking photos.");
+      return null;
+    }
     try {
-      setCapturingKey(siteId);
-      const captured = await captureAndSaveFieldPhoto();
-      if (!captured) return;
-      setForm((prev) => ({
-        ...prev,
-        sampleSites: prev.sampleSites.map((site) =>
-          site.id === siteId
-            ? {
-                ...site,
-                photo_uri: captured.uri,
-                latitude: captured.metadata.latitude,
-                longitude: captured.metadata.longitude,
-                captured_at: captured.metadata.captured_at,
-              }
-            : site,
-        ),
-      }));
+      setCapturingKey(key);
+      return await captureAndSaveFieldPhoto({
+        preciseLocation: true,
+        validate: (metadata) => {
+          if (!soilFarmContaining(selectedFields, metadata.latitude, metadata.longitude)) {
+            throw new OutsideFarmError(outsideMessage());
+          }
+        },
+      });
     } catch (err) {
-      Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+      if (err instanceof OutsideFarmError) {
+        Alert.alert("Not inside the farm", err.message);
+      } else {
+        Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+      }
+      return null;
     } finally {
       setCapturingKey(null);
     }
   }
 
-  function removeSitePhoto(siteId: string) {
+  async function captureSitePhoto(siteId: string) {
+    const captured = await capturePhotoInsideFarm(siteId);
+    if (!captured) return;
     setForm((prev) => ({
       ...prev,
       sampleSites: prev.sampleSites.map((site) =>
         site.id === siteId
           ? {
               ...site,
-              photo_uri: null,
-              photo_url: null,
-              latitude: null,
-              longitude: null,
-              captured_at: null,
+              photo_uri: captured.uri,
+              latitude: captured.metadata.latitude,
+              longitude: captured.metadata.longitude,
+              captured_at: captured.metadata.captured_at,
             }
           : site,
       ),
     }));
   }
 
+  function clearSite(site: SoilSampleSite): SoilSampleSite {
+    return {
+      ...site,
+      photo_uri: null,
+      photo_url: null,
+      latitude: null,
+      longitude: null,
+      captured_at: null,
+    };
+  }
+
+  function removeSitePhoto(siteId: string) {
+    setForm((prev) => ({
+      ...prev,
+      sampleSites: prev.sampleSites.map((site) =>
+        site.id === siteId ? clearSite(site) : site,
+      ),
+    }));
+  }
+
   async function captureMixedSamplePhoto() {
-    try {
-      setCapturingKey("mixed");
-      const captured = await captureAndSaveFieldPhoto();
-      if (!captured) return;
-      setForm((p) => ({
-        ...p,
-        samplePhotoUri: captured.uri,
-        sampleLat: captured.metadata.latitude,
-        sampleLng: captured.metadata.longitude,
-        sampleCapturedAt: captured.metadata.captured_at,
-      }));
-    } catch (err) {
-      Alert.alert("Photo", err instanceof Error ? err.message : String(err));
-    } finally {
-      setCapturingKey(null);
+    const captured = await capturePhotoInsideFarm("mixed");
+    if (!captured) return;
+    setForm((p) => ({
+      ...p,
+      samplePhotoUri: captured.uri,
+      sampleLat: captured.metadata.latitude,
+      sampleLng: captured.metadata.longitude,
+      sampleCapturedAt: captured.metadata.captured_at,
+    }));
+  }
+
+  /** Changing farms drops any photo that is not inside the new selection. */
+  function changeFarms(values: string[]) {
+    const nextFields = mappedFields.filter((field) => values.includes(field.id));
+    const inside = (lat: number | null | undefined, lng: number | null | undefined) =>
+      lat != null && lng != null && Boolean(soilFarmContaining(nextFields, lat, lng));
+    const outsideSiteIds = new Set(
+      sampleSites
+        .filter(
+          (site) =>
+            (site.photo_uri || site.photo_url) && !inside(site.latitude, site.longitude),
+        )
+        .map((site) => site.id),
+    );
+    const keepMixed = !form.samplePhotoUri || inside(form.sampleLat, form.sampleLng);
+    const dropped = outsideSiteIds.size + (keepMixed ? 0 : 1);
+    setForm((prev) => ({
+      ...prev,
+      fieldIds: values,
+      sampleSites: prev.sampleSites.map((site) =>
+        outsideSiteIds.has(site.id) ? clearSite(site) : site,
+      ),
+      ...(keepMixed
+        ? {}
+        : { samplePhotoUri: "", sampleLat: null, sampleLng: null, sampleCapturedAt: "" }),
+    }));
+    if (dropped > 0) {
+      Alert.alert(
+        "Photos removed",
+        `${dropped} photo${dropped === 1 ? " was" : "s were"} not inside the selected farm and must be retaken.`,
+      );
     }
   }
 
@@ -213,8 +299,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
       Alert.alert("Required", "Select a farmer from the dropdown.");
       return;
     }
-    if (form.fieldIds.length === 0) {
-      Alert.alert("Required", "Select one or more farms for this soil sample.");
+    if (selectedFields.length === 0) {
+      Alert.alert("Required", "Select the farm this soil sample is taken from.");
       return;
     }
     if (completedSites < MIN_SOIL_SAMPLE_SITES) {
@@ -231,31 +317,31 @@ export default function SoilTestFormScreen({ route, navigation }) {
       );
       return;
     }
+    if (!profile) {
+      Alert.alert("Error", "You must be signed in.");
+      return;
+    }
 
     try {
       setLoading(true);
-      await saveSoilTestLocal(farmerId, {
-        fieldIds: form.fieldIds,
+      const saved = await saveSoilTestLocal(farmerId, {
+        fieldIds: selectedFields.map((field) => field.id),
         sampleDate: form.sampleDate,
         sampleLat: form.sampleLat,
         sampleLng: form.sampleLng,
         samplePhotoUri: form.samplePhotoUri,
         sampleSites: sampleSites,
-        submittedToSupervisorId: isSupervisor ? userId : null,
-        submittedToSupervisorName: isSupervisor ? "Self" : null,
-        collectedBy: userId,
+        submittedToSupervisorId: isSupervisor ? profile.id : null,
+        submittedToSupervisorName: isSupervisor ? profile.full_name : null,
+        collectedBy: profile.id,
+        collectedByName: profile.full_name,
         collectedByRole: role || "climapreneur",
+        collectorCode: profile.collector_code ?? null,
         status: isSupervisor ? "accepted" : "collected",
       });
       processSyncQueue();
       await clearDraft();
-      Alert.alert(
-        "Saved",
-        isSupervisor
-          ? "Sample recorded as collected."
-          : "Sample collected. Submit it to a supervisor from Submit samples.",
-        [{ text: "OK", onPress: () => navigation.goBack() }],
-      );
+      setSavedCode(saved.sampleCode);
     } catch (err) {
       Alert.alert("Error", err instanceof Error ? err.message : String(err));
     } finally {
@@ -264,7 +350,36 @@ export default function SoilTestFormScreen({ route, navigation }) {
   }
 
   if (!hydrated) {
-    return <ScreenShell />;
+    return <ScreenShell>{null}</ScreenShell>;
+  }
+
+  if (savedCode) {
+    return (
+      <ScreenShell>
+        <View style={styles.doneWrap}>
+          <Text style={styles.title}>Sample saved</Text>
+          <Text style={styles.body}>Write this sample number on the sample bag:</Text>
+          <View style={styles.codeCard}>
+            <Text style={styles.code} selectable>
+              {savedCode}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {isSupervisor
+              ? "The sample is ready to test."
+              : "The sample is waiting for your supervisor to pick it up. Hand over the labelled bag."}
+          </Text>
+          <View style={styles.doneActions}>
+            <PrimaryButton title="Done" onPress={() => navigation.goBack()} />
+            <PrimaryButton
+              title="View sample tracking"
+              variant="outline"
+              onPress={() => navigation.replace("SoilSamplesInbox")}
+            />
+          </View>
+        </View>
+      </ScreenShell>
+    );
   }
 
   return (
@@ -275,7 +390,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
       >
         <Text style={styles.title}>Soil testing</Text>
         <Text style={styles.subtitle}>
-          Photograph 4+ spots, mix, then take the mixed sample photo.
+          Pick the farm, photograph 4+ dig spots inside it, mix, then photograph the
+          mixed sample.
         </Text>
 
         <FarmerPicker
@@ -284,19 +400,26 @@ export default function SoilTestFormScreen({ route, navigation }) {
           requireFields
         />
 
-        {farmerId && fields.length === 0 ? (
+        {farmerId && mappedFields.length === 0 ? (
           <Text style={styles.hint}>
-            No farms for this farmer yet. Add farms in Farms onboarding before soil testing.
+            This farmer has no farm with a mapped boundary. Draw the farm boundary in
+            Farms onboarding before soil testing.
           </Text>
         ) : farmerId ? (
           <FormMultiSelectDropdown
-            label="Farms *"
-            placeholder="Select one or more farms…"
+            label="Farm *"
+            placeholder="Select the farm being sampled…"
             values={form.fieldIds}
-            options={fields}
-            onChange={(values) => setForm((p) => ({ ...p, fieldIds: values }))}
-            emptyText="No farms for this farmer."
+            options={fieldOptions}
+            onChange={changeFarms}
+            emptyText="No mapped farms for this farmer."
           />
+        ) : null}
+        {farmerId && unmappedCount > 0 ? (
+          <Text style={styles.hint}>
+            {unmappedCount} farm{unmappedCount === 1 ? " is" : "s are"} hidden because
+            {unmappedCount === 1 ? " its" : " their"} boundary is not mapped.
+          </Text>
         ) : null}
 
         <FormDateField
@@ -309,11 +432,13 @@ export default function SoilTestFormScreen({ route, navigation }) {
           Sampling points * ({completedSites}/{MIN_SOIL_SAMPLE_SITES} minimum)
         </Text>
         <Text style={styles.hint}>
-          Photograph each dig spot. Minimum {MIN_SOIL_SAMPLE_SITES}.
+          Each photo must be taken inside the selected farm. Minimum{" "}
+          {MIN_SOIL_SAMPLE_SITES}.
         </Text>
 
         {sampleSites.map((site) => {
           const photoUri = site.photo_uri || site.photo_url;
+          const farmCode = photoUri ? farmLabelFor(site.latitude, site.longitude) : null;
           return (
             <View key={site.id} style={styles.siteCard}>
               <PhotoSlot
@@ -324,7 +449,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
                 onAdd={() => captureSitePhoto(site.id)}
                 onRemove={() => removeSitePhoto(site.id)}
                 addLabel={photoUri ? `Retake ${site.name} photo` : `Take ${site.name} GPS photo`}
-                hint="Photograph this dig spot. GPS is stored on the photo."
+                hint="Photograph this dig spot inside the farm."
                 metadata={
                   photoUri
                     ? [
@@ -337,9 +462,15 @@ export default function SoilTestFormScreen({ route, navigation }) {
                     : undefined
                 }
               />
+              {farmCode ? (
+                <Text style={styles.inside}>✓ Inside farm {farmCode}</Text>
+              ) : null}
               {sampleSites.length > MIN_SOIL_SAMPLE_SITES ? (
-                <Pressable onPress={() => removeSamplingPoint(site.id)}>
-                  <Text style={styles.linkMuted}>Remove {site.name}</Text>
+                <Pressable
+                  style={styles.textButton}
+                  onPress={() => removeSamplingPoint(site.id)}
+                >
+                  <Text style={styles.textButtonLabel}>Remove {site.name}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -370,7 +501,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
               ? "Retake mixed sample photo"
               : "Take mixed sample photo"
           }
-          hint="Mix the soil, then photograph the mixed sample."
+          hint="Mix the soil inside the farm, then photograph the mixed sample."
           metadata={
             form.samplePhotoUri
               ? [
@@ -383,14 +514,17 @@ export default function SoilTestFormScreen({ route, navigation }) {
               : undefined
           }
         />
-
-        {isSupervisor ? (
-          <Text style={styles.hint}>Saved as accepted.</Text>
-        ) : (
-          <Text style={styles.hint}>
-            Saved as collected. Submit it from Submit samples.
+        {form.samplePhotoUri && farmLabelFor(form.sampleLat, form.sampleLng) ? (
+          <Text style={styles.inside}>
+            ✓ Inside farm {farmLabelFor(form.sampleLat, form.sampleLng)}
           </Text>
-        )}
+        ) : null}
+
+        <Text style={styles.hint}>
+          {isSupervisor
+            ? "On save you get a sample number for the bag. The sample is ready to test."
+            : "On save you get a sample number for the bag. Your supervisor then picks the sample up."}
+        </Text>
 
         <PrimaryButton title="Save soil sample" onPress={handleSave} loading={loading} />
       </ScrollView>
@@ -405,73 +539,94 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   title: {
-    fontSize: 22,
+    fontSize: typeScale.title,
     fontFamily: fonts.bold,
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: typeScale.label,
     fontFamily: fonts.regular,
-    color: colors.smoke,
-    lineHeight: 16,
+    color: colors.textSecondary,
+    lineHeight: 18,
     marginBottom: spacing.sm,
+  },
+  body: {
+    fontSize: typeScale.body,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    lineHeight: 22,
   },
   section: {
     marginTop: spacing.md,
-    fontSize: 15,
-    fontFamily: fonts.bold,
+    fontSize: typeScale.heading,
+    fontFamily: fonts.medium,
     color: colors.brunswick,
   },
   locBtn: {
+    minHeight: 48,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm,
+    borderColor: colors.borderDark,
+    borderRadius: radius.sm,
+    justifyContent: "center",
     alignItems: "center",
     backgroundColor: colors.chalk,
   },
   locBtnText: {
     fontFamily: fonts.medium,
     color: colors.brunswick,
-    fontSize: 13,
+    fontSize: typeScale.label,
   },
   hint: {
-    fontSize: 12,
+    fontSize: typeScale.label,
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
     lineHeight: 18,
   },
+  inside: {
+    fontSize: typeScale.label,
+    fontFamily: fonts.medium,
+    color: colors.success,
+  },
   siteCard: {
-    gap: 8,
+    gap: spacing.xs,
     padding: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
     backgroundColor: colors.white,
   },
-  siteTitle: {
-    fontSize: 14,
+  textButton: {
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  textButtonLabel: {
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    fontSize: typeScale.label,
+  },
+  doneWrap: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+  },
+  codeCard: {
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.brunswick,
+    backgroundColor: colors.white,
+    alignItems: "center",
+  },
+  code: {
+    fontSize: typeScale.display,
     fontFamily: fonts.bold,
     color: colors.brunswick,
+    letterSpacing: 1,
   },
-  photoWrap: {
-    gap: 6,
-  },
-  sitePhoto: {
-    width: "100%",
-    height: 140,
-    borderRadius: radius.md,
-    backgroundColor: colors.chalk,
-  },
-  photo: {
-    width: "100%",
-    height: 180,
-    borderRadius: radius.md,
-    backgroundColor: colors.chalk,
-  },
-  linkMuted: {
-    fontFamily: fonts.medium,
-    color: colors.smoke,
-    fontSize: 13,
+  doneActions: {
+    marginTop: "auto",
+    gap: spacing.sm,
   },
 });

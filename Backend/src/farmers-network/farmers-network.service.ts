@@ -9,8 +9,12 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessWebPortal,
+  farmContainingPoint,
+  formatSoilSampleCode,
+  hasMappedBoundary,
   isDmrvViewer,
   parseSoilSampleSites,
+  soilSampleCodeSerial,
   type FarmFieldRecord,
   type FarmFieldUpsertPayload,
   type FarmerConsentRecord,
@@ -78,6 +82,7 @@ const CONSENT_SELECT = `
 
 const SOIL_TEST_SELECT = `
   id,
+  sample_code,
   farm_id,
   sample_date,
   sample_lat,
@@ -674,6 +679,10 @@ export class FarmersNetworkService {
     const farmIds = options?.farmId
       ? [options.farmId]
       : await this.visibleFarmIds(user);
+    const collectorIds =
+      !options?.farmId && user.role === 'supervisor'
+        ? await this.supervisedCollectorIds(user.id)
+        : [];
 
     const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
       let query = this.supabase
@@ -685,13 +694,15 @@ export class FarmersNetworkService {
       if (options?.inbox && user.role === 'supervisor') {
         query = query.eq('submitted_to_supervisor_id', user.id);
       } else if (farmIds) {
-        if (farmIds.length === 0) {
-          query = query.eq('created_by', user.id);
-        } else {
-          query = query.or(
-            `farm_id.in.(${farmIds.join(',')}),created_by.eq.${user.id},submitted_to_supervisor_id.eq.${user.id}`,
-          );
+        const filters = [
+          `created_by.eq.${user.id}`,
+          `submitted_to_supervisor_id.eq.${user.id}`,
+        ];
+        if (farmIds.length > 0) filters.push(`farm_id.in.(${farmIds.join(',')})`);
+        if (collectorIds.length > 0) {
+          filters.push(`collected_by.in.(${collectorIds.join(',')})`);
         }
+        query = query.or(filters.join(','));
       }
 
       return query;
@@ -711,8 +722,140 @@ export class FarmersNetworkService {
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Soil sample not found');
     const test = this.mapSoilTest(data as Record<string, unknown>);
-    await this.getFarm(user, test.farm_id);
+    if (!(await this.supervisesSample(user, test))) {
+      await this.getFarm(user, test.farm_id);
+    }
     return test;
+  }
+
+  /** Climapreneurs on kontikkis of producers this supervisor oversees. */
+  private async supervisedCollectorIds(supervisorId: string): Promise<string[]> {
+    const { data: producerLinks, error: pError } = await this.supabase
+      .from('biochar_producer_supervisors')
+      .select('biochar_producer_id')
+      .eq('supervisor_id', supervisorId);
+    if (pError) throw new BadRequestException(pError.message);
+    const producerIds = (producerLinks ?? []).map(
+      (row) => row.biochar_producer_id as string,
+    );
+    if (producerIds.length === 0) return [];
+
+    const { data: kontikkis, error: kError } = await this.supabase
+      .from('kontikkis')
+      .select('id')
+      .in('biochar_producer_id', producerIds);
+    if (kError) throw new BadRequestException(kError.message);
+    const kontikkiIds = (kontikkis ?? []).map((row) => row.id as string);
+    if (kontikkiIds.length === 0) return [];
+
+    const { data: operators, error: oError } = await this.supabase
+      .from('kontikki_operators')
+      .select('operator_id')
+      .in('kontikki_id', kontikkiIds);
+    if (oError) throw new BadRequestException(oError.message);
+    return [
+      ...new Set(
+        (operators ?? [])
+          .map((row) => row.operator_id as string | null)
+          .filter((id): id is string => Boolean(id) && id !== supervisorId),
+      ),
+    ];
+  }
+
+  private async supervisesSample(
+    user: AuthenticatedUser,
+    test: SoilTestRecord,
+  ): Promise<boolean> {
+    if (user.role !== 'supervisor') return false;
+    if (test.submitted_to_supervisor_id === user.id) return true;
+    if (!test.collected_by) return false;
+    const collectors = await this.supervisedCollectorIds(user.id);
+    return collectors.includes(test.collected_by);
+  }
+
+  /**
+   * Every photo of the sample must sit inside the mapped boundary of one of
+   * the selected farms, which must all belong to this farmer.
+   */
+  private async assertSampleInsideFarms(payload: SoilTestUpsertPayload) {
+    const { data: fields, error } = await this.supabase
+      .from('farm_fields')
+      .select('id, farm_id, field_code, status, boundary_geojson')
+      .in('id', payload.field_ids);
+    if (error) throw new BadRequestException(error.message);
+
+    const rows = fields ?? [];
+    if (rows.length !== new Set(payload.field_ids).size) {
+      throw new BadRequestException('One of the selected farms was not found.');
+    }
+    for (const field of rows) {
+      if (field.farm_id !== payload.farm_id) {
+        throw new BadRequestException('Selected farms must belong to this farmer.');
+      }
+      if (!hasMappedBoundary(field.boundary_geojson)) {
+        throw new BadRequestException(
+          `Farm ${field.field_code || field.id} has no mapped boundary. Map it before soil sampling.`,
+        );
+      }
+    }
+
+    const points = parseSoilSampleSites(payload.sample_sites).map((site) => ({
+      name: site.name,
+      latitude: site.latitude,
+      longitude: site.longitude,
+    }));
+    if (payload.sample_photo_url) {
+      points.push({
+        name: 'Mixed sample photo',
+        latitude: payload.sample_lat ?? null,
+        longitude: payload.sample_lng ?? null,
+      });
+    }
+    for (const point of points) {
+      if (point.latitude == null || point.longitude == null) {
+        throw new BadRequestException(`${point.name} has no GPS location.`);
+      }
+      const inside = farmContainingPoint(
+        { latitude: point.latitude, longitude: point.longitude },
+        rows,
+      );
+      if (!inside) {
+        throw new BadRequestException(
+          `${point.name} is not inside the selected farm of this farmer.`,
+        );
+      }
+    }
+  }
+
+  private async nextSoilSampleCode(
+    user: AuthenticatedUser,
+    farmId: string,
+    sampleDate: string,
+  ): Promise<string> {
+    const [{ data: profile }, { data: farm }] = await Promise.all([
+      this.supabase.from('users').select('collector_code').eq('id', user.id).maybeSingle(),
+      this.supabase.from('farms').select('village').eq('id', farmId).maybeSingle(),
+    ]);
+    const collectorCode = (profile?.collector_code as string | null) || 'C0';
+    const { data: existing, error } = await this.supabase
+      .from('soil_tests')
+      .select('sample_code')
+      .eq('collected_by', user.id)
+      .eq('sample_date', sampleDate)
+      .not('sample_code', 'is', null);
+    if (error) throw new BadRequestException(error.message);
+    const highest = Math.max(
+      0,
+      ...(existing ?? []).map(
+        (row) => soilSampleCodeSerial(row.sample_code, sampleDate, collectorCode) ?? 0,
+      ),
+    );
+    return formatSoilSampleCode({
+      village: (farm?.village as string | null) ?? null,
+      sampleDate,
+      collectorCode,
+      serial: highest + 1,
+    });
   }
 
   async createSoilTest(
@@ -725,10 +868,34 @@ export class FarmersNetworkService {
       throw new BadRequestException('Select at least one field for the soil sample.');
     }
 
+    const sampleCode = payload.sample_code?.trim().toUpperCase() || null;
+    if (sampleCode) {
+      const { data: duplicate } = await this.supabase
+        .from('soil_tests')
+        .select('id, created_by')
+        .eq('sample_code', sampleCode)
+        .maybeSingle();
+      if (duplicate) {
+        // A retried upload of a sample that already reached the server.
+        if (duplicate.created_by === user.id) {
+          return this.getSoilTest(user, duplicate.id as string);
+        }
+        throw new BadRequestException(`Sample number ${sampleCode} is already in use.`);
+      }
+    }
+
+    await this.assertSampleInsideFarms(payload);
+
     const isSupervisor = user.role === 'supervisor' || this.canViewAll(user);
     const requestedStatus = payload.status?.trim();
-    const status =
-      requestedStatus || (isSupervisor ? 'accepted' : 'collected');
+    // Only a supervisor can skip pickup; a climapreneur's sample always waits.
+    const status = isSupervisor
+      ? requestedStatus || 'accepted'
+      : requestedStatus === 'submitted'
+        ? 'submitted'
+        : 'collected';
+    const sampleDate =
+      payload.sample_date || new Date().toISOString().slice(0, 10);
     const supervisorId = isSupervisor
       ? payload.submitted_to_supervisor_id || user.id
       : payload.submitted_to_supervisor_id || null;
@@ -739,8 +906,10 @@ export class FarmersNetworkService {
 
     const insert = {
       id: payload.id,
+      sample_code:
+        sampleCode || (await this.nextSoilSampleCode(user, payload.farm_id, sampleDate)),
       farm_id: payload.farm_id,
-      sample_date: payload.sample_date || new Date().toISOString().slice(0, 10),
+      sample_date: sampleDate,
       sample_lat: payload.sample_lat ?? null,
       sample_lng: payload.sample_lng ?? null,
       sample_photo_url: payload.sample_photo_url || null,
@@ -834,6 +1003,7 @@ export class FarmersNetworkService {
       .from('soil_tests')
       .update({
         status: existing.status === 'reported' ? existing.status : status,
+        submitted_to_supervisor_id: existing.submitted_to_supervisor_id || user.id,
         received_at: new Date().toISOString(),
         received_by: user.id,
         receive_photo_url: receivePhotoUrl || existing.receive_photo_url || null,

@@ -9,7 +9,7 @@ import {
   Pressable,
   Image,
 } from "react-native";
-import { fieldSeasonLabel, isFarmerProfileComplete, soilTestStatusLabel, soilSampleToneFromStatuses } from "@krishecarbon/shared";
+import { fieldSeasonLabel, isFarmerProfileComplete, soilSampleToneFromStatuses } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import { farmerToFormData, getFarmerByIdLocal } from "../services/farmerService";
 import {
@@ -24,6 +24,7 @@ import {
 import { isFarmerSyncing } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import ChecklistItem from "../components/ChecklistItem";
+import SoilSampleTracker from "../components/SoilSampleTracker";
 
 const TABS = [
   { key: "fields", label: "Farms" },
@@ -358,15 +359,21 @@ export default function FarmerDetailScreen({ route, navigation }) {
             </View>
             {soilTests.length ? (
               soilTests.map((t) => (
-                <View key={t.id} style={styles.itemCard}>
-                  <Text style={styles.itemTitle}>{t.sampleDate}</Text>
+                <Pressable
+                  key={t.id}
+                  style={styles.itemCard}
+                  onPress={() =>
+                    navigation.navigate("SoilSampleReceive", { sampleId: t.id })
+                  }
+                >
+                  <Text style={styles.itemTitle}>
+                    {t.sampleCode || "Number pending"}
+                  </Text>
+                  <DetailRow label="Sample date" value={t.sampleDate} />
+                  <SoilSampleTracker status={t.status} />
                   <DetailRow
-                    label="Status"
-                    value={soilTestStatusLabel(t.status)}
-                  />
-                  <DetailRow
-                    label="Supervisor"
-                    value={t.submittedToSupervisorName}
+                    label="Picked up by"
+                    value={t.receivedByName}
                   />
                   <DetailRow
                     label="Sampling points"
@@ -379,7 +386,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
                   {t.samplePhotoUri ? (
                     <Image source={{ uri: t.samplePhotoUri }} style={styles.thumb} />
                   ) : null}
-                </View>
+                </Pressable>
               ))
             ) : (
               <Text style={styles.emptyText}>No soil samples yet.</Text>

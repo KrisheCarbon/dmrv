@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Text, View, StyleSheet, ActivityIndicator } from "react-native";
 import FormPicker, { type FormPickerOption } from "./FormPicker";
 import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
-import { listFarmerIdsWithActiveFields } from "../services/farmersNetworkService";
+import { listFarmerIdsWithMappedFields } from "../services/farmersNetworkService";
 import { getUserProfile } from "../services/userProfile";
 import { colors, fonts, spacing } from "../constants/theme";
 
@@ -11,7 +11,7 @@ type FarmerPickerProps = {
   value: string;
   onChange: (farmerId: string) => void;
   required?: boolean;
-  /** When true, only farmers with at least one active field are listed. */
+  /** When true, only farmers with an active farm whose boundary is mapped. */
   requireFields?: boolean;
 };
 
@@ -41,7 +41,7 @@ export default function FarmerPicker({
       }
       const farmers = await getAllFarmersLocal(profile.id, profile.role);
       const withFields = requireFields
-        ? await listFarmerIdsWithActiveFields()
+        ? await listFarmerIdsWithMappedFields()
         : null;
       const mapped = farmers
         .filter((f) => (withFields ? withFields.has(f.id) : true))
@@ -93,13 +93,13 @@ export default function FarmerPicker({
       <View style={styles.empty}>
         <Text style={styles.emptyTitle}>
           {requireFields
-            ? "No farmers with farms yet"
+            ? "No farmers with mapped farms yet"
             : "No farmers onboarded yet"}
         </Text>
         <Text style={styles.hint}>
           {error ||
             (requireFields
-              ? "Add farm info under Farms onboarding first. A soil sample needs a farm."
+              ? "Register the farmer, then add the farm and draw its boundary under Farms onboarding. A soil sample can only be taken inside a mapped farm."
               : "Add a farmer under New Farmer first, then come back to link farms, soil, or consent.")}
         </Text>
       </View>
