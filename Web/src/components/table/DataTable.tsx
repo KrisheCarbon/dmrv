@@ -5,6 +5,7 @@ import { PAGE_SIZE_OPTIONS } from "@krishecarbon/shared";
 import type { DataTableColumn } from "@/types";
 import type { DbRow } from "@/types/entities";
 import RowsPerPageMenu, { Chevron } from "./RowsPerPageMenu";
+import ColumnHeader from "./ColumnHeader";
 
 type SortDir = "asc" | "desc";
 
@@ -153,9 +154,49 @@ export default function DataTable<T extends DbRow = DbRow>({
   }
 
   const colSpan = columns.length + (actions ? 1 : 0);
+  const activeFilters = columns.flatMap((col) => {
+    const value = (draftFilters[col.key] ?? "").trim();
+    if (!col.filterable || !value) return [];
+    const shown = col.filterOptions?.find((option) => option.value === value)?.label ?? value;
+    return [{ key: col.key, label: col.label, value: shown }];
+  });
 
   return (
     <div className="space-y-3">
+      {activeFilters.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          {activeFilters.map((item) => (
+            <span
+              key={item.key}
+              className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white py-1 pl-3 pr-1.5"
+            >
+              <span className="text-text-secondary">{item.label}:</span>
+              <span className="font-medium text-neutral-900">{item.value}</span>
+              <button
+                type="button"
+                onClick={() => setFilter(item.key, "")}
+                aria-label={`Remove ${item.label} search`}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {activeFilters.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                const cleared: Record<string, string> = {};
+                setDraftFilters(cleared);
+                if (!server) update({ filters: cleared });
+              }}
+              className="font-medium text-brand-dark hover:underline"
+            >
+              Clear all
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -177,56 +218,36 @@ export default function DataTable<T extends DbRow = DbRow>({
                             : "none"
                           : undefined
                       }
-                      className="px-4 pb-3 pt-4 text-left align-bottom text-sm font-medium text-text-secondary"
+                      className="px-4 py-3 text-left align-middle text-sm font-medium text-text-secondary"
                     >
-                      <div className="flex min-w-[8rem] flex-col gap-2">
-                        {sortable ? (
-                          <button
-                            type="button"
-                            onClick={() => toggleSort(col.key)}
-                            className="inline-flex items-center gap-1 text-left hover:text-neutral-950"
-                          >
-                            {col.label}
-                            <span aria-hidden className="text-xs text-neutral-400">
-                              {active ? (query.sortDir === "asc" ? "↑" : "↓") : "↕"}
-                            </span>
-                          </button>
-                        ) : (
-                          <span>{col.label}</span>
-                        )}
-                        {col.filterable ? (
-                          col.filterOptions ? (
-                            <select
-                              value={draftFilters[col.key] ?? ""}
-                              onChange={(event) => setFilter(col.key, event.target.value)}
-                              aria-label={`Filter ${col.label}`}
-                              className="w-full rounded-xl border border-neutral-200 bg-white px-2 py-1.5 text-xs font-normal text-neutral-700"
-                            >
-                              <option value="">All</option>
-                              {col.filterOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              value={draftFilters[col.key] ?? ""}
-                              onChange={(event) => setFilter(col.key, event.target.value)}
-                              placeholder={col.filterPlaceholder || "Search"}
-                              aria-label={`Search ${col.label}`}
-                              className="w-full rounded-xl border border-neutral-200 bg-white px-2 py-1.5 text-xs font-normal text-neutral-700"
-                            />
-                          )
-                        ) : null}
-                      </div>
+                      <ColumnHeader
+                        label={col.label}
+                        sort={
+                          sortable
+                            ? {
+                                state: active ? query.sortDir : null,
+                                onToggle: () => toggleSort(col.key),
+                              }
+                            : undefined
+                        }
+                        filter={
+                          col.filterable
+                            ? {
+                                value: draftFilters[col.key] ?? "",
+                                onChange: (value) => setFilter(col.key, value),
+                                placeholder: col.filterPlaceholder,
+                                options: col.filterOptions,
+                              }
+                            : undefined
+                        }
+                      />
                     </th>
                   );
                 })}
                 {actions && (
                   <th
                     scope="col"
-                    className="px-4 pb-3 pt-4 text-right align-bottom text-sm font-medium text-text-secondary"
+                    className="px-4 py-3 text-right align-middle text-sm font-medium text-text-secondary"
                   >
                     Actions
                   </th>
