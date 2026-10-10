@@ -284,13 +284,6 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       Alert.alert("Required", "Take a farmer photo.");
       return;
     }
-    if (rainbowFarmer && !form.credit_rights_acknowledged) {
-      Alert.alert(
-        "Rainbow",
-        "Confirm that this project holds the sole right to issue carbon credits for biochar from this farm.",
-      );
-      return;
-    }
     if (
       form.latitude == null ||
       form.longitude == null ||
@@ -535,15 +528,6 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
             }));
           }}
         />
-        {pyrolysisProtocolForRegistry(
-          villages.find((item) => item.id === form.cluster_village_id)?.producer_registry,
-        ) === "rainbow" ? (
-          <ToggleRow
-            label="This project holds the sole right to issue carbon credits for biochar from this farm *"
-            value={form.credit_rights_acknowledged}
-            onChange={(value) => setField("credit_rights_acknowledged", value)}
-          />
-        ) : null}
 
         <Text style={styles.section}>Land summary</Text>
         <FormInput

@@ -455,11 +455,6 @@ export class FarmsService {
     if (!payload.farmer_photo_url) {
       throw new BadRequestException('A Rainbow farmer record needs a photo.');
     }
-    if (!payload.credit_rights_acknowledged) {
-      throw new BadRequestException(
-        'Rainbow farmers must confirm this project holds the sole right to issue carbon credits for biochar from this farm.',
-      );
-    }
   }
 
   private async assertCanUseCluster(
