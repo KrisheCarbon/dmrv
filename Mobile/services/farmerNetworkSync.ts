@@ -6,6 +6,8 @@ import type {
 } from "@krishecarbon/shared";
 import { soilSampleSitesForApi } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
+import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
+import { farmFieldToRow } from "../database/types";
 import { backendFetch } from "./backendApi";
 import { getFarmerByIdLocal } from "./farmerService";
 import {
@@ -194,6 +196,18 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
     });
   }
 
+  let infoSheetPhotoUrl = test.infoSheetPhotoUrl;
+  if (test.infoSheetPhotoUri && !infoSheetPhotoUrl) {
+    infoSheetPhotoUrl = await uploadFarmerNetworkPhoto(
+      test.infoSheetPhotoUri,
+      `soil-samples/${test.serverId || test.id}/info-sheet.jpg`,
+    );
+    await db.runAsync("UPDATE soil_tests SET info_sheet_photo_url = ? WHERE id = ?", [
+      infoSheetPhotoUrl,
+      test.id,
+    ]);
+  }
+
   let receivePhotoUrl = test.receivePhotoUrl;
   if (test.receivePhotoUri) {
     receivePhotoUrl = await uploadFarmerNetworkPhoto(
@@ -225,6 +239,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
         sample_lng: test.sampleLng,
         sample_photo_url: samplePhotoUrl,
         sample_sites: soilSampleSitesForApi(uploadedSites),
+        info_sheet_photo_url: infoSheetPhotoUrl,
         submitted_to_supervisor_id: test.submittedToSupervisorId,
         status: test.status,
       }),
@@ -326,6 +341,72 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
   );
 }
 
+function boundaryText(value: FarmFieldRecord["boundary_geojson"]): string | null {
+  if (!value) return null;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/**
+ * Bring down farms (and their mapped boundaries) for farmers on this phone.
+ * Without this a phone only knows farms drawn on it, so a farm mapped on
+ * another phone or in the portal could not be chosen for soil sampling.
+ * Local farms with unsynced edits are left alone.
+ */
+export async function pullFarmFieldsFromServer(): Promise<void> {
+  const remote = await backendFetch<FarmFieldRecord[]>("/farm-fields");
+  const db = await getDb();
+  for (const field of remote) {
+    const farmer = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM farmers WHERE server_id = ?",
+      [field.farm_id],
+    );
+    if (!farmer) continue;
+
+    const existing = await db.getFirstAsync<{ id: string; sync_status: string | null }>(
+      "SELECT id, sync_status FROM farm_fields WHERE server_id = ? OR id = ?",
+      [field.id, field.id],
+    );
+    if (existing && existing.sync_status && existing.sync_status !== "synced") continue;
+
+    const now = Date.now();
+    const row = farmFieldToRow({
+      farmerId: farmer.id,
+      fieldCode: field.field_code,
+      ownershipType: field.ownership_type as never,
+      landReference: field.land_reference ?? null,
+      leaseStart: field.lease_start ?? null,
+      leaseEnd: field.lease_end ?? null,
+      status: field.status as never,
+      latitude: field.latitude ?? null,
+      longitude: field.longitude ?? null,
+      boundaryGeojson: boundaryText(field.boundary_geojson),
+      calculatedArea: field.calculated_area ?? null,
+      waterSource: field.water_source ?? null,
+      photos: field.photos ?? [],
+      notes: field.notes ?? null,
+      cropName: field.crop_name ?? null,
+      season: field.season ?? null,
+      sowingDate: field.sowing_date ?? null,
+      harvestDate: field.harvest_date ?? null,
+      cropPhotos: field.crop_photos ?? [],
+      serverId: field.id,
+      uploadStatus: "synced",
+      syncError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    if (existing) {
+      const { created_at: _created, ...patch } = row;
+      const { sql, args } = buildUpdate("farm_fields", patch, "id = ?", [existing.id]);
+      await db.runAsync(sql, args);
+    } else {
+      const { sql, args } = buildInsert("farm_fields", { id: generateId(), ...row });
+      await db.runAsync(sql, args);
+    }
+  }
+}
+
 export async function pullSoilNetworkFromServer(): Promise<void> {
   let tests: SoilTestRecord[] = [];
   try {
@@ -363,6 +444,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
       await db.runAsync(
         `UPDATE soil_tests SET
           sample_code = COALESCE(?, sample_code),
+          info_sheet_photo_url = COALESCE(?, info_sheet_photo_url),
           farmer_name = ?,
           farmer_village = ?,
           collected_by_name = ?,
@@ -380,6 +462,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
          WHERE id = ?`,
         [
           test.sample_code ?? null,
+          test.info_sheet_photo_url ?? null,
           test.farm?.farmer_name ?? null,
           test.farm?.village ?? null,
           test.collected_by_user?.full_name ?? null,
@@ -400,7 +483,7 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
     } else {
       await db.runAsync(
         `INSERT INTO soil_tests (
-          sample_code, farmer_name, farmer_village, collected_by_name,
+          sample_code, info_sheet_photo_url, farmer_name, farmer_village, collected_by_name,
           id, farmer_id, field_id, field_ids_json, crop_id, sample_date,
           sample_lat, sample_lng, sample_location, sample_photo_uri, sample_photo_url,
           sample_sites_json,
@@ -408,9 +491,10 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           submitted_to_supervisor_id, submitted_to_supervisor_name,
           collected_by, collected_by_role, status, received_at, received_by,
           received_by_name, server_id, sync_status, sync_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         [
           test.sample_code ?? null,
+          test.info_sheet_photo_url ?? null,
           test.farm?.farmer_name ?? null,
           test.farm?.village ?? null,
           test.collected_by_user?.full_name ?? null,

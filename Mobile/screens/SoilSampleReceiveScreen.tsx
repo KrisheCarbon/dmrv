@@ -140,6 +140,7 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
   if (!test) return <ScreenShell>{null}</ScreenShell>;
 
   const samplePhoto = test.samplePhotoUri || test.samplePhotoUrl;
+  const infoSheetPhoto = test.infoSheetPhotoUri || test.infoSheetPhotoUrl;
   const existingReceivePhoto = test.receivePhotoUri || test.receivePhotoUrl;
   const pointsTaken = test.sampleSites.filter((site) => site.photo_uri || site.photo_url).length;
 
@@ -168,6 +169,13 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
           <>
             <Text style={styles.section}>Mixed sample photo</Text>
             <Image source={{ uri: samplePhoto }} style={styles.photo} />
+          </>
+        ) : null}
+
+        {infoSheetPhoto ? (
+          <>
+            <Text style={styles.section}>Soil sample info sheet</Text>
+            <Image source={{ uri: infoSheetPhoto }} style={styles.photo} />
           </>
         ) : null}
 

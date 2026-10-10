@@ -561,6 +561,7 @@ export type SoilTestFormInput = {
   sampleLocation?: string;
   samplePhotoUri?: string | null;
   sampleSites?: SoilSampleSite[];
+  infoSheetPhotoUri?: string | null;
   labSource?: string;
   parametersText?: string;
   resultsText?: string;
@@ -669,6 +670,9 @@ export async function saveSoilTestLocal(
   if (!form.samplePhotoUri) {
     throw new Error("Take a photo of the mixed soil sample.");
   }
+  if (!form.infoSheetPhotoUri) {
+    throw new Error("Take a photo of the filled-in soil sample info sheet.");
+  }
   const photoPoints = [
     ...completedSoilSampleSites(sampleSites).map((site) => ({
       name: site.name,
@@ -714,6 +718,8 @@ export async function saveSoilTestLocal(
     samplePhotoUri: form.samplePhotoUri ?? null,
     samplePhotoUrl: null,
     sampleSites,
+    infoSheetPhotoUri: form.infoSheetPhotoUri ?? null,
+    infoSheetPhotoUrl: null,
     receivePhotoUri: null,
     receivePhotoUrl: null,
     labSource: form.labSource?.trim() || null,

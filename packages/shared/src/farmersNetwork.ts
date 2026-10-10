@@ -672,6 +672,7 @@ export interface SoilTestRecord {
   sample_lng?: number | null;
   sample_photo_url?: string | null;
   sample_sites?: SoilSampleSite[];
+  info_sheet_photo_url?: string | null;
   receive_photo_url?: string | null;
   submitted_to_supervisor_id?: string | null;
   collected_by?: string | null;
@@ -717,6 +718,7 @@ export interface SoilTestUpsertPayload {
   sample_lng?: number | null;
   sample_photo_url?: string | null;
   sample_sites?: SoilSampleSite[];
+  info_sheet_photo_url?: string | null;
   submitted_to_supervisor_id?: string | null;
   status?: string;
 }

@@ -26,6 +26,7 @@ import {
   soilFarmContaining,
 } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
+import { pullFarmFieldsFromServer } from "../services/farmerNetworkSync";
 import { getUserProfile, type UserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
 import { generateId } from "../database/sqlHelpers";
@@ -52,6 +53,10 @@ function emptySoilForm(farmerId: string) {
     sampleLng: null as number | null,
     samplePhotoUri: "" as string,
     sampleCapturedAt: "" as string,
+    infoSheetPhotoUri: "" as string,
+    infoSheetLat: null as number | null,
+    infoSheetLng: null as number | null,
+    infoSheetCapturedAt: "" as string,
     sampleSites: createSoilSampleSites(),
   };
 }
@@ -67,6 +72,9 @@ export default function SoilTestFormScreen({ route, navigation }) {
   const [farmerFields, setFarmerFields] = useState<FarmField[]>([]);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
   const [savedCode, setSavedCode] = useState<string | null>(null);
+  const [capturingSheet, setCapturingSheet] = useState(false);
+  /** Bumped after farms download so the farmer list re-reads them. */
+  const [farmsVersion, setFarmsVersion] = useState(0);
   const {
     value: form,
     setValue: setForm,
@@ -88,6 +96,9 @@ export default function SoilTestFormScreen({ route, navigation }) {
   useEffect(() => {
     getUserProfile()
       .then(setProfile)
+      .catch(() => {});
+    pullFarmFieldsFromServer()
+      .then(() => setFarmsVersion((v) => v + 1))
       .catch(() => {});
   }, []);
 
@@ -141,7 +152,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
   useEffect(() => {
     if (!hydrated) return;
     loadFields().catch(() => {});
-  }, [loadFields, hydrated]);
+  }, [loadFields, hydrated, farmsVersion]);
 
   function farmLabelFor(latitude: number | null | undefined, longitude: number | null | undefined) {
     if (latitude == null || longitude == null) return null;
@@ -231,6 +242,26 @@ export default function SoilTestFormScreen({ route, navigation }) {
     }));
   }
 
+  /** The info sheet is evidence too: watermarked and GPS-tagged, but it may be filled in off the farm. */
+  async function captureInfoSheetPhoto() {
+    try {
+      setCapturingSheet(true);
+      const captured = await captureAndSaveFieldPhoto();
+      if (!captured) return;
+      setForm((p) => ({
+        ...p,
+        infoSheetPhotoUri: captured.uri,
+        infoSheetLat: captured.metadata.latitude,
+        infoSheetLng: captured.metadata.longitude,
+        infoSheetCapturedAt: captured.metadata.captured_at,
+      }));
+    } catch (err) {
+      Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturingSheet(false);
+    }
+  }
+
   /** Changing farms drops any photo that is not inside the new selection. */
   function changeFarms(values: string[]) {
     const nextFields = mappedFields.filter((field) => values.includes(field.id));
@@ -317,6 +348,10 @@ export default function SoilTestFormScreen({ route, navigation }) {
       );
       return;
     }
+    if (!form.infoSheetPhotoUri) {
+      Alert.alert("Required", "Take a photo of the filled-in soil sample info sheet.");
+      return;
+    }
     if (!profile) {
       Alert.alert("Error", "You must be signed in.");
       return;
@@ -330,6 +365,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
         sampleLat: form.sampleLat,
         sampleLng: form.sampleLng,
         samplePhotoUri: form.samplePhotoUri,
+        infoSheetPhotoUri: form.infoSheetPhotoUri,
         sampleSites: sampleSites,
         submittedToSupervisorId: isSupervisor ? profile.id : null,
         submittedToSupervisorName: isSupervisor ? profile.full_name : null,
@@ -395,6 +431,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
         </Text>
 
         <FarmerPicker
+          key={`farmers-${farmsVersion}`}
           value={farmerId}
           onChange={(id) => setForm((prev) => ({ ...prev, selectedFarmerId: id }))}
           requireFields
@@ -519,6 +556,38 @@ export default function SoilTestFormScreen({ route, navigation }) {
             ✓ Inside farm {farmLabelFor(form.sampleLat, form.sampleLng)}
           </Text>
         ) : null}
+
+        <PhotoSlot
+          label="Soil sample info sheet"
+          required
+          uris={form.infoSheetPhotoUri ? [form.infoSheetPhotoUri] : []}
+          capturing={capturingSheet}
+          onAdd={captureInfoSheetPhoto}
+          onRemove={() =>
+            setForm((p) => ({
+              ...p,
+              infoSheetPhotoUri: "",
+              infoSheetLat: null,
+              infoSheetLng: null,
+              infoSheetCapturedAt: "",
+            }))
+          }
+          addLabel={
+            form.infoSheetPhotoUri ? "Retake info sheet photo" : "Take info sheet photo"
+          }
+          hint="Photograph the filled-in sample info sheet so every entry is readable."
+          metadata={
+            form.infoSheetPhotoUri
+              ? [
+                  {
+                    latitude: form.infoSheetLat,
+                    longitude: form.infoSheetLng,
+                    captured_at: form.infoSheetCapturedAt,
+                  },
+                ]
+              : undefined
+          }
+        />
 
         <Text style={styles.hint}>
           {isSupervisor

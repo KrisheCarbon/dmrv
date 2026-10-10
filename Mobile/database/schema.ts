@@ -139,6 +139,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     sample_photo_uri TEXT,
     sample_photo_url TEXT,
     sample_sites_json TEXT,
+    info_sheet_photo_uri TEXT,
+    info_sheet_photo_url TEXT,
     receive_photo_uri TEXT,
     receive_photo_url TEXT,
     lab_source TEXT,

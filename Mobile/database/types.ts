@@ -476,6 +476,9 @@ export interface SoilTest {
   samplePhotoUri: string | null;
   samplePhotoUrl: string | null;
   sampleSites: SoilSampleSite[];
+  /** Photo of the filled-in soil sample info sheet. */
+  infoSheetPhotoUri: string | null;
+  infoSheetPhotoUrl: string | null;
   receivePhotoUri: string | null;
   receivePhotoUrl: string | null;
   labSource: string | null;
@@ -514,6 +517,8 @@ interface SoilTestRowRaw {
   sample_photo_uri?: string | null;
   sample_photo_url?: string | null;
   sample_sites_json?: string | null;
+  info_sheet_photo_uri?: string | null;
+  info_sheet_photo_url?: string | null;
   receive_photo_uri?: string | null;
   receive_photo_url?: string | null;
   lab_source: string | null;
@@ -556,6 +561,8 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
     samplePhotoUri: row.sample_photo_uri ?? null,
     samplePhotoUrl: row.sample_photo_url ?? null,
     sampleSites: parseSoilSampleSites(row.sample_sites_json),
+    infoSheetPhotoUri: row.info_sheet_photo_uri ?? null,
+    infoSheetPhotoUrl: row.info_sheet_photo_url ?? null,
     receivePhotoUri: row.receive_photo_uri ?? null,
     receivePhotoUrl: row.receive_photo_url ?? null,
     labSource: row.lab_source,
@@ -595,6 +602,8 @@ export function soilTestToRow(test: Omit<SoilTest, "id">): Record<string, unknow
     sample_photo_uri: test.samplePhotoUri,
     sample_photo_url: test.samplePhotoUrl,
     sample_sites_json: JSON.stringify(test.sampleSites ?? []),
+    info_sheet_photo_uri: test.infoSheetPhotoUri,
+    info_sheet_photo_url: test.infoSheetPhotoUrl,
     receive_photo_uri: test.receivePhotoUri,
     receive_photo_url: test.receivePhotoUrl,
     lab_source: test.labSource,
