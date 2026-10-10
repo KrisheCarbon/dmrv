@@ -42,7 +42,7 @@ const DMRV_VIEWER_HREFS = new Set([
 
 export function getNavForRole(role: string): NavEntry[] {
   if (isDmrvViewer(role)) {
-    return MAIN_NAV.flatMap((entry) => {
+    return MAIN_NAV.flatMap((entry): NavEntry[] => {
       if (entry.type === "item" && entry.href === "/") return [entry];
       if (entry.type !== "group") return [];
       const children = entry.children.filter((link) => DMRV_VIEWER_HREFS.has(link.href));

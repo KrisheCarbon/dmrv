@@ -561,35 +561,39 @@ export default function FeedstockForm({
               placeholder="100–700"
             />
           </div>
-          {rainbowOnly ? null : <div className="space-y-1.5">
-            <label className={labelClass}>Carbon content (%) *</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
-              className={inputClass}
-              value={form.carbon_content_percent}
-              onChange={(e) =>
-                updateField("carbon_content_percent", e.target.value)
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className={labelClass}>Catalog H/C (&lt; 0.4) *</label>
-            <input
-              type="number"
-              min={0}
-              max={0.3999}
-              step="0.0001"
-              className={inputClass}
-              value={form.hc_ratio}
-              onChange={(e) => updateField("hc_ratio", e.target.value)}
-            />
-            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              CSI catalog value. Rainbow uses a separate lab sample on this feedstock.
-            </p>
-          </div>}
+          {rainbowOnly ? null : (
+            <>
+              <div className="space-y-1.5">
+                <label className={labelClass}>Carbon content (%) *</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  className={inputClass}
+                  value={form.carbon_content_percent}
+                  onChange={(e) =>
+                    updateField("carbon_content_percent", e.target.value)
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className={labelClass}>Catalog H/C (&lt; 0.4) *</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={0.3999}
+                  step="0.0001"
+                  className={inputClass}
+                  value={form.hc_ratio}
+                  onChange={(e) => updateField("hc_ratio", e.target.value)}
+                />
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  CSI catalog value. Rainbow uses a separate lab sample on this feedstock.
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </section>
 

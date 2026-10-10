@@ -24,7 +24,7 @@ type FeedstockListRow = {
   producer: string;
   producer_id: string;
   lab_status: string;
-  lab_status_raw: FeedstockLabStatus;
+  lab_status_raw: FeedstockLabStatus | null;
   bulk_density: string;
   carbon_content: string;
   search_index: string;
@@ -60,7 +60,7 @@ export default function FeedstockPage() {
             producer: producerLabel(producer),
             producer_id: producer?.id ?? feedstock.biochar_producer_id,
             lab_status: formatLabStatus(feedstock.lab_status),
-            lab_status_raw: feedstock.lab_status,
+            lab_status_raw: feedstock.lab_status ?? null,
             bulk_density: `${feedstock.biochar_bulk_density_kg_m3} kg/m³`,
             carbon_content:
               feedstock.carbon_content_percent == null
