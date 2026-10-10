@@ -289,6 +289,16 @@ export function validateMobileNumber(mobile: string | undefined | null): boolean
   return normalizeIndianMobile(mobile) !== null;
 }
 
+/** One page of a list fetched from the server, with the total for paging. */
+export interface PagedResult<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+
 export function validateFarmerForm(form: FarmerForm): string[] {
   const errors: string[] = [];
 

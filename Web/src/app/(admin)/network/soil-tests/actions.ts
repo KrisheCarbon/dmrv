@@ -12,6 +12,12 @@ export async function listSoilTests(farmId?: string) {
   return backendQuery<SoilTestRecord[]>(`/soil-tests${query}`);
 }
 
+/** Soil samples of just these farmers (one page of the farmers list). */
+export async function listSoilTestsForFarmers(farmIds: string[]) {
+  if (farmIds.length === 0) return { data: [] as SoilTestRecord[], error: null };
+  return backendQuery<SoilTestRecord[]>(`/soil-tests?farmIds=${farmIds.join(",")}`);
+}
+
 export async function createSoilTest(
   payload: SoilTestUpsertPayload,
 ): Promise<SoilTestRecord> {

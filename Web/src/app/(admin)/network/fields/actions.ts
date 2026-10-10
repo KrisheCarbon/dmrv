@@ -8,6 +8,12 @@ export async function listFarmFields(farmId?: string) {
   return backendQuery<FarmFieldRecord[]>(`/farm-fields${query}`);
 }
 
+/** Farms of just these farmers (one page of the farmers list). */
+export async function listFarmFieldsForFarmers(farmIds: string[]) {
+  if (farmIds.length === 0) return { data: [] as FarmFieldRecord[], error: null };
+  return backendQuery<FarmFieldRecord[]>(`/farm-fields?farmIds=${farmIds.join(",")}`);
+}
+
 export async function createFarmField(
   payload: FarmFieldUpsertPayload,
 ): Promise<FarmFieldRecord> {

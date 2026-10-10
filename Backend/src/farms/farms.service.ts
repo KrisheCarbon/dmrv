@@ -15,12 +15,34 @@ import {
   pyrolysisProtocolForRegistry,
   type FarmUpsertPayload,
   type Farmer,
+  type PagedResult,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 const FARM_SELECT = '*, cluster:clusters(id, name)';
+
+const PAGE_SIZES = [10, 25, 50, 100];
+
+/** Portal column → farms column it sorts on. */
+const FARM_SORT_COLUMNS: Record<string, string> = {
+  name: 'farmer_name',
+  mobile: 'mobile_number',
+  village: 'village',
+  state: 'state',
+  farmerOnboarded: 'created_at',
+  totalAcres: 'total_land_size',
+};
+
+export type FarmFilterKey = 'name' | 'mobile' | 'location' | 'state';
+
+const FARM_FILTER_COLUMNS: Record<FarmFilterKey, string> = {
+  name: 'farmer_name',
+  mobile: 'mobile_number',
+  location: 'village',
+  state: 'state',
+};
 
 @Injectable()
 export class FarmsService {
@@ -62,6 +84,65 @@ export class FarmsService {
     });
 
     return rows.map((row) => this.withCluster(row));
+  }
+
+  /**
+   * One page of farmers, searched and sorted on the server, so the portal
+   * never loads every farmer at once.
+   */
+  async findPage(
+    user: AuthenticatedUser,
+    query: {
+      page: number;
+      pageSize: number;
+      sort?: string;
+      dir?: string;
+      filters: Partial<Record<FarmFilterKey, string>>;
+    },
+  ): Promise<PagedResult<Farmer>> {
+    const pageSize = PAGE_SIZES.includes(query.pageSize) ? query.pageSize : 10;
+    const page = Math.max(1, Math.floor(query.page) || 1);
+    const sortColumn = FARM_SORT_COLUMNS[query.sort ?? ''] ?? 'created_at';
+    const ascending = query.dir === 'asc';
+
+    let request = this.supabase
+      .from('farms')
+      .select(FARM_SELECT, { count: 'exact' })
+      .order(sortColumn, { ascending, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range((page - 1) * pageSize, page * pageSize - 1);
+
+    if (isDmrvViewer(user.role)) {
+      const mixingIds = [...(await this.mixingFarmIds())];
+      if (mixingIds.length === 0) return { rows: [], total: 0, page, pageSize };
+      request = request.in('id', mixingIds);
+    } else if (!canAccessWebPortal(user.role)) {
+      request = request.or(`created_by.eq.${user.id},assigned_to.eq.${user.id}`);
+    }
+
+    for (const [key, raw] of Object.entries(query.filters)) {
+      // Keep only characters that are safe inside a PostgREST filter.
+      const term = String(raw ?? '').replace(/[^\p{L}\p{N} .@+-]/gu, '').trim();
+      if (!term) continue;
+      if (key === 'location') {
+        request = request.or(
+          ['village', 'mandal', 'district', 'address']
+            .map((column) => `${column}.ilike."*${term}*"`)
+            .join(','),
+        );
+      } else {
+        request = request.ilike(FARM_FILTER_COLUMNS[key as FarmFilterKey], `%${term}%`);
+      }
+    }
+
+    const { data, error, count } = await request;
+    if (error) throw new BadRequestException(error.message);
+    return {
+      rows: ((data ?? []) as Farmer[]).map((row) => this.withCluster(row)),
+      total: count ?? 0,
+      page,
+      pageSize,
+    };
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<Farmer> {

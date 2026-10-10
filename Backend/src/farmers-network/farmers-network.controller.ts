@@ -21,6 +21,16 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { FarmersNetworkService } from './farmers-network.service';
 
+/** "a,b,c" → ids (at most 100, one page of farmers), or undefined when absent. */
+function parseIdList(value?: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  return value
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+    .slice(0, 100);
+}
+
 @Controller('farm-fields')
 @UseGuards(SupabaseAuthGuard)
 export class FarmFieldsController {
@@ -30,8 +40,9 @@ export class FarmFieldsController {
   list(
     @AuthUser() user: AuthenticatedUser,
     @Query('farmId') farmId?: string,
+    @Query('farmIds') farmIds?: string,
   ) {
-    return this.farmersNetwork.listFields(user, farmId);
+    return this.farmersNetwork.listFields(user, farmId, parseIdList(farmIds));
   }
 
   @Get(':id')
@@ -94,10 +105,12 @@ export class SoilTestsController {
     @AuthUser() user: AuthenticatedUser,
     @Query('farmId') farmId?: string,
     @Query('inbox') inbox?: string,
+    @Query('farmIds') farmIds?: string,
   ) {
     return this.farmersNetwork.listSoilTests(user, {
       farmId,
       inbox: inbox === '1' || inbox === 'true',
+      farmIds: parseIdList(farmIds),
     });
   }
 

@@ -318,9 +318,14 @@ export class FarmersNetworkService {
   async listFields(
     user: AuthenticatedUser,
     farmId?: string,
+    onlyFarmIds?: string[],
   ): Promise<FarmFieldRecord[]> {
     this.assertAccess(user);
-    const farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
+    let farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
+    if (onlyFarmIds) {
+      // A page of farmers asks for just its own farms, still within what the user may see.
+      farmIds = farmIds ? farmIds.filter((id) => onlyFarmIds.includes(id)) : onlyFarmIds;
+    }
     if (farmIds && farmIds.length === 0) return [];
 
     const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
@@ -674,8 +679,9 @@ export class FarmersNetworkService {
 
   async listSoilTests(
     user: AuthenticatedUser,
-    options?: { farmId?: string; inbox?: boolean },
+    options?: { farmId?: string; inbox?: boolean; farmIds?: string[] },
   ): Promise<SoilTestRecord[]> {
+    if (options?.farmIds && options.farmIds.length === 0) return [];
     this.assertAccess(user);
     const farmIds = options?.farmId
       ? [options.farmId]
@@ -705,6 +711,7 @@ export class FarmersNetworkService {
         }
         query = query.or(filters.join(','));
       }
+      if (options?.farmIds) query = query.in('farm_id', options.farmIds);
 
       return query;
     });

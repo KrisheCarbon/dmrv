@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import DataTable from "@/components/table/DataTable";
-import { listFarms } from "../farms/actions";
-import { listFarmFields } from "../fields/actions";
-import { listSoilTests } from "../soil-tests/actions";
+import DataTable, {
+  DEFAULT_TABLE_QUERY,
+  type DataTableQuery,
+} from "@/components/table/DataTable";
+import { listFarmsPage } from "../farms/actions";
+import { listFarmFieldsForFarmers } from "../fields/actions";
+import { listSoilTestsForFarmers } from "../soil-tests/actions";
 import FarmerChecklist from "./FarmerChecklist";
 import { buildFarmerChecklist, sampleToneClass } from "./farmerLib";
 import FarmerPortrait from "@/components/FarmerPortrait";
@@ -44,20 +47,13 @@ interface FarmerRow {
   [key: string]: unknown;
 }
 
-type StatusFilter =
-  | "all"
-  | "no-farms"
-  | "sample-pending"
-  | "rejected"
-  | "complete";
-
-const FILTERS: Array<{ key: StatusFilter; label: string }> = [
-  { key: "all", label: "All farmers" },
-  { key: "no-farms", label: "No farms" },
-  { key: "sample-pending", label: "Sample pending" },
-  { key: "rejected", label: "Sample rejected" },
-  { key: "complete", label: "Complete" },
-];
+/** Table column → server search parameter (see GET /farms?page=…). */
+const SERVER_FILTERS: Record<string, string> = {
+  name: "name",
+  mobile: "mobile",
+  village: "location",
+  state: "state",
+};
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Failed to load farmers";
@@ -99,23 +95,40 @@ export default function FarmersPage() {
   const [tests, setTests] = useState<SoilTestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [query, setQuery] = useState<DataTableQuery>(DEFAULT_TABLE_QUERY);
+  const [total, setTotal] = useState(0);
+  const requestRef = useRef(0);
 
-  const loadData = useCallback(async () => {
+  // Only the current page of farmers is fetched, then their farms and samples.
+  const loadData = useCallback(async (current: DataTableQuery) => {
+    const requestId = ++requestRef.current;
     setLoading(true);
     setError(null);
     try {
-      const [farmResult, fieldResult, testResult] = await Promise.all([
-        listFarms(),
-        listFarmFields(),
-        listSoilTests(),
-      ]);
-
+      const filters: Record<string, string> = {};
+      for (const [key, value] of Object.entries(current.filters)) {
+        if (SERVER_FILTERS[key]) filters[SERVER_FILTERS[key]] = value;
+      }
+      const farmResult = await listFarmsPage({
+        page: current.page,
+        pageSize: current.pageSize,
+        sort: current.sortKey,
+        dir: current.sortDir,
+        filters,
+      });
       if (farmResult.error || farmResult.data == null) {
         throw new Error(farmResult.error || "Failed to load farmers");
       }
-      setFarms(farmResult.data);
+      const ids = farmResult.data.rows.map((farm) => farm.id);
+      const [fieldResult, testResult] = await Promise.all([
+        listFarmFieldsForFarmers(ids),
+        listSoilTestsForFarmers(ids),
+      ]);
+      // A newer page request has started; drop this stale answer.
+      if (requestId !== requestRef.current) return;
+
+      setFarms(farmResult.data.rows);
+      setTotal(farmResult.data.total);
       setFields(fieldResult.data ?? []);
       setTests(testResult.data ?? []);
 
@@ -126,15 +139,17 @@ export default function FarmersPage() {
         setError(`Some farmer network data could not load: ${extraErrors.join(" · ")}`);
       }
     } catch (err) {
+      if (requestId !== requestRef.current) return;
       setError(errorMessage(err));
       setFarms([]);
+      setTotal(0);
     }
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData(query);
+  }, [loadData, query]);
 
   const rows = useMemo(() => {
     const fieldsByFarm = new Map<string, FarmFieldRecord[]>();
@@ -198,18 +213,6 @@ export default function FarmersPage() {
     });
   }, [farms, fields, tests]);
 
-  const filteredRows = rows.filter((row) => {
-    const q = search.trim().toLowerCase();
-    if (q && !row.name.toLowerCase().includes(q)) return false;
-    if (filter === "no-farms") return !row.hasFarms;
-    if (filter === "sample-pending") return row.sampleTone === "collected";
-    if (filter === "rejected") return row.sampleTone === "rejected";
-    if (filter === "complete") {
-      return row.hasFarms && row.sampleTone === "accepted" && row.hasReport;
-    }
-    return true;
-  });
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -233,26 +236,6 @@ export default function FarmersPage() {
         )}
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value as StatusFilter)}
-          className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm sm:w-48"
-        >
-          {FILTERS.map((item) => (
-            <option key={item.key} value={item.key}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="Search farmer name"
-          className="w-full max-w-md rounded-xl border border-neutral-200 px-3 py-2 text-sm"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
       {error ? (
         <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -261,6 +244,7 @@ export default function FarmersPage() {
 
       <DataTable
         loading={loading}
+        server={{ total, query, onQueryChange: setQuery }}
         emptyText="No farmers found."
         columns={[
           {
@@ -313,9 +297,7 @@ export default function FarmersPage() {
           {
             key: "cluster",
             label: "Cluster",
-            filterable: true,
-            sortable: true,
-            filterPlaceholder: "Search cluster",
+            sortable: false,
           },
           {
             key: "state",
@@ -333,8 +315,7 @@ export default function FarmersPage() {
           {
             key: "farmOnboarded",
             label: "Farm onboarded",
-            sortable: true,
-            sortValue: (row) => row.farmOnboardedAt,
+            sortable: false,
           },
           {
             key: "totalAcres",
@@ -345,31 +326,17 @@ export default function FarmersPage() {
           {
             key: "farms",
             label: "Farms",
-            filterable: true,
-            sortable: true,
-            filterPlaceholder: "None or count",
-            sortValue: (row) => row.farmCount,
+            sortable: false,
           },
           {
             key: "farmAcres",
             label: "Farm acres",
-            sortable: true,
-            sortValue: (row) => row.farmAcresValue,
+            sortable: false,
           },
           {
             key: "sample",
             label: "Soil sample",
-            filterable: true,
-            sortable: true,
-            filterOptions: [
-              { value: "Not collected", label: "Not collected" },
-              { value: "Collected", label: "Collected" },
-              { value: "Submitted to supervisor", label: "Submitted" },
-              { value: "Stored", label: "Stored" },
-              { value: "Rejected", label: "Rejected" },
-              { value: "Accepted", label: "Accepted" },
-              { value: "Report ready", label: "Report ready" },
-            ],
+            sortable: false,
             render: (_value, row) => (
               <span className={`text-sm font-medium ${sampleToneClass(row.sampleTone)}`}>
                 {row.sample}
@@ -377,7 +344,7 @@ export default function FarmersPage() {
             ),
           },
         ]}
-        rows={filteredRows}
+        rows={rows}
         onRowClick={(row) => router.push(`/network/farmers/${row.id}`)}
         actions={(row) => (
           <button
