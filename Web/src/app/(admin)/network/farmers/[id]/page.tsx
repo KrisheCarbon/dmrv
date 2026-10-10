@@ -8,6 +8,8 @@ import FarmLocationMap, {
   googleMapsUrl,
 } from "@/components/maps/FarmLocationMap";
 import SignedStorageLink from "@/components/SignedStorageLink";
+import SoilSampleMap, { type SoilMapPin } from "@/components/maps/SoilSampleMap";
+import SoilSampleTracker from "@/components/SoilSampleTracker";
 import { deleteFarm, getFarm } from "../../farms/actions";
 import { listFarmFields, updateFarmField } from "../../fields/actions";
 import {
@@ -42,7 +44,7 @@ import {
   FARMER_NETWORK_PHOTOS_BUCKET,
   SOIL_REPORTS_BUCKET,
   parseBoundaryGeojson,
-  soilTestStatusLabel,
+  soilSampleStage,
   fieldSeasonLabel,
 } from "@krishecarbon/shared";
 import { unwrapQuery } from "@/lib/queryResult";
@@ -124,17 +126,6 @@ function GpsLink({
       </a>
     </span>
   );
-}
-
-function statusClass(status: string) {
-  if (status === "rejected") return "bg-red-50 text-red-700";
-  if (status === "accepted" || status === "received" || status === "reported") {
-    return "bg-emerald-50 text-emerald-800";
-  }
-  if (status === "collected" || status === "submitted" || status === "stored") {
-    return "bg-amber-50 text-amber-800";
-  }
-  return "bg-neutral-100 text-neutral-600";
 }
 
 function PhotoThumb({ path, alt }: { path: string; alt: string }) {
@@ -227,6 +218,8 @@ export default function FarmerDetailPage() {
   const [receiveFile, setReceiveFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  /** Sample shown on the soil map: "" = latest, "all", or a sample id. */
+  const [mapSampleId, setMapSampleId] = useState("");
   const [mapView, setMapView] = useState<{
     title: string;
     latitude?: number | null;
@@ -373,6 +366,47 @@ export default function FarmerDetailPage() {
 
   const crops = Array.isArray(data.crops) ? data.crops : [];
   const checklist = buildFarmerChecklist(fields, soilTests, consents, data);
+  const soilMapFarms = fields
+    .filter((field) => field.status !== "inactive")
+    .map((field) => ({
+      id: field.id,
+      code: field.field_code,
+      points: parseBoundaryGeojson(field.boundary_geojson),
+    }))
+    .filter((farm) => farm.points.length >= 3);
+  const mapSamples =
+    mapSampleId === "all"
+      ? soilTests
+      : soilTests.filter((test) => test.id === (mapSampleId || soilTests[0]?.id));
+  const soilMapPins: SoilMapPin[] = mapSamples.flatMap((test) => {
+    const code = test.sample_code || `Sample ${test.sample_date}`;
+    const pins: SoilMapPin[] = (test.sample_sites ?? []).flatMap((site, index) =>
+      site.latitude != null && site.longitude != null
+        ? [
+            {
+              id: `${test.id}-${site.id}`,
+              label: String(index + 1),
+              title: `${code} · ${site.name}`,
+              latitude: Number(site.latitude),
+              longitude: Number(site.longitude),
+              kind: "point" as const,
+            },
+          ]
+        : [],
+    );
+    if (test.sample_lat != null && test.sample_lng != null) {
+      pins.push({
+        id: `${test.id}-mixed`,
+        label: "M",
+        title: `${code} · Mixed sample`,
+        latitude: Number(test.sample_lat),
+        longitude: Number(test.sample_lng),
+        kind: "mixed",
+      });
+    }
+    return pins;
+  });
+
   const reports = soilTests.flatMap((test) =>
     (test.reports ?? []).map((report) => ({ test, report })),
   );
@@ -728,8 +762,9 @@ export default function FarmerDetailPage() {
           <div className="flex items-start justify-between gap-3 border-b border-neutral-100 px-6 py-4">
             <div>
               <h2 className="text-lg font-semibold text-neutral-900">Soil samples</h2>
-              <p className="mt-0.5 text-sm text-neutral-500">
-                Yellow = collected or waiting, red = rejected, green = accepted.
+              <p className="mt-0.5 text-sm text-text-secondary">
+                Each sample mixes soil from several dig points inside the farm. Collected →
+                Ready to test (picked up by the supervisor) → Tested (lab report attached).
               </p>
             </div>
             {readOnly ? null : (
@@ -742,6 +777,43 @@ export default function FarmerDetailPage() {
             </button>
             )}
           </div>
+          <div className="space-y-3 border-b border-neutral-100 px-6 py-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900">Where samples were taken</h3>
+                <p className="mt-0.5 text-xs text-text-secondary">
+                  Farm boundaries in green. Numbered pins are dig points; M is where the mixed
+                  sample was photographed. Click a pin for details.
+                </p>
+              </div>
+              {soilTests.length > 0 ? (
+                <label className="flex items-center gap-2 text-sm text-neutral-700">
+                  Show
+                  <select
+                    value={mapSampleId}
+                    onChange={(event) => setMapSampleId(event.target.value)}
+                    className="min-h-10 rounded-xl border border-neutral-300 bg-white px-3 text-sm"
+                  >
+                    <option value="">Latest sample</option>
+                    <option value="all">All samples</option>
+                    {soilTests.map((test) => (
+                      <option key={test.id} value={test.id}>
+                        {test.sample_code || `Sample ${test.sample_date}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+            <SoilSampleMap farms={soilMapFarms} pins={soilMapPins} />
+            {mapSamples.length > 0 ? (
+              <p className="text-xs text-text-secondary">
+                {mapSamples.length === 1
+                  ? `${mapSamples[0].sample_code || "This sample"}: ${mapSamples[0].sample_sites?.length ?? 0} dig points mixed into one sample.`
+                  : `${mapSamples.length} samples, ${mapSamples.reduce((sum, test) => sum + (test.sample_sites?.length ?? 0), 0)} dig points in total.`}
+              </p>
+            ) : null}
+          </div>
           <div className="px-6 py-4">
             {soilTests.length === 0 ? (
               <p className="text-sm text-neutral-500">
@@ -752,17 +824,60 @@ export default function FarmerDetailPage() {
                 {soilTests.map((test) => (
                   <div
                     key={test.id}
-                    className="rounded-xl border border-neutral-200 px-4 py-3"
+                    className="rounded-2xl border border-neutral-200 px-4 py-3"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-neutral-900">
-                        Sample {test.sample_date}
-                      </p>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(String(test.status))}`}
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold tracking-wide text-brand-dark">
+                          {test.sample_code || "Sample number pending"}
+                        </p>
+                        <p className="text-xs text-text-secondary">Collected {test.sample_date}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMapSampleId(test.id)}
+                        className="min-h-10 rounded-xl border border-neutral-300 px-3 text-sm font-medium text-brand-dark hover:bg-neutral-50"
                       >
-                        {soilTestStatusLabel(test.status)}
-                      </span>
+                        Show on map
+                      </button>
+                    </div>
+                    <div className="mt-2">
+                      <SoilSampleTracker status={test.status} />
+                    </div>
+                    <div className="mt-3 rounded-xl bg-brand-surface px-3 py-2">
+                      {test.reports?.length ? (
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-status-success">
+                            ✓ Lab report received
+                          </p>
+                          {test.reports.map((report) => (
+                            <p key={report.id} className="text-sm text-neutral-800">
+                              {report.source || "Lab report"} · {report.report_date}
+                              {report.results_summary ? ` · ${report.results_summary}` : ""}
+                              {report.document_url ? (
+                                <>
+                                  {" · "}
+                                  <SignedStorageLink
+                                    bucket={SOIL_REPORTS_BUCKET}
+                                    path={report.document_url}
+                                    className="font-medium text-brand-dark hover:underline"
+                                  >
+                                    View report
+                                  </SignedStorageLink>
+                                </>
+                              ) : null}
+                            </p>
+                          ))}
+                        </div>
+                      ) : soilSampleStage(test.status) === "ready_to_test" ? (
+                        <p className="text-sm text-neutral-800">Waiting for the lab report.</p>
+                      ) : soilSampleStage(test.status) === "rejected" ? (
+                        <p className="text-sm text-status-error">Rejected at pickup. No report.</p>
+                      ) : (
+                        <p className="text-sm text-neutral-800">
+                          Waiting for the supervisor to pick up the sample.
+                        </p>
+                      )}
                     </div>
                     <dl>
                       <DetailRow label="Farms">
@@ -824,6 +939,20 @@ export default function FarmerDetailPage() {
                         }
                       />
                       <OptionalRow
+                        label="Info sheet photo"
+                        value={
+                          test.info_sheet_photo_url ? (
+                            <SignedStorageLink
+                              bucket={FARMER_NETWORK_PHOTOS_BUCKET}
+                              path={test.info_sheet_photo_url}
+                              className="font-medium text-brand-dark hover:underline"
+                            >
+                              View info sheet
+                            </SignedStorageLink>
+                          ) : null
+                        }
+                      />
+                      <OptionalRow
                         label="Mixed sample photo"
                         value={
                           test.sample_photo_url ? (
@@ -838,7 +967,7 @@ export default function FarmerDetailPage() {
                         }
                       />
                       <OptionalRow
-                        label="Receive photo"
+                        label="Bag photo at pickup"
                         value={
                           test.receive_photo_url ? (
                             <SignedStorageLink
@@ -852,7 +981,7 @@ export default function FarmerDetailPage() {
                         }
                       />
                     </dl>
-                    {!readOnly && (test.status === "submitted" || test.status === "stored") ? (
+                    {!readOnly && soilSampleStage(test.status) === "waiting_pickup" ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -863,7 +992,7 @@ export default function FarmerDetailPage() {
                           }}
                           className="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
                         >
-                          Accept
+                          Mark collected
                         </button>
                         <button
                           type="button"
@@ -875,17 +1004,6 @@ export default function FarmerDetailPage() {
                           className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
                         >
                           Reject
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReview({ test, decision: "store" });
-                            setReceiveFile(null);
-                            setFormError(null);
-                          }}
-                          className="rounded-lg border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-                        >
-                          Store
                         </button>
                       </div>
                     ) : null}

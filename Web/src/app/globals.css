@@ -15,6 +15,14 @@
   --series-middle: #276B49;
   --series-bottom: #8A6400;
 
+  /* Status colours (design system §3), contrast-checked on their tints. */
+  --status-success: #276B49;
+  --status-success-bg: #EAF7F0;
+  --status-warning: #8A6400;
+  --status-warning-bg: #FFF6DD;
+  --status-error: #A83232;
+  --status-error-bg: #FCECEC;
+
   --font-satoshi: "Satoshi";
 }
 
@@ -28,6 +36,13 @@
   --color-brand-cream: var(--brand-cream);
   --color-brand-surface: var(--brand-surface);
   --color-brand-green-soft: var(--brand-green-soft);
+  --color-text-secondary: var(--text-secondary);
+  --color-status-success: var(--status-success);
+  --color-status-success-bg: var(--status-success-bg);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-bg: var(--status-warning-bg);
+  --color-status-error: var(--status-error);
+  --color-status-error-bg: var(--status-error-bg);
   --font-sans: var(--font-satoshi), "Satoshi";
   --font-mono: var(--font-satoshi), "Satoshi";
 }
