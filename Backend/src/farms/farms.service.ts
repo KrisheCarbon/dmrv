@@ -11,6 +11,7 @@ import {
   canAccessNetwork,
   canAccessWebPortal,
   isDmrvViewer,
+  normalizeIndianMobile,
   pyrolysisProtocolForRegistry,
   type FarmUpsertPayload,
   type Farmer,
@@ -103,11 +104,13 @@ export class FarmsService {
 
     const location = await this.resolveVillageAssignment(user, payload, true);
     await this.assertRainbowFarmer(payload, location.cluster_id);
+    const mobile = await this.uniqueMobile(payload.mobile_number);
 
     const { data, error } = await this.supabase
       .from('farms')
       .insert({
         ...payload,
+        ...(mobile ? { mobile_number: mobile } : {}),
         created_by: user.id,
         assigned_to: user.id,
         farmer_code: payload.farmer_code ?? null,
@@ -139,11 +142,16 @@ export class FarmsService {
 
     const location = await this.resolveVillageAssignment(user, payload, false);
     await this.assertRainbowFarmer(payload, location.cluster_id);
+    const mobile =
+      payload.mobile_number === undefined
+        ? null
+        : await this.uniqueMobile(payload.mobile_number, id);
 
     const { data, error } = await this.supabase
       .from('farms')
       .update({
         ...payload,
+        ...(mobile ? { mobile_number: mobile } : {}),
         ...location,
       })
       .eq('id', id)
@@ -171,6 +179,75 @@ export class FarmsService {
     if (error) {
       throw new BadRequestException(error.message);
     }
+  }
+
+  /** Farmers already registered with this mobile number, in any format. */
+  private async farmsWithMobile(mobile: string, excludeId?: string) {
+    const head = mobile.slice(0, 5);
+    const tail = mobile.slice(5);
+    // Older rows may hold "+91…", "0…" or a spaced number; match the last
+    // ten digits loosely, then compare exactly after normalizing.
+    const { data, error } = await this.supabase
+      .from('farms')
+      .select('id, farmer_name, farmer_code, village, mobile_number')
+      .or(
+        [
+          `mobile_number.ilike.*${mobile}`,
+          `mobile_number.ilike."*${head} ${tail}"`,
+          `mobile_number.ilike.*${head}-${tail}`,
+        ].join(','),
+      )
+      .limit(50);
+    if (error) throw new BadRequestException(error.message);
+    return (data ?? []).filter(
+      (row) =>
+        row.id !== excludeId &&
+        normalizeIndianMobile(row.mobile_number as string | null) === mobile,
+    );
+  }
+
+  /** The 10-digit number to store, after checking no other farmer has it. */
+  private async uniqueMobile(
+    raw: string | null | undefined,
+    excludeId?: string,
+  ): Promise<string | null> {
+    if (!String(raw ?? '').trim()) return null;
+    const mobile = normalizeIndianMobile(raw);
+    if (!mobile) {
+      throw new BadRequestException(
+        'Enter a valid 10-digit mobile number (optionally with +91).',
+      );
+    }
+    const taken = await this.farmsWithMobile(mobile, excludeId);
+    if (taken.length > 0) {
+      const other = taken[0];
+      throw new BadRequestException(
+        `Mobile number ${mobile} is already registered to ${other.farmer_name || 'another farmer'}${other.village ? ` (${other.village})` : ''}.`,
+      );
+    }
+    return mobile;
+  }
+
+  /** Lets the app warn before saving; the create/update check is the real guard. */
+  async mobileAvailability(
+    user: AuthenticatedUser,
+    raw: string,
+    excludeId?: string,
+  ): Promise<{ valid: boolean; taken: boolean; farmer_name?: string | null; village?: string | null }> {
+    if (!canAccessMobileApp(user.role) && !canAccessWebPortal(user.role)) {
+      throw new ForbiddenException('Not allowed to check farmers');
+    }
+    const mobile = normalizeIndianMobile(raw);
+    if (!mobile) return { valid: false, taken: false };
+    const taken = await this.farmsWithMobile(mobile, excludeId);
+    return taken.length
+      ? {
+          valid: true,
+          taken: true,
+          farmer_name: (taken[0].farmer_name as string | null) ?? null,
+          village: (taken[0].village as string | null) ?? null,
+        }
+      : { valid: true, taken: false };
   }
 
   private async mixingFarmIds(): Promise<Set<string>> {

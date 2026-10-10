@@ -254,15 +254,39 @@ export function calculateEstimatedBiomass(crops: FarmerCrop[]): number {
 }
 
 /**
+ * The 10-digit Indian mobile number behind any way it was typed, or null if
+ * it is not one. "+91 98765 43210", "919876543210", "09876543210" and
+ * "9876543210" all give "9876543210", so they count as the same number.
+ */
+export function normalizeIndianMobile(mobile: string | undefined | null): string | null {
+  const raw = String(mobile || "").trim();
+  if (!raw || /[^\d\s()+-]/.test(raw)) return null;
+  let digits = raw.replace(/\D/g, "");
+  // A "+" means a country code was typed, so it must be +91 and 10 digits.
+  if (raw.startsWith("+") && !(digits.length === 12 && digits.startsWith("91"))) return null;
+  if (digits.length === 12 && digits.startsWith("91")) digits = digits.slice(2);
+  else if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
+  return /^[6-9]\d{9}$/.test(digits) ? digits : null;
+}
+
+/** True when both are the same mobile number, whatever prefix or spacing was used. */
+export function isSameMobileNumber(
+  a: string | undefined | null,
+  b: string | undefined | null,
+): boolean {
+  const left = normalizeIndianMobile(a);
+  return left !== null && left === normalizeIndianMobile(b);
+}
+
+/**
  * A mobile number is valid when left blank, or when it is a 10-digit
- * Indian mobile number (starting 6-9), optionally prefixed with the
- * "+91" country code. E.g. "9381548046" or "+919381548046" are valid,
- * but a 9-digit number or "+91" with fewer/more than 10 digits are not.
+ * Indian mobile number (starting 6-9), optionally prefixed with "+91",
+ * "91" or "0". E.g. "9381548046" or "+91 93815 48046" are valid, but a
+ * 9-digit number is not.
  */
 export function validateMobileNumber(mobile: string | undefined | null): boolean {
-  const trimmed = String(mobile || "").trim().replace(/[\s-]/g, "");
-  if (!trimmed) return true;
-  return /^(\+91)?[6-9]\d{9}$/.test(trimmed);
+  if (!String(mobile || "").trim()) return true;
+  return normalizeIndianMobile(mobile) !== null;
 }
 
 export function validateFarmerForm(form: FarmerForm): string[] {
@@ -359,7 +383,10 @@ export function validateFarmerForm(form: FarmerForm): string[] {
  * code (if present) and any non-digit characters, leaving a plain 10-digit
  * number (or empty string when none was provided).
  */
+/** Digits to store for a mobile number: the 10-digit number when it is a valid Indian mobile. */
 export function normalizeMobileNumber(mobile: string | undefined | null): string {
+  const indian = normalizeIndianMobile(mobile);
+  if (indian) return indian;
   const trimmed = String(mobile || "").trim().replace(/[\s-]/g, "");
   const withoutCountryCode = trimmed.replace(/^\+91/, "");
   return withoutCountryCode.replace(/\D/g, "");

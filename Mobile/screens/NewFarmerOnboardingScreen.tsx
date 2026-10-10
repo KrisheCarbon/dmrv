@@ -18,12 +18,14 @@ import LocationPickerModal, {
 import VillagePicker from "../components/VillagePicker";
 import { getStoredAuthUser } from "../services/auth";
 import {
+  checkMobileOnServer,
   farmerToFormData,
+  findLocalFarmerWithMobile,
   getFarmerByIdLocal,
   saveFarmerLocal,
 } from "../services/farmerService";
 import { loadClusterVillages } from "../services/clusterVillageService";
-import { pyrolysisProtocolForRegistry } from "@krishecarbon/shared";
+import { normalizeIndianMobile, pyrolysisProtocolForRegistry } from "@krishecarbon/shared";
 import { isFarmerSyncing, processSyncQueue } from "../services/syncService";
 import { getCurrentFarmLocation } from "../utils/location";
 import { startLocationCache } from "../services/locationCache";
@@ -241,6 +243,14 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       Alert.alert("Required", "Mobile number is required.");
       return;
     }
+    const mobile = normalizeIndianMobile(form.mobile_number);
+    if (!mobile) {
+      Alert.alert(
+        "Mobile number",
+        "Enter a valid 10-digit mobile number. +91 in front is optional.",
+      );
+      return;
+    }
     if (!form.address.trim()) {
       Alert.alert("Required", "Postal address is required.");
       return;
@@ -309,6 +319,27 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
       const user = await getStoredAuthUser();
       if (!user) {
         Alert.alert("Error", "You must be logged in.");
+        return;
+      }
+
+      // One farmer per mobile number; "+91 98765 43210" and "9876543210" are the same.
+      const onPhone = await findLocalFarmerWithMobile(mobile, farmerId ?? null);
+      if (onPhone) {
+        Alert.alert(
+          "Mobile number already registered",
+          `${mobile} is already registered to ${onPhone.farmerName}${onPhone.village ? ` (${onPhone.village})` : ""}. Each farmer needs their own mobile number.`,
+        );
+        return;
+      }
+      const existingServerId = farmerId
+        ? (await getFarmerByIdLocal(farmerId).catch(() => null))?.serverId ?? null
+        : null;
+      const onServer = await checkMobileOnServer(mobile, existingServerId);
+      if (onServer?.taken) {
+        Alert.alert(
+          "Mobile number already registered",
+          `${mobile} is already registered to ${onServer.farmer_name || "another farmer"}${onServer.village ? ` (${onServer.village})` : ""}. Each farmer needs their own mobile number.`,
+        );
         return;
       }
 
@@ -455,6 +486,7 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         />
         <FormInput
           label="Mobile number *"
+          placeholder="10 digits, +91 optional"
           value={form.mobile_number}
           onChangeText={(t) => setField("mobile_number", t)}
           keyboardType="phone-pad"

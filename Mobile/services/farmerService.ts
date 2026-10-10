@@ -1,6 +1,7 @@
 import {
   calculateEstimatedBiomass,
   canAccessWebPortal,
+  normalizeIndianMobile,
   normalizeMobileNumber,
   type FarmerForm,
 } from "@krishecarbon/shared";
@@ -8,6 +9,7 @@ import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import { farmerToRow, rowToFarmer, syncQueueItemToRow, type Farmer } from "../database/types";
 import { generateFarmerCode } from "./farmersNetworkService";
+import { backendFetch } from "./backendApi";
 
 export type ExtendedFarmerForm = FarmerForm & {
   father_spouse_name?: string;
@@ -107,6 +109,48 @@ function numOrNull(value: string | number | null | undefined): number | null {
   if (value === "" || value == null) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/** A farmer on this phone already using this mobile number (any format), if any. */
+export async function findLocalFarmerWithMobile(
+  mobile: string,
+  excludeFarmerId?: string | null,
+): Promise<Farmer | null> {
+  const wanted = normalizeIndianMobile(mobile);
+  if (!wanted) return null;
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ id: string; mobile_number: string | null }>(
+    "SELECT id, mobile_number FROM farmers WHERE mobile_number IS NOT NULL AND mobile_number != ''",
+  );
+  const match = rows.find(
+    (row) => row.id !== excludeFarmerId && normalizeIndianMobile(row.mobile_number) === wanted,
+  );
+  return match ? getFarmerByIdLocal(match.id) : null;
+}
+
+export type ServerMobileCheck = {
+  valid: boolean;
+  taken: boolean;
+  farmer_name?: string | null;
+  village?: string | null;
+};
+
+/**
+ * Ask the server whether another farmer (from any user) has this number.
+ * Returns null when offline or the server cannot answer in time; the server
+ * still refuses a duplicate when the farmer syncs.
+ */
+export async function checkMobileOnServer(
+  mobile: string,
+  excludeServerId?: string | null,
+): Promise<ServerMobileCheck | null> {
+  const params = new URLSearchParams({ mobile });
+  if (excludeServerId) params.set("excludeId", excludeServerId);
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000));
+  const request = backendFetch<ServerMobileCheck>(`/farms/mobile-check?${params}`).catch(
+    () => null,
+  );
+  return Promise.race([request, timeout]);
 }
 
 export async function saveFarmerLocal(

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { FarmUpsertPayload } from '@krishecarbon/shared';
@@ -23,6 +24,16 @@ export class FarmsController {
   @Get()
   list(@AuthUser() user: AuthenticatedUser) {
     return this.farmsService.findAll(user);
+  }
+
+  /** Is this mobile number free? Accepts any format, e.g. +91 98765 43210. */
+  @Get('mobile-check')
+  mobileCheck(
+    @AuthUser() user: AuthenticatedUser,
+    @Query('mobile') mobile: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return this.farmsService.mobileAvailability(user, mobile ?? '', excludeId);
   }
 
   @Get(':id')
