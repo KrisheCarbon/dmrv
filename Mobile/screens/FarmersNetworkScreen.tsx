@@ -106,51 +106,43 @@ export default function FarmersNetworkScreen({ navigation }) {
 
         <Section
           title="Enter details"
-          hint="Record information in the field."
+          hint="Open a list to see entries and drafts; tap + to add."
         >
           <PathCard
             title="New farmer"
-            badge="Enter info"
-            subtitle="Name, land, and major crop"
-            onPress={() => navigation.navigate("NewFarmerOnboarding")}
+            badge="Entries"
+            subtitle="Registered farmers, drafts and upload status"
+            onPress={() => navigation.navigate("NetworkEntries", { kind: "farmer" })}
           />
           <PathCard
             title="Farms onboarding"
-            badge="Enter info"
-            subtitle="Area, map boundary, season, photos"
-            onPress={() => navigation.navigate("FieldForm", {})}
+            badge="Entries"
+            subtitle="Farms, boundary mapped or not, drafts"
+            onPress={() => navigation.navigate("NetworkEntries", { kind: "farm" })}
           />
           <PathCard
             title="Soil testing"
-            badge="Enter info"
-            subtitle="4+ points inside the farm, mix, then photograph"
-            onPress={() => navigation.navigate("SoilTestForm", {})}
-          />
-          <PathCard
-            title="Soil sample tracking"
-            badge={isSupervisor ? "Pick up" : "Track"}
+            badge={isSupervisor ? "Pick up" : "Entries"}
             subtitle={
               isSupervisor
-                ? "Pick up waiting samples; see ready and tested"
-                : "Waiting pickup, ready to test, tested"
+                ? "Samples, drafts, pickup, ready to test, tested"
+                : "Samples, drafts, and their tracking status"
             }
             onPress={() => navigation.navigate("SoilSamplesInbox")}
           />
           <PathCard
             title="Farmer consent"
-            badge="Enter info"
-            subtitle="Signed photos and expiry date"
-            onPress={() => navigation.navigate("ConsentForm", {})}
+            badge="Entries"
+            subtitle="Consents, validity and drafts"
+            onPress={() => navigation.navigate("NetworkEntries", { kind: "consent" })}
           />
           {isSupervisor ? (
-            <>
-              <PathCard
-                title="Soil reports"
-                badge="Enter info"
-                subtitle="Upload lab PDF or photo"
-                onPress={() => navigation.navigate("SoilReportUpload")}
-              />
-            </>
+            <PathCard
+              title="Soil reports"
+              badge="Entries"
+              subtitle="Lab reports attached to samples, drafts"
+              onPress={() => navigation.navigate("NetworkEntries", { kind: "soil_report" })}
+            />
           ) : null}
         </Section>
       </ScrollView>

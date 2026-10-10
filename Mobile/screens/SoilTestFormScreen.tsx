@@ -493,7 +493,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
             <PrimaryButton
               title="View sample tracking"
               variant="outline"
-              onPress={() => navigation.replace("SoilSamplesInbox")}
+              onPress={() => navigation.navigate("SoilSamplesInbox")}
             />
           </View>
         </View>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -11,6 +12,9 @@ import { soilSampleStage, type SoilSampleStage } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import SoilSampleTracker from "../components/SoilSampleTracker";
 import FormPicker from "../components/FormPicker";
+import AddEntryButton from "../components/AddEntryButton";
+import EntryStatusPill from "../components/EntryStatusPill";
+import { NETWORK_FORM_DRAFTS, clearFormDraft, readFormDraft } from "../utils/formDrafts";
 import { listAllSoilTests } from "../services/farmersNetworkService";
 import { getFarmerByIdLocal } from "../services/farmerService";
 import { processSyncQueue } from "../services/syncService";
@@ -45,8 +49,43 @@ export default function SoilSamplesInboxScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [isSupervisor, setIsSupervisor] = useState(false);
+  const [draftSummary, setDraftSummary] = useState<string | null>(null);
+
+  const loadDraft = useCallback(async () => {
+    const draft = await readFormDraft<Record<string, any>>(NETWORK_FORM_DRAFTS.soilSample);
+    const sites = Array.isArray(draft?.sampleSites) ? draft.sampleSites : [];
+    const photos = sites.filter((site) => site?.photo_uri || site?.photo_url).length;
+    const farmerId = typeof draft?.selectedFarmerId === "string" ? draft.selectedFarmerId : "";
+    if (!farmerId && photos === 0 && !draft?.samplePhotoUri) {
+      setDraftSummary(null);
+      return;
+    }
+    const farmer = farmerId ? await getFarmerByIdLocal(farmerId).catch(() => null) : null;
+    setDraftSummary(
+      `${farmer?.farmerName || "Farmer not chosen"} · ${photos} point photo${photos === 1 ? "" : "s"}`,
+    );
+  }, []);
+
+  function deleteDraft() {
+    Alert.alert(
+      "Delete this draft?",
+      "The farmer, farm and photos in this unfinished sample will be removed. This cannot be undone.",
+      [
+        { text: "Keep draft", style: "cancel" },
+        {
+          text: "Delete draft",
+          style: "destructive",
+          onPress: async () => {
+            await clearFormDraft(NETWORK_FORM_DRAFTS.soilSample);
+            setDraftSummary(null);
+          },
+        },
+      ],
+    );
+  }
 
   const load = useCallback(async () => {
+    loadDraft().catch(() => {});
     await pullSoilNetworkFromServer().catch(() => {});
     const tests = await listAllSoilTests();
     const mapped = await Promise.all(
@@ -112,12 +151,20 @@ export default function SoilSamplesInboxScreen({ navigation }) {
   return (
     <ScreenShell>
       <View style={styles.header}>
-        <Text style={styles.title}>Soil samples</Text>
-        <Text style={styles.subtitle}>
-          {isSupervisor
-            ? "Open a sample waiting for pickup to mark it collected."
-            : "Track each sample from collection to lab result."}
-        </Text>
+        <View style={styles.titleRow}>
+          <View style={styles.titleText}>
+            <Text style={styles.title}>Soil samples</Text>
+            <Text style={styles.subtitle}>
+              {isSupervisor
+                ? "Open a sample waiting for pickup to mark it collected."
+                : "Track each sample from collection to lab result."}
+            </Text>
+          </View>
+          <AddEntryButton
+            label="Collect a new soil sample"
+            onPress={() => navigation.navigate("SoilTestForm", {})}
+          />
+        </View>
         <FormPicker
           label="Show"
           value={filter}
@@ -139,7 +186,36 @@ export default function SoilSamplesInboxScreen({ navigation }) {
             tintColor={colors.brunswick}
           />
         }
-        ListEmptyComponent={<Text style={styles.empty}>No soil samples here.</Text>}
+        ListHeaderComponent={
+          draftSummary ? (
+            <View style={[styles.card, styles.draftCard]}>
+              <Text style={styles.code}>Unfinished sample</Text>
+              <Text style={styles.meta}>{draftSummary}</Text>
+              <EntryStatusPill label="Draft · not submitted" tone="draft" />
+              <View style={styles.draftActions}>
+                <Pressable
+                  style={styles.draftButton}
+                  onPress={() => navigation.navigate("SoilTestForm", {})}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.draftContinue}>Continue</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.draftButton, styles.draftDelete]}
+                  onPress={deleteDraft}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.draftDeleteText}>Delete draft</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          <Text style={styles.empty}>
+            {draftSummary ? "" : "No soil samples here. Tap + to collect one."}
+          </Text>
+        }
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -174,6 +250,46 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
     gap: spacing.xs,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+  },
+  titleText: {
+    flex: 1,
+    gap: 4,
+  },
+  draftCard: {
+    borderColor: colors.warning,
+    borderStyle: "dashed",
+  },
+  draftActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  draftButton: {
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.brunswick,
+    backgroundColor: colors.white,
+  },
+  draftContinue: {
+    fontFamily: fonts.bold,
+    fontSize: typeScale.label,
+    color: colors.brunswick,
+  },
+  draftDelete: {
+    borderColor: colors.error,
+  },
+  draftDeleteText: {
+    fontFamily: fonts.bold,
+    fontSize: typeScale.label,
+    color: colors.error,
   },
   title: {
     fontSize: typeScale.title,
