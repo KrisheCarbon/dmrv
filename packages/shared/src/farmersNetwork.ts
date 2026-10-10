@@ -132,14 +132,48 @@ export type SoilTestStatus = (typeof SOIL_TEST_STATUS_VALUES)[number];
 
 export type SoilSampleTone = "none" | "collected" | "rejected" | "accepted";
 
+/**
+ * Where a soil sample is on its way to the lab. A climapreneur's sample waits
+ * for a supervisor to pick it up; a supervisor's own sample, or one a
+ * supervisor has picked up, is ready to test; a sample with a lab report is
+ * tested. "submitted" and "stored" are older statuses kept for existing rows.
+ */
+export type SoilSampleStage =
+  | "waiting_pickup"
+  | "ready_to_test"
+  | "tested"
+  | "rejected";
+
+export function soilSampleStage(status: string | null | undefined): SoilSampleStage {
+  if (status === "reported") return "tested";
+  if (status === "rejected") return "rejected";
+  if (status === "accepted" || status === "received" || status === "stored") {
+    return "ready_to_test";
+  }
+  return "waiting_pickup";
+}
+
+export const SOIL_SAMPLE_TRACK_STEPS = [
+  { key: "collected", label: "Collected" },
+  { key: "ready_to_test", label: "Ready to test" },
+  { key: "tested", label: "Tested" },
+] as const;
+
+/** Number of tracker steps done (1–3). A rejected sample stops after step 1. */
+export function soilSampleStepsDone(status: string | null | undefined): number {
+  const stage = soilSampleStage(status);
+  if (stage === "tested") return 3;
+  if (stage === "ready_to_test") return 2;
+  return 1;
+}
+
 export function soilTestStatusLabel(status: string | null | undefined): string {
-  if (status === "reported") return "Report ready";
-  if (status === "accepted" || status === "received") return "Accepted";
-  if (status === "rejected") return "Rejected";
-  if (status === "stored") return "Stored";
-  if (status === "submitted") return "Submitted to supervisor";
-  if (status === "collected") return "Collected";
-  return "Not started";
+  if (!status) return "Not started";
+  const stage = soilSampleStage(status);
+  if (stage === "tested") return "Tested";
+  if (stage === "ready_to_test") return "Ready to test";
+  if (stage === "rejected") return "Rejected";
+  return "Waiting for supervisor pickup";
 }
 
 /** Farmers-list color: yellow = collected/pending, red = rejected, green = accepted. */
@@ -530,6 +564,91 @@ export function soilSampleSitesForApi(sites: SoilSampleSite[]): SoilSampleSite[]
   }));
 }
 
+/** Ray-casting test; points exactly on an edge may fall either way. */
+export function isPointInPolygon(point: GeoPoint, polygon: GeoPoint[]): boolean {
+  if (polygon.length < 3) return false;
+  const x = point.longitude;
+  const y = point.latitude;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const xi = polygon[i].longitude;
+    const yi = polygon[i].latitude;
+    const xj = polygon[j].longitude;
+    const yj = polygon[j].latitude;
+    const crosses =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+/** First farm whose mapped boundary contains the point, or null. */
+export function farmContainingPoint<
+  T extends { boundary_geojson?: string | Record<string, unknown> | null },
+>(point: GeoPoint, farms: T[]): T | null {
+  for (const farm of farms) {
+    if (isPointInPolygon(point, parseBoundaryGeojson(farm.boundary_geojson))) {
+      return farm;
+    }
+  }
+  return null;
+}
+
+export function hasMappedBoundary(
+  boundary: string | Record<string, unknown> | null | undefined,
+): boolean {
+  return parseBoundaryGeojson(boundary).length >= 3;
+}
+
+/** Collector tag when the user has no assigned collector code yet. */
+export function fallbackCollectorCode(userId: string): string {
+  const hex = userId.replace(/[^0-9a-f]/gi, "").slice(0, 8) || "0";
+  return `U${(parseInt(hex, 16) % 46656).toString(36).toUpperCase().padStart(3, "0")}`;
+}
+
+/** Up to four letters of the village name, e.g. "Kondapur" → "KOND". */
+export function soilSampleVillagePart(village: string | null | undefined): string {
+  const letters = (village ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return letters.slice(0, 4) || "VILL";
+}
+
+/**
+ * Human-readable sample number written on the sample bag:
+ * VILLAGE-YYMMDD-COLLECTOR-NN, e.g. KOND-261010-C14-01. The collector code is
+ * unique per user and NN counts that collector's samples for the day, so the
+ * number can be issued offline without colliding with another collector.
+ */
+export function formatSoilSampleCode(input: {
+  village: string | null | undefined;
+  sampleDate: string;
+  collectorCode: string;
+  serial: number;
+}): string {
+  const date = input.sampleDate.replace(/-/g, "").slice(2, 8);
+  const serial = String(Math.max(1, Math.floor(input.serial))).padStart(2, "0");
+  return [
+    soilSampleVillagePart(input.village),
+    date,
+    input.collectorCode.toUpperCase(),
+    serial,
+  ].join("-");
+}
+
+/** Serial (NN) of a sample code issued to a collector on a date, else null. */
+export function soilSampleCodeSerial(
+  code: string | null | undefined,
+  sampleDate: string,
+  collectorCode: string,
+): number | null {
+  if (!code) return null;
+  const parts = code.split("-");
+  if (parts.length !== 4) return null;
+  const date = sampleDate.replace(/-/g, "").slice(2, 8);
+  if (parts[1] !== date || parts[2] !== collectorCode.toUpperCase()) return null;
+  const serial = Number(parts[3]);
+  return Number.isInteger(serial) ? serial : null;
+}
+
 export interface SoilReportRecord {
   id: string;
   farm_id: string;
@@ -545,6 +664,7 @@ export interface SoilReportRecord {
 
 export interface SoilTestRecord {
   id: string;
+  sample_code?: string | null;
   farm_id: string;
   field_ids: string[];
   sample_date: string;
@@ -589,6 +709,7 @@ export interface SoilTestRecord {
 
 export interface SoilTestUpsertPayload {
   id?: string;
+  sample_code?: string | null;
   farm_id: string;
   field_ids: string[];
   sample_date?: string;
