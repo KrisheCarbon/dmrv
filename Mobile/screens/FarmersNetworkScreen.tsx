@@ -69,7 +69,12 @@ export default function FarmersNetworkScreen({ navigation }) {
 
   /** First entry goes straight to the form; after that the card opens the list. */
   async function openModule(module: NetworkModule) {
-    const count = await countNetworkEntries(module).catch(() => 1);
+    // Supervisors pick up samples collected by others, which arrive from the
+    // server, so they always get the list (it downloads waiting samples).
+    const count =
+      module === "soil_sample" && isSupervisor
+        ? 1
+        : await countNetworkEntries(module).catch(() => 1);
     if (count === 0) {
       const form: Record<NetworkModule, string> = {
         farmer: "NewFarmerOnboarding",
