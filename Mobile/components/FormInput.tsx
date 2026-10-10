@@ -18,6 +18,7 @@ interface FormInputProps {
   multiline?: boolean;
   error?: string;
   onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 export default function FormInput({
@@ -30,6 +31,7 @@ export default function FormInput({
   multiline = false,
   error,
   onFocus,
+  onBlur,
 }: FormInputProps) {
   const [focused, setFocused] = useState(false);
 
@@ -56,7 +58,10 @@ export default function FormInput({
           setFocused(true);
           onFocus?.();
         }}
-        onBlur={() => setFocused(false)}
+        onBlur={() => {
+          setFocused(false);
+          onBlur?.();
+        }}
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>

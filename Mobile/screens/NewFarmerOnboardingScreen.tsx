@@ -103,9 +103,29 @@ function ToggleRow({
   );
 }
 
+/** Why a typed mobile number is not accepted, or null when it is fine (or blank). */
+function mobileNumberProblem(value: string): string | null {
+  if (!value.trim() || normalizeIndianMobile(value)) return null;
+  const digits = value.replace(/\D/g, "");
+  const local =
+    value.trim().startsWith("+") || (digits.length > 10 && digits.startsWith("91"))
+      ? digits.replace(/^91/, "")
+      : digits.replace(/^0/, "");
+  if (/[^\d\s()+-]/.test(value.trim())) return "Use digits only. +91 in front is optional.";
+  if (local.length < 10) {
+    return `Mobile number must be 10 digits. You entered ${local.length}.`;
+  }
+  if (local.length > 10) {
+    return `Mobile number must be 10 digits. You entered ${local.length}.`;
+  }
+  return "Enter a valid Indian mobile number starting with 6, 7, 8 or 9.";
+}
+
 export default function NewFarmerOnboardingScreen({ navigation, route }) {
   const farmerId = route?.params?.farmerId as string | undefined;
   const isEdit = Boolean(farmerId);
+  /** Show the mobile number problem once the user has left the field or tried to save. */
+  const [mobileTouched, setMobileTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEdit);
   const [locating, setLocating] = useState(false);
@@ -245,10 +265,8 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
     }
     const mobile = normalizeIndianMobile(form.mobile_number);
     if (!mobile) {
-      Alert.alert(
-        "Mobile number",
-        "Enter a valid 10-digit mobile number. +91 in front is optional.",
-      );
+      setMobileTouched(true);
+      Alert.alert("Mobile number", mobileNumberProblem(form.mobile_number) ?? "");
       return;
     }
     if (!form.address.trim()) {
@@ -487,6 +505,8 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
         <FormInput
           label="Mobile number *"
           placeholder="10 digits, +91 optional"
+          error={mobileTouched ? mobileNumberProblem(form.mobile_number) ?? undefined : undefined}
+          onBlur={() => setMobileTouched(Boolean(form.mobile_number.trim()))}
           value={form.mobile_number}
           onChangeText={(t) => setField("mobile_number", t)}
           keyboardType="phone-pad"
