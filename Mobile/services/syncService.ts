@@ -22,7 +22,6 @@ import {
   syncFarmField,
   syncFarmerConsent,
   syncSoilTest,
-  pullFarmFieldsFromServer,
   pullSoilNetworkFromServer,
 } from "./farmerNetworkSync";
 import { pullClusterVillages } from "./clusterVillageService";
@@ -326,9 +325,6 @@ async function runSyncQueue() {
     await reconcileFarmersWithServer(userId);
     await pullClusterVillages().catch((err) => {
       console.warn("[sync] cluster villages pull failed:", syncErrorMessage(err));
-    });
-    await pullFarmFieldsFromServer().catch((err) => {
-      console.warn("[sync] farm fields pull failed:", syncErrorMessage(err));
     });
     await pullSoilNetworkFromServer().catch((err) => {
       console.warn("[sync] farmers network pull failed:", syncErrorMessage(err));

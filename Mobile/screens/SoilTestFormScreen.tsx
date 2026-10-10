@@ -17,7 +17,7 @@ import {
 } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import FormDateField from "../components/FormDateField";
-import FormMultiSelectDropdown from "../components/FormMultiSelectDropdown";
+import FormPicker from "../components/FormPicker";
 import PrimaryButton from "../components/PrimaryButton";
 import FarmerPicker from "../components/FarmerPicker";
 import {
@@ -26,7 +26,7 @@ import {
   soilFarmContaining,
 } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
-import { pullFarmFieldsFromServer } from "../services/farmerNetworkSync";
+import { pullFarmFieldsForFarmer } from "../services/farmerNetworkSync";
 import { getUserProfile, type UserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
 import { generateId } from "../database/sqlHelpers";
@@ -73,8 +73,9 @@ export default function SoilTestFormScreen({ route, navigation }) {
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
   const [savedCode, setSavedCode] = useState<string | null>(null);
   const [capturingSheet, setCapturingSheet] = useState(false);
-  /** Bumped after farms download so the farmer list re-reads them. */
-  const [farmsVersion, setFarmsVersion] = useState(0);
+  const [farmsLoading, setFarmsLoading] = useState(false);
+  const [farmsOffline, setFarmsOffline] = useState(false);
+  const [draftDismissed, setDraftDismissed] = useState(false);
   const {
     value: form,
     setValue: setForm,
@@ -96,9 +97,6 @@ export default function SoilTestFormScreen({ route, navigation }) {
   useEffect(() => {
     getUserProfile()
       .then(setProfile)
-      .catch(() => {});
-    pullFarmFieldsFromServer()
-      .then(() => setFarmsVersion((v) => v + 1))
       .catch(() => {});
   }, []);
 
@@ -129,13 +127,21 @@ export default function SoilTestFormScreen({ route, navigation }) {
     [mappedFields],
   );
 
+  /** Fetch only the selected farmer's farms; fall back to what is on the phone. */
   const loadFields = useCallback(async () => {
     if (!farmerId) {
       setFarmerFields([]);
       setForm((p) => ({ ...p, fieldIds: [] }));
       return;
     }
-    const list = await listFieldsForFarmer(farmerId);
+    setFarmsLoading(true);
+    try {
+      await pullFarmFieldsForFarmer(farmerId);
+      setFarmsOffline(false);
+    } catch {
+      setFarmsOffline(true);
+    }
+    const list = await listFieldsForFarmer(farmerId).finally(() => setFarmsLoading(false));
     setFarmerFields(list);
     const usable = list.filter(
       (field) => field.status === "active" && hasMappedBoundary(field.boundaryGeojson),
@@ -152,7 +158,76 @@ export default function SoilTestFormScreen({ route, navigation }) {
   useEffect(() => {
     if (!hydrated) return;
     loadFields().catch(() => {});
-  }, [loadFields, hydrated, farmsVersion]);
+  }, [loadFields, hydrated]);
+
+  const hasPhotos =
+    completedSites > 0 || Boolean(form.samplePhotoUri) || Boolean(form.infoSheetPhotoUri);
+
+  function resetPhotos<T extends typeof form>(prev: T): T {
+    return {
+      ...prev,
+      sampleSites: createSoilSampleSites(),
+      samplePhotoUri: "",
+      sampleLat: null,
+      sampleLng: null,
+      sampleCapturedAt: "",
+      infoSheetPhotoUri: "",
+      infoSheetLat: null,
+      infoSheetLng: null,
+      infoSheetCapturedAt: "",
+    };
+  }
+
+  /** Photos belong to one farmer's farm, so switching farmer clears them. */
+  function changeFarmer(id: string) {
+    if (id === farmerId) return;
+    const apply = () =>
+      setForm((prev) => ({ ...resetPhotos(prev), selectedFarmerId: id, fieldIds: [] }));
+    if (!hasPhotos || !farmerId) {
+      apply();
+      return;
+    }
+    Alert.alert(
+      "Change farmer?",
+      "Photos already taken belong to the current farmer's farm and will be removed.",
+      [
+        { text: "Keep farmer", style: "cancel" },
+        { text: "Change farmer", style: "destructive", onPress: apply },
+      ],
+    );
+  }
+
+  function discardDraft() {
+    Alert.alert(
+      "Delete this draft?",
+      "The farmer, farm and photos entered so far will be removed from this form.",
+      [
+        { text: "Keep draft", style: "cancel" },
+        {
+          text: "Delete draft",
+          style: "destructive",
+          onPress: async () => {
+            await clearDraft();
+            setForm(emptySoilForm(""));
+            setFarmerFields([]);
+            setDraftDismissed(true);
+          },
+        },
+      ],
+    );
+  }
+
+  /** Names of photos that are not inside the selected farm right now. */
+  function photosOutsideFarm(): string[] {
+    const outside: string[] = [];
+    for (const site of completedSoilSampleSites(sampleSites)) {
+      if (!farmLabelFor(site.latitude, site.longitude)) outside.push(site.name);
+    }
+    if (form.samplePhotoUri && !farmLabelFor(form.sampleLat, form.sampleLng)) {
+      outside.push("Mixed sample photo");
+    }
+    return outside;
+  }
 
   function farmLabelFor(latitude: number | null | undefined, longitude: number | null | undefined) {
     if (latitude == null || longitude == null) return null;
@@ -334,6 +409,14 @@ export default function SoilTestFormScreen({ route, navigation }) {
       Alert.alert("Required", "Select the farm this soil sample is taken from.");
       return;
     }
+    const outside = photosOutsideFarm();
+    if (outside.length > 0) {
+      Alert.alert(
+        "Not inside the farm",
+        `${outside.join(", ")} ${outside.length === 1 ? "is" : "are"} not inside farm ${selectedFields[0].fieldCode}. Retake ${outside.length === 1 ? "it" : "them"} inside the farm boundary before saving.`,
+      );
+      return;
+    }
     if (completedSites < MIN_SOIL_SAMPLE_SITES) {
       Alert.alert(
         "Required",
@@ -426,31 +509,49 @@ export default function SoilTestFormScreen({ route, navigation }) {
       >
         <Text style={styles.title}>Soil testing</Text>
         <Text style={styles.subtitle}>
-          Pick the farm, photograph 4+ dig spots inside it, mix, then photograph the
-          mixed sample.
+          Pick the farmer and farm, photograph 4+ dig spots inside it, mix, photograph
+          the mixed sample and the info sheet. Leaving keeps a draft.
         </Text>
 
-        <FarmerPicker
-          key={`farmers-${farmsVersion}`}
-          value={farmerId}
-          onChange={(id) => setForm((prev) => ({ ...prev, selectedFarmerId: id }))}
-          requireFields
-        />
+        {restoredFromDraft && !draftDismissed && (farmerId || hasPhotos) ? (
+          <View style={styles.draftBanner}>
+            <Text style={styles.draftText}>
+              Draft restored. Continue where you left off, or delete it to start again.
+            </Text>
+            <Pressable
+              style={styles.draftDelete}
+              onPress={discardDraft}
+              accessibilityRole="button"
+            >
+              <Text style={styles.draftDeleteText}>Delete draft</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-        {farmerId && mappedFields.length === 0 ? (
-          <Text style={styles.hint}>
-            This farmer has no farm with a mapped boundary. Draw the farm boundary in
-            Farms onboarding before soil testing.
-          </Text>
+        <FarmerPicker value={farmerId} onChange={changeFarmer} />
+
+        {farmerId && farmsLoading ? (
+          <Text style={styles.hint}>Loading this farmer's farms…</Text>
+        ) : farmerId && mappedFields.length === 0 ? (
+          <View style={styles.blocked}>
+            <Text style={styles.blockedTitle}>No mapped farm for this farmer</Text>
+            <Text style={styles.hint}>
+              {farmsOffline
+                ? "Could not reach the server, and no mapped farm is saved on this phone. Connect to the internet and reopen, or map the farm in Farms onboarding."
+                : "Add the farm and draw its boundary in Farms onboarding before taking a soil sample."}
+            </Text>
+          </View>
         ) : farmerId ? (
-          <FormMultiSelectDropdown
+          <FormPicker
             label="Farm *"
             placeholder="Select the farm being sampled…"
-            values={form.fieldIds}
+            value={form.fieldIds[0] ?? ""}
             options={fieldOptions}
-            onChange={changeFarms}
-            emptyText="No mapped farms for this farmer."
+            onValueChange={(value) => changeFarms(value ? [value] : [])}
           />
+        ) : null}
+        {farmerId && farmsOffline && mappedFields.length > 0 ? (
+          <Text style={styles.hint}>Offline: showing farms saved on this phone.</Text>
         ) : null}
         {farmerId && unmappedCount > 0 ? (
           <Text style={styles.hint}>
@@ -501,6 +602,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
               />
               {farmCode ? (
                 <Text style={styles.inside}>✓ Inside farm {farmCode}</Text>
+              ) : photoUri && selectedFields.length > 0 ? (
+                <Text style={styles.outside}>✕ Not inside the selected farm. Retake it.</Text>
               ) : null}
               {sampleSites.length > MIN_SOIL_SAMPLE_SITES ? (
                 <Pressable
@@ -555,6 +658,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
           <Text style={styles.inside}>
             ✓ Inside farm {farmLabelFor(form.sampleLat, form.sampleLng)}
           </Text>
+        ) : form.samplePhotoUri && selectedFields.length > 0 ? (
+          <Text style={styles.outside}>✕ Not inside the selected farm. Retake it.</Text>
         ) : null}
 
         <PhotoSlot
@@ -655,6 +760,51 @@ const styles = StyleSheet.create({
     fontSize: typeScale.label,
     fontFamily: fonts.medium,
     color: colors.success,
+  },
+  outside: {
+    fontSize: typeScale.label,
+    fontFamily: fonts.medium,
+    color: colors.error,
+  },
+  draftBanner: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.warningBg,
+    gap: spacing.sm,
+  },
+  draftText: {
+    fontSize: typeScale.label,
+    fontFamily: fonts.medium,
+    color: colors.text,
+    lineHeight: 18,
+  },
+  draftDelete: {
+    minHeight: 48,
+    alignSelf: "flex-start",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.error,
+    backgroundColor: colors.white,
+  },
+  draftDeleteText: {
+    fontSize: typeScale.label,
+    fontFamily: fonts.bold,
+    color: colors.error,
+  },
+  blocked: {
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDark,
+    backgroundColor: colors.white,
+    gap: spacing.xs,
+  },
+  blockedTitle: {
+    fontSize: typeScale.body,
+    fontFamily: fonts.bold,
+    color: colors.brunswick,
   },
   siteCard: {
     gap: spacing.xs,

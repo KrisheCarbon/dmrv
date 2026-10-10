@@ -15,13 +15,16 @@ import SoilSampleTracker from "../components/SoilSampleTracker";
 import {
   getFieldById,
   getSoilTestById,
+  listSoilReportsForTest,
   reviewSoilSampleLocal,
 } from "../services/farmersNetworkService";
+import { pullSoilNetworkFromServer } from "../services/farmerNetworkSync";
+import { openSoilReport } from "../utils/farmerNetworkPhotoUpload";
 import { getFarmerByIdLocal } from "../services/farmerService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import { getUserProfile, type UserProfile } from "../services/userProfile";
 import { processSyncQueue } from "../services/syncService";
-import type { SoilTest } from "../database/types";
+import type { SoilReport, SoilTest } from "../database/types";
 import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 
 /**
@@ -42,11 +45,14 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
     captured_at: string;
   } | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [reports, setReports] = useState<SoilReport[]>([]);
+  const [openingReportId, setOpeningReportId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     const found = await getSoilTestById(sampleId);
     setTest(found);
+    setReports(await listSoilReportsForTest(found.id));
     const farmer = found.farmerName
       ? null
       : await getFarmerByIdLocal(found.farmerId).catch(() => null);
@@ -64,10 +70,18 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
 
   useEffect(() => {
     getUserProfile().then(setProfile).catch(() => {});
+    // Show what is on the phone first, then refresh in case a report arrived.
+    pullSoilNetworkFromServer()
+      .then(() => load())
+      .catch(() => {});
     load().catch((err) => {
       Alert.alert("Error", err instanceof Error ? err.message : String(err), [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
+    });
+    // Coming back from the report upload should show the new report.
+    return navigation.addListener("focus", () => {
+      load().catch(() => {});
     });
   }, [load, navigation]);
 
@@ -75,6 +89,23 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
   const isSupervisor = role === "supervisor" || role === "admin" || role === "manager";
   const stage = soilSampleStage(test?.status);
   const canPickUp = isSupervisor && stage === "waiting_pickup";
+
+  async function viewReport(report: SoilReport) {
+    try {
+      setOpeningReportId(report.id);
+      if (report.documentUrl) {
+        await openSoilReport(report.documentUrl);
+      } else if (report.documentUri) {
+        await openSoilReport(report.documentUri);
+      } else {
+        Alert.alert("Report", "This report file is not available yet.");
+      }
+    } catch (err) {
+      Alert.alert("Report", err instanceof Error ? err.message : String(err));
+    } finally {
+      setOpeningReportId(null);
+    }
+  }
 
   async function takeReceivePhoto() {
     try {
@@ -164,6 +195,39 @@ export default function SoilSampleReceiveScreen({ route, navigation }) {
           <Detail label="Picked up by" value={test.receivedByName} />
           <Detail label="Sampling points" value={pointsTaken ? `${pointsTaken} photographed` : null} />
         </View>
+
+        {reports.length > 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.reportTitle}>✓ Lab report received</Text>
+            {reports.map((report) => (
+              <View key={report.id} style={styles.reportRow}>
+                <Text style={styles.detailValue}>
+                  {report.source || "Lab report"} · {report.reportDate}
+                </Text>
+                {report.resultsSummary ? (
+                  <Text style={styles.hint}>{report.resultsSummary}</Text>
+                ) : null}
+                <PrimaryButton
+                  title={openingReportId === report.id ? "Opening…" : "View report"}
+                  variant="outline"
+                  onPress={() => viewReport(report)}
+                  loading={openingReportId === report.id}
+                />
+              </View>
+            ))}
+          </View>
+        ) : stage === "ready_to_test" ? (
+          <View style={styles.card}>
+            <Text style={styles.detailValue}>Waiting for the lab report.</Text>
+            {isSupervisor ? (
+              <PrimaryButton
+                title="Upload lab report"
+                variant="outline"
+                onPress={() => navigation.navigate("SoilReportUpload", { sampleId: test.id })}
+              />
+            ) : null}
+          </View>
+        ) : null}
 
         {samplePhoto ? (
           <>
@@ -274,6 +338,14 @@ const styles = StyleSheet.create({
     fontSize: typeScale.body,
     fontFamily: fonts.regular,
     color: colors.text,
+  },
+  reportTitle: {
+    fontSize: typeScale.heading,
+    fontFamily: fonts.bold,
+    color: colors.success,
+  },
+  reportRow: {
+    gap: spacing.xs,
   },
   section: {
     marginTop: spacing.md,

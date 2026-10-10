@@ -586,15 +586,6 @@ export async function listSoilTestsForFarmer(farmerId: string): Promise<SoilTest
 }
 
 
-export async function listReportableSoilSamples(): Promise<SoilTest[]> {
-  const db = await getDb();
-  const rows = await db.getAllAsync<any>(
-    "SELECT * FROM soil_tests WHERE status IN (?, ?, ?, ?) ORDER BY sample_date DESC, created_at DESC",
-    ["accepted", "received", "stored", "reported"],
-  );
-  return rows.map(rowToSoilTest);
-}
-
 export async function listAllSoilTests(): Promise<SoilTest[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<any>(
@@ -806,6 +797,25 @@ export type SoilReportFormInput = {
   documentUrl?: string;
   serverId?: string | null;
 };
+
+export async function listSoilReportsForTest(soilTestId: string): Promise<SoilReport[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM soil_reports WHERE soil_test_id = ? ORDER BY report_date DESC, created_at DESC",
+    [soilTestId],
+  );
+  return rows.map(rowToSoilReport);
+}
+
+/** Samples a supervisor has picked up (or collected) that still need a lab report. */
+export async function listReadyToTestSoilSamples(): Promise<SoilTest[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<any>(
+    "SELECT * FROM soil_tests WHERE status IN (?, ?, ?) ORDER BY sample_date DESC, created_at DESC",
+    ["accepted", "received", "stored"],
+  );
+  return rows.map(rowToSoilTest);
+}
 
 export async function listSoilReportsForFarmer(
   farmerId: string,

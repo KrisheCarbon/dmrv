@@ -166,6 +166,9 @@ export default function SoilSamplesInboxScreen({ navigation }) {
               {item.collector ? ` · Collected by ${item.collector}` : ""}
             </Text>
             <SoilSampleTracker status={item.status} />
+            {item.stage === "tested" ? (
+              <Text style={styles.reportLink}>Lab report available · tap to view</Text>
+            ) : null}
           </Pressable>
         )}
       />
@@ -260,6 +263,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.textSecondary,
     fontSize: typeScale.label,
+  },
+  reportLink: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.label,
+    color: colors.brunswick,
+    textDecorationLine: "underline",
   },
   empty: {
     paddingTop: spacing.xxl,

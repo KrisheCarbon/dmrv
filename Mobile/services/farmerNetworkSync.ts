@@ -347,20 +347,25 @@ function boundaryText(value: FarmFieldRecord["boundary_geojson"]): string | null
 }
 
 /**
- * Bring down farms (and their mapped boundaries) for farmers on this phone.
- * Without this a phone only knows farms drawn on it, so a farm mapped on
- * another phone or in the portal could not be chosen for soil sampling.
- * Local farms with unsynced edits are left alone.
+ * Bring down one farmer's farms and their mapped boundaries. Without this a
+ * phone only knows farms drawn on it, so a farm mapped on another phone or in
+ * the portal could not be chosen for soil sampling. Only the selected
+ * farmer's farms are fetched, to keep it quick. Local farms with unsynced
+ * edits are left alone. Returns false when the farmer is not on the server yet.
  */
-export async function pullFarmFieldsFromServer(): Promise<void> {
-  const remote = await backendFetch<FarmFieldRecord[]>("/farm-fields");
+export async function pullFarmFieldsForFarmer(farmerId: string): Promise<boolean> {
   const db = await getDb();
+  const farmerRow = await db.getFirstAsync<{ server_id: string | null }>(
+    "SELECT server_id FROM farmers WHERE id = ?",
+    [farmerId],
+  );
+  if (!farmerRow?.server_id) return false;
+  const remote = await backendFetch<FarmFieldRecord[]>(
+    `/farm-fields?farmId=${encodeURIComponent(farmerRow.server_id)}`,
+  );
+  const farmer = { id: farmerId };
   for (const field of remote) {
-    const farmer = await db.getFirstAsync<{ id: string }>(
-      "SELECT id FROM farmers WHERE server_id = ?",
-      [field.farm_id],
-    );
-    if (!farmer) continue;
+    if (field.farm_id !== farmerRow.server_id) continue;
 
     const existing = await db.getFirstAsync<{ id: string; sync_status: string | null }>(
       "SELECT id, sync_status FROM farm_fields WHERE server_id = ? OR id = ?",
@@ -405,6 +410,7 @@ export async function pullFarmFieldsFromServer(): Promise<void> {
       await db.runAsync(sql, args);
     }
   }
+  return true;
 }
 
 export async function pullSoilNetworkFromServer(): Promise<void> {

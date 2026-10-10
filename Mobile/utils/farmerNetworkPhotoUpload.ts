@@ -1,4 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
+import { Linking } from "react-native";
 import {
   FARMER_NETWORK_PHOTOS_BUCKET,
   SOIL_REPORTS_BUCKET,
@@ -89,10 +90,35 @@ export async function uploadSoilReportFile(
     throw new Error(error.message || "Soil report upload failed.");
   }
 
-  const { data } = supabase.storage
+  // The bucket is private: store the path, as the admin portal does, and
+  // sign it when someone opens the report.
+  return storagePath;
+}
+
+/** Storage path of a soil report, from either a stored path or an older public URL. */
+function soilReportStoragePath(value: string): string | null {
+  const marker = `/${SOIL_REPORTS_BUCKET}/`;
+  if (!/^https?:\/\//.test(value)) return value.replace(/^\/+/, "");
+  if (!value.includes("/storage/v1/object/")) return null;
+  const index = value.indexOf(marker);
+  if (index < 0) return null;
+  return decodeURIComponent(value.slice(index + marker.length).split("?")[0]);
+}
+
+/** Open a soil report (PDF or photo) in the phone's viewer via a short-lived link. */
+export async function openSoilReport(documentUrlOrPath: string): Promise<void> {
+  const path = soilReportStoragePath(documentUrlOrPath);
+  if (!path) {
+    await Linking.openURL(documentUrlOrPath);
+    return;
+  }
+  const { data, error } = await supabase.storage
     .from(SOIL_REPORTS_BUCKET)
-    .getPublicUrl(storagePath);
-  return data.publicUrl;
+    .createSignedUrl(path, 600);
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message || "Could not open the report. Check your internet.");
+  }
+  await Linking.openURL(data.signedUrl);
 }
 
 export async function uploadFarmerNetworkPhotos(

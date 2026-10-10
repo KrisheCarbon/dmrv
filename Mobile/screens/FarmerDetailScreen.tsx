@@ -332,27 +332,8 @@ export default function FarmerDetailScreen({ route, navigation }) {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Soil samples</Text>
               <Pressable
-                onPress={() => {
-                  if (!fields.length) {
-                    Alert.alert(
-                      "Farm needed",
-                      "Add a farm for this farmer before collecting a soil sample.",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Add farm",
-                          onPress: () =>
-                            navigation.navigate("FieldForm", {
-                              farmerId,
-                              mode: "create",
-                            }),
-                        },
-                      ],
-                    );
-                    return;
-                  }
-                  navigation.navigate("SoilTestForm", { farmerId });
-                }}
+                // The form fetches this farmer's mapped farms and explains if none exist.
+                onPress={() => navigation.navigate("SoilTestForm", { farmerId })}
               >
                 <Text style={styles.link}>Add sample</Text>
               </Pressable>
