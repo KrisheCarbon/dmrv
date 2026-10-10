@@ -10,6 +10,7 @@ import {
 import { soilSampleStage, type SoilSampleStage } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import SoilSampleTracker from "../components/SoilSampleTracker";
+import FormPicker from "../components/FormPicker";
 import { listAllSoilTests } from "../services/farmersNetworkService";
 import { getFarmerByIdLocal } from "../services/farmerService";
 import { processSyncQueue } from "../services/syncService";
@@ -117,24 +118,15 @@ export default function SoilSamplesInboxScreen({ navigation }) {
             ? "Open a sample waiting for pickup to mark it collected."
             : "Track each sample from collection to lab result."}
         </Text>
-        <View style={styles.filters}>
-          {FILTERS.map((item) => {
-            const active = filter === item.key;
-            return (
-              <Pressable
-                key={item.key}
-                onPress={() => setFilter(item.key)}
-                style={[styles.chip, active && styles.chipActive]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {item.label} ({counts[item.key]})
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <FormPicker
+          label="Show"
+          value={filter}
+          options={FILTERS.map((item) => ({
+            value: item.key,
+            label: `${item.label} (${counts[item.key]})`,
+          }))}
+          onValueChange={(next) => setFilter((next as Filter) || "all")}
+        />
       </View>
       <FlatList
         data={visible}
@@ -193,33 +185,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     color: colors.textSecondary,
     lineHeight: 18,
-  },
-  filters: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  chip: {
-    minHeight: 48,
-    justifyContent: "center",
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.borderDark,
-    backgroundColor: colors.white,
-  },
-  chipActive: {
-    backgroundColor: colors.brunswick,
-    borderColor: colors.brunswick,
-  },
-  chipText: {
-    fontFamily: fonts.medium,
-    fontSize: typeScale.label,
-    color: colors.brunswick,
-  },
-  chipTextActive: {
-    color: colors.white,
   },
   list: {
     paddingHorizontal: spacing.lg,
