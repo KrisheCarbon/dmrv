@@ -562,6 +562,8 @@ export type SoilTestFormInput = {
   samplePhotoUri?: string | null;
   sampleSites?: SoilSampleSite[];
   infoSheetPhotoUri?: string | null;
+  lastCrop?: string | null;
+  nextCrop?: string | null;
   labSource?: string;
   parametersText?: string;
   resultsText?: string;
@@ -711,6 +713,8 @@ export async function saveSoilTestLocal(
     sampleSites,
     infoSheetPhotoUri: form.infoSheetPhotoUri ?? null,
     infoSheetPhotoUrl: null,
+    lastCrop: form.lastCrop?.trim() || null,
+    nextCrop: form.nextCrop?.trim() || null,
     receivePhotoUri: null,
     receivePhotoUrl: null,
     labSource: form.labSource?.trim() || null,

@@ -25,6 +25,8 @@ interface SoilTableRow {
   status: string;
   supervisor: string;
   fields: string;
+  last_crop: string;
+  next_crop: string;
   raw: SoilTestRecord;
   [key: string]: unknown;
 }
@@ -43,6 +45,8 @@ function mapRow(record: SoilTestRecord): SoilTableRow {
     fields:
       record.fields?.map((field) => field.field_code).filter(Boolean).join(", ") ||
       "—",
+    last_crop: record.last_crop?.trim() || "—",
+    next_crop: record.next_crop?.trim() || "—",
     raw: record,
   };
 }
@@ -140,6 +144,8 @@ export default function NetworkSoilTestsPage() {
           { key: "farmer", label: "Farmer" },
           { key: "fields", label: "Fields" },
           { key: "date", label: "Sample date" },
+          { key: "last_crop", label: "Last crop" },
+          { key: "next_crop", label: "Next crop" },
           { key: "supervisor", label: "Supervisor" },
           { key: "status", label: "Status" },
         ]}
@@ -200,6 +206,10 @@ export default function NetworkSoilTestsPage() {
           <p className="text-sm text-neutral-600">
             Sample {selected?.sample_code || "—"} · Farmer:{" "}
             {selected?.farm?.farmer_name || "—"} · {selected?.sample_date}
+          </p>
+          <p className="text-sm text-neutral-600">
+            Last crop: {selected?.last_crop?.trim() || "—"} · Next crop:{" "}
+            {selected?.next_crop?.trim() || "—"}
           </p>
           {latestReport?.document_url ? (
             <p className="text-sm text-neutral-600">

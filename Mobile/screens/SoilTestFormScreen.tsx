@@ -18,6 +18,7 @@ import {
 import { ScreenShell } from "../components/ScreenHeader";
 import FormDateField from "../components/FormDateField";
 import FormPicker from "../components/FormPicker";
+import FormInput from "../components/FormInput";
 import PrimaryButton from "../components/PrimaryButton";
 import FarmerPicker from "../components/FarmerPicker";
 import {
@@ -57,6 +58,8 @@ function emptySoilForm(farmerId: string) {
     infoSheetLat: null as number | null,
     infoSheetLng: null as number | null,
     infoSheetCapturedAt: "" as string,
+    lastCrop: "" as string,
+    nextCrop: "" as string,
     sampleSites: createSoilSampleSites(),
   };
 }
@@ -435,6 +438,10 @@ export default function SoilTestFormScreen({ route, navigation }) {
       Alert.alert("Required", "Take a photo of the filled-in soil sample info sheet.");
       return;
     }
+    if (!form.lastCrop?.trim() || !form.nextCrop?.trim()) {
+      Alert.alert("Required", "Enter the last crop and the next crop for this farm.");
+      return;
+    }
     if (!profile) {
       Alert.alert("Error", "You must be signed in.");
       return;
@@ -449,6 +456,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
         sampleLng: form.sampleLng,
         samplePhotoUri: form.samplePhotoUri,
         infoSheetPhotoUri: form.infoSheetPhotoUri,
+        lastCrop: form.lastCrop ?? "",
+        nextCrop: form.nextCrop ?? "",
         sampleSites: sampleSites,
         submittedToSupervisorId: isSupervisor ? profile.id : null,
         submittedToSupervisorName: isSupervisor ? profile.full_name : null,
@@ -564,6 +573,19 @@ export default function SoilTestFormScreen({ route, navigation }) {
           label="Sample date"
           value={form.sampleDate}
           onChange={(t) => setForm((p) => ({ ...p, sampleDate: t }))}
+        />
+
+        <FormInput
+          label="Last crop *"
+          placeholder="Crop harvested from this farm, e.g. Cotton"
+          value={form.lastCrop ?? ""}
+          onChangeText={(t) => setForm((p) => ({ ...p, lastCrop: t }))}
+        />
+        <FormInput
+          label="Next crop *"
+          placeholder="Crop the farmer will sow next, e.g. Maize"
+          value={form.nextCrop ?? ""}
+          onChangeText={(t) => setForm((p) => ({ ...p, nextCrop: t }))}
         />
 
         <Text style={styles.section}>

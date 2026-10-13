@@ -240,6 +240,8 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
         sample_photo_url: samplePhotoUrl,
         sample_sites: soilSampleSitesForApi(uploadedSites),
         info_sheet_photo_url: infoSheetPhotoUrl,
+        last_crop: test.lastCrop,
+        next_crop: test.nextCrop,
         submitted_to_supervisor_id: test.submittedToSupervisorId,
         status: test.status,
       }),
@@ -451,6 +453,8 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
         `UPDATE soil_tests SET
           sample_code = COALESCE(?, sample_code),
           info_sheet_photo_url = COALESCE(?, info_sheet_photo_url),
+          last_crop = COALESCE(?, last_crop),
+          next_crop = COALESCE(?, next_crop),
           farmer_name = ?,
           farmer_village = ?,
           collected_by_name = ?,
@@ -469,6 +473,8 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
         [
           test.sample_code ?? null,
           test.info_sheet_photo_url ?? null,
+          test.last_crop ?? null,
+          test.next_crop ?? null,
           test.farm?.farmer_name ?? null,
           test.farm?.village ?? null,
           test.collected_by_user?.full_name ?? null,
@@ -489,7 +495,8 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
     } else {
       await db.runAsync(
         `INSERT INTO soil_tests (
-          sample_code, info_sheet_photo_url, farmer_name, farmer_village, collected_by_name,
+          sample_code, info_sheet_photo_url, last_crop, next_crop,
+          farmer_name, farmer_village, collected_by_name,
           id, farmer_id, field_id, field_ids_json, crop_id, sample_date,
           sample_lat, sample_lng, sample_location, sample_photo_uri, sample_photo_url,
           sample_sites_json,
@@ -497,10 +504,12 @@ export async function pullSoilNetworkFromServer(): Promise<void> {
           submitted_to_supervisor_id, submitted_to_supervisor_name,
           collected_by, collected_by_role, status, received_at, received_by,
           received_by_name, server_id, sync_status, sync_error, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         [
           test.sample_code ?? null,
           test.info_sheet_photo_url ?? null,
+          test.last_crop ?? null,
+          test.next_crop ?? null,
           test.farm?.farmer_name ?? null,
           test.farm?.village ?? null,
           test.collected_by_user?.full_name ?? null,

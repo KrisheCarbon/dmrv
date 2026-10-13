@@ -673,6 +673,10 @@ export interface SoilTestRecord {
   sample_photo_url?: string | null;
   sample_sites?: SoilSampleSite[];
   info_sheet_photo_url?: string | null;
+  /** Crop harvested from these farms before sampling. */
+  last_crop?: string | null;
+  /** Crop the farmer plans to sow next. */
+  next_crop?: string | null;
   receive_photo_url?: string | null;
   submitted_to_supervisor_id?: string | null;
   collected_by?: string | null;
@@ -719,6 +723,8 @@ export interface SoilTestUpsertPayload {
   sample_photo_url?: string | null;
   sample_sites?: SoilSampleSite[];
   info_sheet_photo_url?: string | null;
+  last_crop?: string | null;
+  next_crop?: string | null;
   submitted_to_supervisor_id?: string | null;
   status?: string;
 }
