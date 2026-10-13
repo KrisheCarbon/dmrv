@@ -6,6 +6,7 @@ import {
   assertCanEditUser,
   canManageUsers,
   isClimapreneurSupervisorSwap,
+  isDmrvViewer,
   isIndianMobileLogin,
   isUserRole,
   toLocalIndianMobile,
@@ -66,7 +67,14 @@ function requirePhone(phone: string | undefined): string {
   return toLocalIndianMobile(value);
 }
 
-async function assertPhoneAvailable(phone: string, excludeId?: string) {
+/** dMRV viewers only read the web portal, so their mobile number is optional. */
+function phoneForRole(role: string, phone: string | undefined): string | null {
+  if (isDmrvViewer(role) && !phone?.trim()) return null;
+  return requirePhone(phone);
+}
+
+async function assertPhoneAvailable(phone: string | null, excludeId?: string) {
+  if (!phone) return;
   const { data, error } = await admin.from("users").select("id, phone");
   if (error) throw new Error(error.message);
 
@@ -91,7 +99,7 @@ export async function createUser(form: UserFormData): Promise<CreateUserResult> 
     throw new Error("Enter a valid email address. Personal inboxes like Gmail are allowed.");
   }
 
-  const phone = requirePhone(form.phone);
+  const phone = phoneForRole(form.role, form.phone);
   await assertPhoneAvailable(phone);
 
   const method = form.onboardingMethod === "password" ? "password" : "invite";
@@ -145,7 +153,7 @@ export async function createUser(form: UserFormData): Promise<CreateUserResult> 
 
   return {
     email,
-    phone,
+    phone: phone ?? undefined,
     signupUrl: `${getSiteUrl()}/signup`,
     emailSent: method === "invite",
     activated: status === "active",
@@ -428,7 +436,7 @@ export async function updateUser(
   assertCanEditUser(actorRole, target.role);
   assertCanAssignRole(actorRole, form.role);
 
-  const phone = requirePhone(form.phone);
+  const phone = phoneForRole(form.role, form.phone);
   await assertPhoneAvailable(phone, id);
 
   if (isClimapreneurSupervisorSwap(target.role, form.role)) {

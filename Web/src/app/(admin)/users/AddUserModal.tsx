@@ -60,7 +60,8 @@ export default function AddUserModal({
   async function handleSubmit() {
     setError(null);
 
-    if (!form.first_name || !form.last_name || !form.email || !form.phone) {
+    const phoneRequired = form.role !== "dmrv_viewer";
+    if (!form.first_name || !form.last_name || !form.email || (phoneRequired && !form.phone)) {
       setError("Please fill all mandatory fields");
       return;
     }
@@ -156,7 +157,7 @@ export default function AddUserModal({
             </div>
 
             <input
-              placeholder="Phone *"
+              placeholder={form.role === "dmrv_viewer" ? "Phone (optional)" : "Phone *"}
               className="w-full border px-3 py-2 rounded"
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}

@@ -94,7 +94,8 @@ export interface SignupCheckResult {
 
 export interface CreateUserResult {
   email: string;
-  phone: string;
+  /** Missing for dMRV viewers added without a mobile number. */
+  phone?: string;
   signupUrl: string;
   emailSent: boolean;
   activated: boolean;
