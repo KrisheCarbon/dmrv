@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -56,6 +57,7 @@ function SignedPhotoThumb({ path }: { path: string }) {
 }
 
 export default function KontikkiViewPage() {
+  const readOnly = useIsDmrvViewer();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
@@ -191,20 +193,24 @@ export default function KontikkiViewPage() {
         <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-900">Details</h2>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/network/kontikkis/${data.id}/edit`}
-              className="inline-flex items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 min-w-[70px] min-h-[38px]"
-            >
-              Edit
-            </Link>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </button>
+            {readOnly ? null : (
+              <Link
+                href={`/network/kontikkis/${data.id}/edit`}
+                className="inline-flex items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 min-w-[70px] min-h-[38px]"
+              >
+                Edit
+              </Link>
+            )}
+            {readOnly ? null : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -310,21 +316,23 @@ export default function KontikkiViewPage() {
         </dl>
       </section>
 
-      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
-        <div className="border-b border-neutral-100 px-6 py-4">
-          <h2 className="text-lg font-semibold text-neutral-900">Operators</h2>
-          <p className="mt-0.5 text-sm text-neutral-500">
-            Supervisors and climapreneurs assigned to run this kontikki.
-          </p>
-        </div>
-        <div className="space-y-6 px-6 py-5">
-          <OperatorGroup heading="Supervisors" people={supervisors} />
-          <OperatorGroup heading="Climapreneurs" people={climapreneurs} />
-          {otherOperators.length > 0 ? (
-            <OperatorGroup heading="Other operators" people={otherOperators} />
-          ) : null}
-        </div>
-      </section>
+      {readOnly ? null : (
+        <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm shadow-neutral-200/40">
+          <div className="border-b border-neutral-100 px-6 py-4">
+            <h2 className="text-lg font-semibold text-neutral-900">Operators</h2>
+            <p className="mt-0.5 text-sm text-neutral-500">
+              Supervisors and climapreneurs assigned to run this kontikki.
+            </p>
+          </div>
+          <div className="space-y-6 px-6 py-5">
+            <OperatorGroup heading="Supervisors" people={supervisors} />
+            <OperatorGroup heading="Climapreneurs" people={climapreneurs} />
+            {otherOperators.length > 0 ? (
+              <OperatorGroup heading="Other operators" people={otherOperators} />
+            ) : null}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

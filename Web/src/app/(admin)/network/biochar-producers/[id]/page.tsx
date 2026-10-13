@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -36,6 +37,7 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
 }
 
 export default function BiocharProducerViewPage() {
+  const readOnly = useIsDmrvViewer();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
@@ -185,20 +187,24 @@ export default function BiocharProducerViewPage() {
         <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-900">Details</h2>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/network/biochar-producers/${data.id}/edit`}
-              className="inline-flex min-h-[38px] min-w-[70px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
-            >
-              Edit
-            </Link>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </button>
+            {readOnly ? null : (
+              <Link
+                href={`/network/biochar-producers/${data.id}/edit`}
+                className="inline-flex min-h-[38px] min-w-[70px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+              >
+                Edit
+              </Link>
+            )}
+            {readOnly ? null : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -279,22 +285,24 @@ export default function BiocharProducerViewPage() {
             )}
           </DetailRow>
 
-          <DetailRow label="Supervisors">
-            {supervisors.length ? (
-              <ul className="space-y-2">
-                {supervisors.map((name, index) => (
-                  <li key={`${name}-${index}`} className="flex items-center gap-2">
-                    <span className="text-neutral-400" aria-hidden>
-                      &#9679;
-                    </span>
-                    <span>{name}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              "—"
-            )}
-          </DetailRow>
+          {readOnly ? null : (
+            <DetailRow label="Supervisors">
+              {supervisors.length ? (
+                <ul className="space-y-2">
+                  {supervisors.map((name, index) => (
+                    <li key={`${name}-${index}`} className="flex items-center gap-2">
+                      <span className="text-neutral-400" aria-hidden>
+                        &#9679;
+                      </span>
+                      <span>{name}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                "—"
+              )}
+            </DetailRow>
+          )}
         </dl>
       </section>
 
@@ -306,12 +314,14 @@ export default function BiocharProducerViewPage() {
               Fixed project sites for this producer.
             </p>
           </div>
-          <Link
-            href={`/network/biochar-producers/${data.id}/edit`}
-            className="inline-flex items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
-          >
-            Add site
-          </Link>
+          {readOnly ? null : (
+            <Link
+              href={`/network/biochar-producers/${data.id}/edit`}
+              className="inline-flex items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+            >
+              Add site
+            </Link>
+          )}
         </div>
 
         <div className="px-6 py-4">
@@ -360,12 +370,14 @@ export default function BiocharProducerViewPage() {
               Pyrolysis units assigned to this producer.
             </p>
           </div>
-          <Link
-            href={`/network/kontikkis/new?producerId=${data.id}`}
-            className="inline-flex items-center justify-center rounded-xl bg-brand-dark px-3 py-1.5 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
-          >
-            + Add kontikki
-          </Link>
+          {readOnly ? null : (
+            <Link
+              href={`/network/kontikkis/new?producerId=${data.id}`}
+              className="inline-flex items-center justify-center rounded-xl bg-brand-dark px-3 py-1.5 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+            >
+              + Add kontikki
+            </Link>
+          )}
         </div>
 
         <div className="px-6 py-4">
@@ -375,7 +387,7 @@ export default function BiocharProducerViewPage() {
               { key: "code", label: "Kontikki ID" },
               { key: "status", label: "Status" },
               { key: "moduleId", label: "Hardware module ID" },
-              { key: "operators", label: "Operators" },
+              ...(readOnly ? [] : [{ key: "operators", label: "Operators" }]),
             ]}
             rows={kontikkiRows}
             onRowClick={(row) => router.push(`/network/kontikkis/${row.id}`)}

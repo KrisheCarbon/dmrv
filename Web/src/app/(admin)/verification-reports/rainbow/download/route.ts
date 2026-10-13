@@ -1,4 +1,4 @@
-import { canAccessCarbon } from "@/lib/roles";
+import { canViewVerificationReports } from "@krishecarbon/shared";
 import { getBackendUrl } from "@/lib/env";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
@@ -18,7 +18,7 @@ export async function GET() {
     .eq("id", user.id)
     .single();
 
-  if (!profile || !canAccessCarbon(profile.role)) {
+  if (!profile || !canViewVerificationReports(profile.role)) {
     return new Response("You do not have access to verification reports.", {
       status: 403,
     });

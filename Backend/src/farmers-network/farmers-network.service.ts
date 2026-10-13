@@ -13,6 +13,7 @@ import {
   formatSoilSampleCode,
   hasMappedBoundary,
   isDmrvViewer,
+  toDmrvViewerField,
   parseSoilSampleSites,
   soilSampleCodeSerial,
   type FarmFieldRecord,
@@ -163,33 +164,9 @@ export class FarmersNetworkService {
     return canAccessWebPortal(user.role) && !isDmrvViewer(user.role);
   }
 
-  private async mixingFarmIds(): Promise<string[]> {
-    const [csi, rainbow] = await Promise.all([
-      fetchAllPages<{ farm_id: string | null }>((from, to) =>
-        this.supabase
-          .from('csi_mixing_entries')
-          .select('farm_id')
-          .not('farm_id', 'is', null)
-          .range(from, to),
-      ),
-      fetchAllPages<{ farm_id: string | null }>((from, to) =>
-        this.supabase
-          .from('rainbow_mixing_entries')
-          .select('farm_id')
-          .not('farm_id', 'is', null)
-          .range(from, to),
-      ),
-    ]);
-    return [...new Set(
-      [...csi, ...rainbow]
-        .map((row) => row.farm_id)
-        .filter((id): id is string => Boolean(id)),
-    )];
-  }
-
   private async visibleFarmIds(user: AuthenticatedUser): Promise<string[] | null> {
-    if (isDmrvViewer(user.role)) return this.mixingFarmIds();
-    if (this.canViewAll(user)) return null;
+    // Viewers see every farmer, but only basic fields (see toDmrvViewerField).
+    if (isDmrvViewer(user.role) || this.canViewAll(user)) return null;
 
     const farms = await fetchAllPages<Farmer>((from, to) =>
       this.supabase
@@ -213,13 +190,7 @@ export class FarmersNetworkService {
     if (!data) throw new NotFoundException('Farmer not found');
 
     const farm = data as Farmer;
-    if (isDmrvViewer(user.role)) {
-      const allowed = await this.mixingFarmIds();
-      if (!allowed.includes(farm.id)) {
-        throw new ForbiddenException('This farm has no mixing record.');
-      }
-      return farm;
-    }
+    if (isDmrvViewer(user.role)) return farm;
     if (
       !this.canViewAll(user) &&
       farm.created_by !== user.id &&
@@ -340,7 +311,8 @@ export class FarmersNetworkService {
       return query;
     });
 
-    return rows.map((row) => this.mapField(row));
+    const fields = rows.map((row) => this.mapField(row));
+    return isDmrvViewer(user.role) ? fields.map((field) => toDmrvViewerField(field)) : fields;
   }
 
   async getField(user: AuthenticatedUser, id: string): Promise<FarmFieldRecord> {
@@ -355,7 +327,7 @@ export class FarmersNetworkService {
     if (!data) throw new NotFoundException('Field not found');
     const field = this.mapField(data as Record<string, unknown>);
     await this.getFarm(user, field.farm_id);
-    return field;
+    return isDmrvViewer(user.role) ? toDmrvViewerField(field) : field;
   }
 
   private async assertFieldAreaCap(
@@ -519,6 +491,8 @@ export class FarmersNetworkService {
     farmId?: string,
   ): Promise<FarmerConsentRecord[]> {
     this.assertAccess(user);
+    // Consent forms are personal documents; dMRV viewers do not see them.
+    if (isDmrvViewer(user.role)) return [];
     const farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
     if (farmIds && farmIds.length === 0) return [];
 
@@ -575,6 +549,9 @@ export class FarmersNetworkService {
 
   async getSoilFormOptions(user: AuthenticatedUser): Promise<SoilTestFormOptions> {
     this.assertAccess(user);
+    if (isDmrvViewer(user.role)) {
+      throw new ForbiddenException('dMRV viewers cannot record soil samples.');
+    }
     const farmIds = await this.visibleFarmIds(user);
     const farmsQuery = this.supabase
       .from('farms')
@@ -685,6 +662,8 @@ export class FarmersNetworkService {
   ): Promise<SoilTestRecord[]> {
     if (options?.farmIds && options.farmIds.length === 0) return [];
     this.assertAccess(user);
+    // Soil samples carry dig-site GPS inside the farm; dMRV viewers do not see them.
+    if (isDmrvViewer(user.role)) return [];
     const farmIds = options?.farmId
       ? [options.farmId]
       : await this.visibleFarmIds(user);
@@ -723,6 +702,9 @@ export class FarmersNetworkService {
 
   async getSoilTest(user: AuthenticatedUser, id: string): Promise<SoilTestRecord> {
     this.assertAccess(user);
+    if (isDmrvViewer(user.role)) {
+      throw new ForbiddenException('dMRV viewers cannot open soil samples.');
+    }
     const { data, error } = await this.supabase
       .from('soil_tests')
       .select(SOIL_TEST_SELECT)

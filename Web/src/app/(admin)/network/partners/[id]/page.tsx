@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -35,6 +36,7 @@ function TagList({ items }: { items?: string[] }) {
 }
 
 export default function PartnerDetailsPage() {
+  const readOnly = useIsDmrvViewer();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
@@ -134,20 +136,24 @@ export default function PartnerDetailsPage() {
         <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-900">Details</h2>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/network/partners/${data.id}/edit`}
-              className="inline-flex min-h-[38px] min-w-[70px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
-            >
-              Edit
-            </Link>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </button>
+            {readOnly ? null : (
+              <Link
+                href={`/network/partners/${data.id}/edit`}
+                className="inline-flex min-h-[38px] min-w-[70px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+              >
+                Edit
+              </Link>
+            )}
+            {readOnly ? null : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            )}
           </div>
         </div>
 

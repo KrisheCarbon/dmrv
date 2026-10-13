@@ -6,7 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canAccessNetwork } from '@krishecarbon/shared';
+import {
+  canAccessNetwork,
+  canViewNetwork,
+  isDmrvViewer,
+  withoutPeopleForDmrvViewer,
+} from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -74,6 +79,16 @@ export class PartnersService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  private assertCanView(user: AuthenticatedUser): void {
+    if (!canViewNetwork(user.role)) {
+      throw new ForbiddenException('Not allowed to view this record');
+    }
+  }
+
+  private forViewer<T>(user: AuthenticatedUser, value: T): T {
+    return isDmrvViewer(user.role) ? withoutPeopleForDmrvViewer(value) : value;
+  }
+
   private assertCanManage(user: AuthenticatedUser): void {
     if (!canAccessNetwork(user.role)) {
       throw new ForbiddenException('Not allowed to manage partners');
@@ -81,7 +96,7 @@ export class PartnersService {
   }
 
   async findAll(user: AuthenticatedUser): Promise<PartnerRecord[]> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('partner_organizations')
@@ -93,11 +108,11 @@ export class PartnersService {
       throw new BadRequestException(error.message);
     }
 
-    return (data ?? []) as PartnerRecord[];
+    return this.forViewer(user, (data ?? []) as PartnerRecord[]);
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<PartnerRecord> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('partner_organizations')
@@ -114,7 +129,7 @@ export class PartnersService {
       throw new NotFoundException('Partner not found');
     }
 
-    return data as PartnerRecord;
+    return this.forViewer(user, data as PartnerRecord);
   }
 
   async create(

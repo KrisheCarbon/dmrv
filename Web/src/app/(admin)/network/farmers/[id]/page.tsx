@@ -438,12 +438,16 @@ export default function FarmerDetailPage() {
               {[data.village, data.mandal, data.district, data.state]
                 .filter(Boolean)
                 .join(", ") || data.address || "No location recorded"}
-              {" · "}
-              {consentExpiryLabel(latestConsent)}
+              {readOnly ? null : (
+                <>
+                  {" · "}
+                  {consentExpiryLabel(latestConsent)}
+                </>
+              )}
             </p>
           </div>
         </div>
-        <div className="mt-3">
+        <div className={readOnly ? "hidden" : "mt-3"}>
           <FarmerChecklist
             hasCompleteProfile={checklist.hasCompleteProfile}
             hasFarms={checklist.hasFarms}
@@ -461,7 +465,7 @@ export default function FarmerDetailPage() {
       ) : null}
 
       <div className="flex flex-wrap gap-2">
-        {TABS.map((item) => (
+        {TABS.filter((item) => !readOnly || item.key === "info" || item.key === "farms").map((item) => (
           <button
             key={item.key}
             type="button"
@@ -499,25 +503,31 @@ export default function FarmerDetailPage() {
             </div>}
           </div>
           <dl className="px-6 py-2">
-            <DetailRow label="Farmer photo">
-              {data.farmer_photo_url ? (
-                <FarmerPortrait
-                  src={data.farmer_photo_url}
-                  alt={data.farmer_name}
-                  className="h-40 w-40 rounded-xl object-cover"
-                />
-              ) : (
-                "—"
-              )}
-            </DetailRow>
+            {readOnly ? null : (
+              <DetailRow label="Farmer photo">
+                {data.farmer_photo_url ? (
+                  <FarmerPortrait
+                    src={data.farmer_photo_url}
+                    alt={data.farmer_name}
+                    className="h-40 w-40 rounded-xl object-cover"
+                  />
+                ) : (
+                  "—"
+                )}
+              </DetailRow>
+            )}
             <DetailRow label="Farmer name">{data.farmer_name}</DetailRow>
             <DetailRow label="Farmer ID">{data.farmer_code || "—"}</DetailRow>
-            <DetailRow label="Mobile">{data.mobile_number ?? "—"}</DetailRow>
-            <DetailRow label="Father / spouse">
-              {data.father_spouse_name || "—"}
-            </DetailRow>
-            <DetailRow label="Agri ID">{data.agri_id || "—"}</DetailRow>
-            <DetailRow label="Address">{data.address || "—"}</DetailRow>
+            {readOnly ? null : (
+              <>
+                <DetailRow label="Mobile">{data.mobile_number ?? "—"}</DetailRow>
+                <DetailRow label="Father / spouse">
+                  {data.father_spouse_name || "—"}
+                </DetailRow>
+                <DetailRow label="Agri ID">{data.agri_id || "—"}</DetailRow>
+                <DetailRow label="Address">{data.address || "—"}</DetailRow>
+              </>
+            )}
             <DetailRow label="Cluster">{data.cluster?.name || "—"}</DetailRow>
             <DetailRow label="Village">{data.village || "—"}</DetailRow>
             <DetailRow label="Mandal / block">{data.mandal || "—"}</DetailRow>

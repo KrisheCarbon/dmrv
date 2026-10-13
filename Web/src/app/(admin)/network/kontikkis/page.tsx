@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,6 +14,7 @@ import { formatKontikkiCapacity, resolveKontikkiCapacity } from "./kontikkiLib";
 import type { KontikkiTableRow } from "@/types";
 
 export default function KontikkisPage() {
+  const readOnly = useIsDmrvViewer();
   const [kontikkis, setKontikkis] = useState<KontikkiTableRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,12 +71,14 @@ export default function KontikkisPage() {
             Manage pyrolysis units across your producer network.
           </p>
         </div>
-        <Link
-          href="/network/kontikkis/new"
-          className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
-        >
-          + Add kontikki
-        </Link>
+        {readOnly ? null : (
+          <Link
+            href="/network/kontikkis/new"
+            className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+          >
+            + Add kontikki
+          </Link>
+        )}
       </div>
 
       {error ? (
@@ -104,7 +108,7 @@ export default function KontikkisPage() {
               ),
           },
           { key: "capacity", label: "Capacity" },
-          { key: "operators", label: "Operators" },
+          ...(readOnly ? [] : [{ key: "operators", label: "Operators" }]),
           { key: "status", label: "Status" },
         ]}
         rows={kontikkis}

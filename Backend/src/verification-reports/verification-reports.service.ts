@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canAccessCarbon } from '@krishecarbon/shared';
+import { canViewVerificationReports } from '@krishecarbon/shared';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
@@ -124,7 +124,7 @@ export class VerificationReportsService {
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async buildCsiZip(user: AuthenticatedUser): Promise<CsiPackage> {
-    if (!canAccessCarbon(user.role)) {
+    if (!canViewVerificationReports(user.role)) {
       throw new ForbiddenException('You do not have access to verification reports.');
     }
 

@@ -10,7 +10,6 @@ import {
   APPLICATION_MEDIA_TYPES,
   canAccessMobileApp,
   canAccessWebPortal,
-  isDmrvViewer,
   canReviewApplicationEntries,
   isApplicationEntryMediaKey,
   type ApplicationEntryMediaFlag,
@@ -151,7 +150,7 @@ export class ApplicationEntriesService {
   async listEntries(
     user: AuthenticatedUser,
   ): Promise<ApplicationEntryRecord[] | ApplicationEntryPortalRecord[]> {
-    if (canAccessWebPortal(user.role) && !isDmrvViewer(user.role)) {
+    if (canAccessWebPortal(user.role)) {
       const { data, error } = await this.supabase
         .from('application_entries')
         .select(ENTRY_PORTAL_SELECT)
@@ -177,7 +176,7 @@ export class ApplicationEntriesService {
     user: AuthenticatedUser,
     id: string,
   ): Promise<ApplicationEntryRecord | ApplicationEntryPortalRecord> {
-    if (canAccessWebPortal(user.role) && !isDmrvViewer(user.role)) {
+    if (canAccessWebPortal(user.role)) {
       const { data, error } = await this.supabase
         .from('application_entries')
         .select(ENTRY_PORTAL_SELECT)

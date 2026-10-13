@@ -9,7 +9,6 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessWebPortal,
-  isDmrvViewer,
   type BiomassCollectionRecord,
   type CreateBiomassCollectionPayload,
 } from '@krishecarbon/shared';
@@ -150,7 +149,7 @@ export class BiomassCollectionsService {
   }
 
   private isPortalReader(user: AuthenticatedUser) {
-    return canAccessWebPortal(user.role) && !isDmrvViewer(user.role);
+    return canAccessWebPortal(user.role);
   }
 
   private unwrap<T>(value: T | T[] | null | undefined): T | null {

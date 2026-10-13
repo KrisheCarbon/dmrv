@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
-import { canAccessCarbon } from "@/lib/roles";
+import { canViewVerificationReports } from "@krishecarbon/shared";
 import type { ReactNode } from "react";
 
 export default async function VerificationReportsLayout({
@@ -22,7 +22,7 @@ export default async function VerificationReportsLayout({
     .eq("id", user.id)
     .single();
 
-  if (!profile || !canAccessCarbon(profile.role)) {
+  if (!profile || !canViewVerificationReports(profile.role)) {
     redirect("/");
   }
 

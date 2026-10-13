@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -28,12 +29,13 @@ function mapRow(cluster: ClusterDetail): ClusterTableRow {
             .join(" · ")
         : "—",
     villageCount: cluster.villages.length,
-    supervisors: names(cluster.supervisors),
-    climapreneurs: names(cluster.climapreneurs),
+    supervisors: names(cluster.supervisors ?? []),
+    climapreneurs: names(cluster.climapreneurs ?? []),
   };
 }
 
 export default function ClustersPage() {
+  const readOnly = useIsDmrvViewer();
   const router = useRouter();
   const [rows, setRows] = useState<ClusterTableRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,12 +69,14 @@ export default function ClustersPage() {
             Village groups with assigned supervisors and climapreneurs.
           </p>
         </div>
-        <Link
-          href="/network/clusters/new"
-          className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
-        >
-          + Add cluster
-        </Link>
+        {readOnly ? null : (
+          <Link
+            href="/network/clusters/new"
+            className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+          >
+            + Add cluster
+          </Link>
+        )}
       </div>
 
       {error ? (
@@ -100,20 +104,25 @@ export default function ClustersPage() {
             filterPlaceholder: "Search village",
             sortValue: (row) => row.villageCount,
           },
-          {
-            key: "supervisors",
-            label: "Supervisors",
-            filterable: true,
-            sortable: true,
-            filterPlaceholder: "Search supervisor",
-          },
-          {
-            key: "climapreneurs",
-            label: "Climapreneurs",
-            filterable: true,
-            sortable: true,
-            filterPlaceholder: "Search climapreneur",
-          },
+          // dMRV viewers do not see who is assigned to a cluster.
+          ...(readOnly
+            ? []
+            : [
+                {
+                  key: "supervisors",
+                  label: "Supervisors",
+                  filterable: true,
+                  sortable: true,
+                  filterPlaceholder: "Search supervisor",
+                },
+                {
+                  key: "climapreneurs",
+                  label: "Climapreneurs",
+                  filterable: true,
+                  sortable: true,
+                  filterPlaceholder: "Search climapreneur",
+                },
+              ]),
         ]}
         rows={rows}
         onRowClick={(row) => router.push(`/network/clusters/${row.id}`)}

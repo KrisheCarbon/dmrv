@@ -58,18 +58,100 @@ export function isDmrvViewer(role: string): boolean {
   return role === "dmrv_viewer";
 }
 
+/**
+ * Portal sections a dMRV viewer may open. Everything else stays hidden:
+ * Users, Supervisors, Climapreneurs, Stats (people breakdowns and farm GPS),
+ * farm polygons, soil samples, and website intents.
+ */
+export const DMRV_VIEWER_PATHS: readonly string[] = [
+  "/network/biochar-producers",
+  "/network/kontikkis",
+  "/network/clusters",
+  "/network/partners",
+  "/network/farmers",
+  "/biochar",
+  "/operations/trainings",
+  "/operations/inspections",
+  "/operations/queries",
+  "/operations/updates",
+  "/carbon",
+  "/verification-reports",
+];
+
 export function dmrvViewerPathAllowed(pathname: string): boolean {
-  if (pathname.includes("/new") || pathname.includes("/edit")) return false;
-  if (pathname === "/" || pathname === "/biochar" || pathname === "/operations") return true;
-  const allowed = [
-    "/biochar/production",
-    "/biochar/mixing",
-    "/biochar/feedstock",
-    "/biochar/sensor-data",
-    "/operations/trainings",
-    "/network/farmers",
-  ];
-  return allowed.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  if (/\/(new|edit)(\/|$)/.test(pathname)) return false;
+  if (pathname === "/" || pathname === "/network" || pathname === "/operations") return true;
+  return DMRV_VIEWER_PATHS.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+/** Verification packages and Rainbow lab records: carbon roles, plus dMRV viewers to read. */
+export function canViewVerificationReports(role: string): boolean {
+  return canAccessCarbon(role) || isDmrvViewer(role);
+}
+
+/** Producers, kontikkis, clusters and partners: network roles, plus dMRV viewers to read. */
+export function canViewNetwork(role: string): boolean {
+  return canAccessNetwork(role) || isDmrvViewer(role);
+}
+
+/** Farmer columns a dMRV viewer may see: identity, place and acreage. No phone, address, IDs, GPS or photos. */
+const DMRV_VIEWER_FARM_KEYS = [
+  "id",
+  "farmer_code",
+  "farmer_name",
+  "village",
+  "mandal",
+  "district",
+  "state",
+  "cluster_id",
+  "cluster",
+  "total_land_size",
+  "owned_land_size",
+  "leased_land_size",
+  "crops",
+  "interested_in_biochar",
+  "prior_biochar_exp",
+  "prior_biochar_acreage",
+  "estimated_biomass",
+  "status",
+  "created_at",
+  "updated_at",
+] as const;
+
+/** Farm (plot) columns a dMRV viewer may see. No boundary polygon, GPS or photos. */
+const DMRV_VIEWER_FIELD_KEYS = [
+  "id",
+  "farm_id",
+  "field_code",
+  "ownership_type",
+  "calculated_area",
+  "declared_area",
+  "crop_name",
+  "season",
+  "sowing_date",
+  "harvest_date",
+  "status",
+  "created_at",
+  "updated_at",
+] as const;
+
+function pickKeys<T extends object>(row: T, keys: readonly string[]): T {
+  const source = row as Record<string, unknown>;
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key in source) picked[key] = source[key];
+  }
+  return picked as T;
+}
+
+export function toDmrvViewerFarm<T extends object>(farm: T): T {
+  return pickKeys(farm, DMRV_VIEWER_FARM_KEYS);
+}
+
+export function toDmrvViewerField<T extends object>(field: T): T {
+  return pickKeys(field, DMRV_VIEWER_FIELD_KEYS);
 }
 
 /** Roles allowed to open the Users page and invite/edit accounts. */
@@ -197,4 +279,31 @@ export function isClimapreneurSupervisorSwap(
     (fromRole === "climapreneur" && toRole === "supervisor") ||
     (fromRole === "supervisor" && toRole === "climapreneur")
   );
+}
+
+/** Keys that list supervisors, climapreneurs or operators by name. Hidden from dMRV viewers. */
+const DMRV_VIEWER_PEOPLE_KEYS = new Set([
+  "supervisors",
+  "climapreneurs",
+  "operators",
+  "kontikki_operators",
+  "biochar_producer_supervisors",
+  "supervisor_ids",
+  "climapreneur_ids",
+]);
+
+/** Deep copy without people assignments, for network records shown to dMRV viewers. */
+export function withoutPeopleForDmrvViewer<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => withoutPeopleForDmrvViewer(item)) as unknown as T;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (DMRV_VIEWER_PEOPLE_KEYS.has(key)) continue;
+      out[key] = withoutPeopleForDmrvViewer(item);
+    }
+    return out as T;
+  }
+  return value;
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,6 +21,7 @@ interface ProducerRow extends Record<string, unknown> {
 }
 
 export default function BiocharProducersPage() {
+  const readOnly = useIsDmrvViewer();
   const [producers, setProducers] = useState<ProducerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,12 +76,14 @@ export default function BiocharProducersPage() {
             Manage biochar producers across your network.
           </p>
         </div>
-        <Link
-          href="/network/biochar-producers/new"
-          className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
-        >
-          + Add producer
-        </Link>
+        {readOnly ? null : (
+          <Link
+            href="/network/biochar-producers/new"
+            className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+          >
+            + Add producer
+          </Link>
+        )}
       </div>
 
       {error ? (

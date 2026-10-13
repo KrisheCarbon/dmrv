@@ -9,6 +9,9 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessNetwork,
+  canViewNetwork,
+  isDmrvViewer,
+  withoutPeopleForDmrvViewer,
   type ClusterVillageInput,
   type ClusterVillageRecord,
 } from '@krishecarbon/shared';
@@ -73,6 +76,16 @@ export class ClustersService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  private assertCanView(user: AuthenticatedUser): void {
+    if (!canViewNetwork(user.role)) {
+      throw new ForbiddenException('Not allowed to view this record');
+    }
+  }
+
+  private forViewer<T>(user: AuthenticatedUser, value: T): T {
+    return isDmrvViewer(user.role) ? withoutPeopleForDmrvViewer(value) : value;
+  }
+
   private assertCanManage(user: AuthenticatedUser): void {
     if (!canAccessNetwork(user.role)) {
       throw new ForbiddenException('Not allowed to manage clusters');
@@ -123,7 +136,7 @@ export class ClustersService {
   }
 
   async findAll(user: AuthenticatedUser): Promise<ClusterRecord[]> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('clusters')
@@ -150,16 +163,19 @@ export class ClustersService {
         this.fetchAssignedPeople(ids, 'climapreneur'),
       ]);
 
-    return clusters.map((cluster) => ({
-      ...cluster,
-      villages: villagesByCluster.get(cluster.id) ?? [],
-      supervisors: supervisorsByCluster.get(cluster.id) ?? [],
-      climapreneurs: climapreneursByCluster.get(cluster.id) ?? [],
-    }));
+    return this.forViewer(
+      user,
+      clusters.map((cluster) => ({
+        ...cluster,
+        villages: villagesByCluster.get(cluster.id) ?? [],
+        supervisors: supervisorsByCluster.get(cluster.id) ?? [],
+        climapreneurs: climapreneursByCluster.get(cluster.id) ?? [],
+      })),
+    );
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<ClusterRecord> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('clusters')
@@ -177,12 +193,12 @@ export class ClustersService {
         this.fetchAssignedPeople([id], 'climapreneur'),
       ]);
 
-    return {
+    return this.forViewer(user, {
       ...(data as ClusterRecord),
       villages: villagesByCluster.get(id) ?? [],
       supervisors: supervisorsByCluster.get(id) ?? [],
       climapreneurs: climapreneursByCluster.get(id) ?? [],
-    };
+    });
   }
 
   async create(

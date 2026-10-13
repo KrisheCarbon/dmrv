@@ -6,7 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { canManageProducers } from '@krishecarbon/shared';
+import {
+  canManageProducers,
+  canViewNetwork,
+  isDmrvViewer,
+  withoutPeopleForDmrvViewer,
+} from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -143,8 +148,19 @@ export class BiocharProducersService {
     return `BP-${Date.now().toString(36).toUpperCase()}`;
   }
 
+
+  private assertCanView(user: AuthenticatedUser): void {
+    if (!canViewNetwork(user.role)) {
+      throw new ForbiddenException('Not allowed to view this record');
+    }
+  }
+
+  private forViewer<T>(user: AuthenticatedUser, value: T): T {
+    return isDmrvViewer(user.role) ? withoutPeopleForDmrvViewer(value) : value;
+  }
+
   async findAll(user: AuthenticatedUser) {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('biochar_producers')
@@ -166,11 +182,11 @@ export class BiocharProducersService {
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
-    return data ?? [];
+    return this.forViewer(user, data ?? []);
   }
 
   async findById(user: AuthenticatedUser, id: string) {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('biochar_producers')
@@ -180,7 +196,7 @@ export class BiocharProducersService {
 
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Producer not found');
-    return this.attachAssignments(data, id);
+    return this.forViewer(user, await this.attachAssignments(data, id));
   }
 
   private async attachAssignments<

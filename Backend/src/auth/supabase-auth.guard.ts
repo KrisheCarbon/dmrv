@@ -1,11 +1,15 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { isDmrvViewer } from '@krishecarbon/shared';
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from './auth.types';
 
@@ -47,6 +51,12 @@ export class SupabaseAuthGuard implements CanActivate {
       id: user.id,
       role: profile.role,
     };
+
+    // dMRV viewers only look. Every create, edit and delete is refused here,
+    // whatever the endpoint, so a new write route cannot forget the check.
+    if (isDmrvViewer(authUser.role) && !READ_METHODS.has(String(request.method).toUpperCase())) {
+      throw new ForbiddenException('dMRV viewers can only view data.');
+    }
 
     request.authUser = authUser;
     return true;

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
-import { canAccessFarmersNetworkPortal } from "@/lib/roles";
+import { canAccessFarmersNetworkPortal, isDmrvViewer } from "@/lib/roles";
 import type { ReactNode } from "react";
 
 export default async function NetworkLayout({
@@ -22,7 +22,10 @@ export default async function NetworkLayout({
     .eq("id", user.id)
     .single();
 
-  if (!profile || !canAccessFarmersNetworkPortal(profile.role)) {
+  if (
+    !profile ||
+    (!canAccessFarmersNetworkPortal(profile.role) && !isDmrvViewer(profile.role))
+  ) {
     redirect("/");
   }
 

@@ -9,6 +9,7 @@ import {
   canAccessCarbon,
   canAccessFarmersNetworkPortal,
   canAccessNetwork,
+  dmrvViewerPathAllowed,
   isDmrvViewer,
 } from "@/lib/roles";
 
@@ -31,32 +32,13 @@ export function getSectionLinks(section: string): NavLink[] {
 }
 
 /** Sidebar nav entries visible for the given role. */
-const DMRV_VIEWER_HREFS = new Set([
-  "/biochar/production",
-  "/biochar/mixing",
-  "/biochar/feedstock",
-  "/biochar/sensor-data",
-  "/operations/trainings",
-  "/network/farmers",
-]);
-
 export function getNavForRole(role: string): NavEntry[] {
   if (isDmrvViewer(role)) {
+    // Same allow-list the page gate uses, so the menu never offers a page that bounces.
     return MAIN_NAV.flatMap((entry): NavEntry[] => {
-      if (entry.type === "item" && entry.href === "/") return [entry];
-      if (entry.type !== "group") return [];
-      const children = entry.children.filter((link) => DMRV_VIEWER_HREFS.has(link.href));
-      if (!children.length) return [];
-      if (entry.prefix === "/network") {
-        return [{
-          ...entry,
-          label: "Farms",
-          children: children.map((link) =>
-            link.href === "/network/farmers" ? { ...link, label: "Mixing farms" } : link,
-          ),
-        }];
-      }
-      return [{ ...entry, children }];
+      if (entry.type === "item") return dmrvViewerPathAllowed(entry.href) ? [entry] : [];
+      const children = entry.children.filter((link) => dmrvViewerPathAllowed(link.href));
+      return children.length ? [{ ...entry, children }] : [];
     });
   }
 
@@ -98,7 +80,11 @@ export function getDashboardSectionsForRole(role: string) {
   if (isDmrvViewer(role)) {
     const nav = getNavForRole(role);
     return DASHBOARD_SECTIONS.filter((section) =>
-      nav.some((entry) => entry.type === "group" && entry.prefix === `/${section.key}`),
+      nav.some((entry) =>
+        entry.type === "group"
+          ? entry.prefix === `/${section.key}`
+          : entry.href === section.href,
+      ),
     ).map((section) => {
       const group = nav.find(
         (entry): entry is NavGroupConfig =>
@@ -110,11 +96,11 @@ export function getDashboardSectionsForRole(role: string) {
             title: group.label,
             links: group.children,
             description:
-              section.key === "biochar"
-                ? "Pyrolysis, sensor data, mixing, and feedstock lab reports."
+              section.key === "network"
+                ? "Producers, kontikkis, clusters, partners, and farmers' basic details."
                 : section.key === "operations"
                   ? "Training records."
-                  : "Farms where biochar was mixed.",
+                  : section.description,
           }
         : section;
     });

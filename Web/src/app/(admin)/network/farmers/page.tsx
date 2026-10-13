@@ -218,11 +218,11 @@ export default function FarmersPage() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-950">
-            {readOnly ? "Mixing farms" : "Farmers"}
+            Farmers
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
             {readOnly
-              ? "Farms where biochar was mixed and applied."
+              ? "Farmer names, locations, and acreage. View only."
               : "Farmer info, farms, soil samples, and reports."}
           </p>
         </div>
@@ -280,13 +280,18 @@ export default function FarmersPage() {
               </div>
             ),
           },
-          {
-            key: "mobile",
-            label: "Mobile",
-            filterable: true,
-            sortable: true,
-            filterPlaceholder: "Search mobile",
-          },
+          // dMRV viewers never receive mobile numbers.
+          ...(readOnly
+            ? []
+            : [
+                {
+                  key: "mobile",
+                  label: "Mobile",
+                  filterable: true,
+                  sortable: true,
+                  filterPlaceholder: "Search mobile",
+                },
+              ]),
           {
             key: "village",
             label: "Location",
@@ -333,16 +338,20 @@ export default function FarmersPage() {
             label: "Farm acres",
             sortable: false,
           },
-          {
-            key: "sample",
-            label: "Soil sample",
-            sortable: false,
-            render: (_value, row) => (
-              <span className={`text-sm font-medium ${sampleToneClass(row.sampleTone)}`}>
-                {row.sample}
-              </span>
-            ),
-          },
+          ...(readOnly
+            ? []
+            : [
+                {
+                  key: "sample",
+                  label: "Soil sample",
+                  sortable: false,
+                  render: (_value: unknown, row: FarmerRow) => (
+                    <span className={`text-sm font-medium ${sampleToneClass(row.sampleTone)}`}>
+                      {row.sample}
+                    </span>
+                  ),
+                },
+              ]),
         ]}
         rows={rows}
         onRowClick={(row) => router.push(`/network/farmers/${row.id}`)}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -31,6 +32,7 @@ function PeopleList({ people }: { people: ClusterPerson[] }) {
 }
 
 export default function ClusterDetailPage() {
+  const readOnly = useIsDmrvViewer();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [data, setData] = useState<ClusterDetail | null>(null);
@@ -122,20 +124,24 @@ export default function ClusterDetailPage() {
         <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-4">
           <h2 className="text-lg font-semibold text-neutral-900">Cluster</h2>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/network/clusters/${data.id}/edit`}
-              className="inline-flex min-h-[38px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-            >
-              Edit
-            </Link>
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </button>
+            {readOnly ? null : (
+              <Link
+                href={`/network/clusters/${data.id}/edit`}
+                className="inline-flex min-h-[38px] items-center justify-center rounded-xl border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+              >
+                Edit
+              </Link>
+            )}
+            {readOnly ? null : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center justify-center rounded-xl border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </button>
+            )}
           </div>
         </div>
         <dl className="px-6 py-2">
@@ -158,12 +164,16 @@ export default function ClusterDetailPage() {
               </div>
             )}
           </DetailRow>
-          <DetailRow label="Supervisors">
-            <PeopleList people={data.supervisors} />
-          </DetailRow>
-          <DetailRow label="Climapreneurs">
-            <PeopleList people={data.climapreneurs} />
-          </DetailRow>
+          {readOnly ? null : (
+            <>
+              <DetailRow label="Supervisors">
+                <PeopleList people={data.supervisors ?? []} />
+              </DetailRow>
+              <DetailRow label="Climapreneurs">
+                <PeopleList people={data.climapreneurs ?? []} />
+              </DetailRow>
+            </>
+          )}
         </dl>
       </section>
     </div>

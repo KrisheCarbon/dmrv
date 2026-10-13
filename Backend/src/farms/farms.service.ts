@@ -11,6 +11,7 @@ import {
   canAccessNetwork,
   canAccessWebPortal,
   isDmrvViewer,
+  toDmrvViewerFarm,
   normalizeIndianMobile,
   pyrolysisProtocolForRegistry,
   type FarmUpsertPayload,
@@ -52,7 +53,6 @@ export class FarmsService {
 
   async findAll(user: AuthenticatedUser): Promise<Farmer[]> {
     if (isDmrvViewer(user.role)) {
-      const mixingIds = await this.mixingFarmIds();
       const rows = await fetchAllPages<Farmer>((from, to) =>
         this.supabase
           .from('farms')
@@ -60,9 +60,7 @@ export class FarmsService {
           .order('created_at', { ascending: false })
           .range(from, to),
       );
-      return rows
-        .filter((row) => mixingIds.has(row.id))
-        .map((row) => this.withCluster(row));
+      return rows.map((row) => toDmrvViewerFarm(this.withCluster(row)));
     }
 
     const seeAll = canAccessWebPortal(user.role);
@@ -102,7 +100,10 @@ export class FarmsService {
   ): Promise<PagedResult<Farmer>> {
     const pageSize = PAGE_SIZES.includes(query.pageSize) ? query.pageSize : 10;
     const page = Math.max(1, Math.floor(query.page) || 1);
-    const sortColumn = FARM_SORT_COLUMNS[query.sort ?? ''] ?? 'created_at';
+    const viewer = isDmrvViewer(user.role);
+    // Viewers never see mobile numbers, so they cannot sort or search by them either.
+    const sortKey = viewer && query.sort === 'mobile' ? '' : (query.sort ?? '');
+    const sortColumn = FARM_SORT_COLUMNS[sortKey] ?? 'created_at';
     const ascending = query.dir === 'asc';
 
     let request = this.supabase
@@ -112,11 +113,7 @@ export class FarmsService {
       .order('id', { ascending: true })
       .range((page - 1) * pageSize, page * pageSize - 1);
 
-    if (isDmrvViewer(user.role)) {
-      const mixingIds = [...(await this.mixingFarmIds())];
-      if (mixingIds.length === 0) return { rows: [], total: 0, page, pageSize };
-      request = request.in('id', mixingIds);
-    } else if (!canAccessWebPortal(user.role)) {
+    if (!viewer && !canAccessWebPortal(user.role)) {
       request = request.or(`created_by.eq.${user.id},assigned_to.eq.${user.id}`);
     }
 
@@ -124,6 +121,7 @@ export class FarmsService {
       // Keep only characters that are safe inside a PostgREST filter.
       const term = String(raw ?? '').replace(/[^\p{L}\p{N} .@+-]/gu, '').trim();
       if (!term) continue;
+      if (viewer && key === 'mobile') continue;
       if (key === 'location') {
         request = request.or(
           ['village', 'mandal', 'district', 'address']
@@ -138,7 +136,9 @@ export class FarmsService {
     const { data, error, count } = await request;
     if (error) throw new BadRequestException(error.message);
     return {
-      rows: ((data ?? []) as Farmer[]).map((row) => this.withCluster(row)),
+      rows: ((data ?? []) as Farmer[]).map((row) =>
+        viewer ? toDmrvViewerFarm(this.withCluster(row)) : this.withCluster(row),
+      ),
       total: count ?? 0,
       page,
       pageSize,
@@ -162,11 +162,7 @@ export class FarmsService {
 
     const farm = this.withCluster(data as Farmer);
     if (isDmrvViewer(user.role)) {
-      const mixingIds = await this.mixingFarmIds();
-      if (!mixingIds.has(farm.id)) {
-        throw new ForbiddenException('This farm has no mixing record.');
-      }
-      return farm;
+      return toDmrvViewerFarm(farm);
     }
     if (!this.canViewFarm(user, farm)) {
       throw new ForbiddenException('Not allowed to view this farm');
@@ -315,7 +311,10 @@ export class FarmsService {
     raw: string,
     excludeId?: string,
   ): Promise<{ valid: boolean; taken: boolean; farmer_name?: string | null; village?: string | null }> {
-    if (!canAccessMobileApp(user.role) && !canAccessWebPortal(user.role)) {
+    if (
+      isDmrvViewer(user.role) ||
+      (!canAccessMobileApp(user.role) && !canAccessWebPortal(user.role))
+    ) {
       throw new ForbiddenException('Not allowed to check farmers');
     }
     const mobile = normalizeIndianMobile(raw);
@@ -329,30 +328,6 @@ export class FarmsService {
           village: (taken[0].village as string | null) ?? null,
         }
       : { valid: true, taken: false };
-  }
-
-  private async mixingFarmIds(): Promise<Set<string>> {
-    const [csi, rainbow] = await Promise.all([
-      fetchAllPages<{ farm_id: string | null }>((from, to) =>
-        this.supabase
-          .from('csi_mixing_entries')
-          .select('farm_id')
-          .not('farm_id', 'is', null)
-          .range(from, to),
-      ),
-      fetchAllPages<{ farm_id: string | null }>((from, to) =>
-        this.supabase
-          .from('rainbow_mixing_entries')
-          .select('farm_id')
-          .not('farm_id', 'is', null)
-          .range(from, to),
-      ),
-    ]);
-    return new Set(
-      [...csi, ...rainbow]
-        .map((row) => row.farm_id)
-        .filter((id): id is string => Boolean(id)),
-    );
   }
 
   private canViewFarm(user: AuthenticatedUser, farm: Farmer): boolean {

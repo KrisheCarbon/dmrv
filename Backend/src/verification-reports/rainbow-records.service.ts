@@ -12,6 +12,7 @@ import {
   dryBiocharTonnes,
   feedstockLabNotice,
   canAccessCarbon,
+  canViewVerificationReports,
   isDmrvViewer,
   MIN_BIOMASS_SEQUESTRATION,
   RAINBOW_HCORG_MAX,
@@ -118,6 +119,13 @@ export class RainbowRecordsService {
     }
   }
 
+  /** Reading and downloading. Writes keep assertAccess (and viewers are refused at the guard). */
+  private assertCanView(user: AuthenticatedUser): void {
+    if (!canViewVerificationReports(user.role)) {
+      throw new ForbiddenException('You do not have access to verification reports.');
+    }
+  }
+
   private assertCanViewFeedstockRecords(user: AuthenticatedUser): void {
     if (!canAccessCarbon(user.role) && !isDmrvViewer(user.role)) {
       throw new ForbiddenException('You do not have access to feedstock lab records.');
@@ -125,7 +133,7 @@ export class RainbowRecordsService {
   }
 
   async inputs(user: AuthenticatedUser) {
-    this.assertAccess(user);
+    this.assertCanView(user);
     const [feedstocks, batches, mixing, kontikkis, labSamples, pollutants, methane, emissions, soilTemps] =
       await Promise.all([
         this.loadFeedstocks(),
@@ -429,7 +437,7 @@ export class RainbowRecordsService {
   }
 
   async buildPackage(user: AuthenticatedUser): Promise<RainbowPackage> {
-    this.assertAccess(user);
+    this.assertCanView(user);
     const snapshot = await this.inputs(user);
     const feedstockLabs = await this.loadTable('rainbow_feedstock_lab_samples', 'analyzed_on');
     const soilByMixing = new Map(

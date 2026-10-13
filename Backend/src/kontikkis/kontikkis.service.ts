@@ -8,7 +8,10 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessNetwork,
+  canViewNetwork,
+  isDmrvViewer,
   pyrolysisProtocolForRegistry,
+  withoutPeopleForDmrvViewer,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -138,6 +141,16 @@ export class KontikkisService {
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
+  private assertCanView(user: AuthenticatedUser): void {
+    if (!canViewNetwork(user.role)) {
+      throw new ForbiddenException('Not allowed to view this record');
+    }
+  }
+
+  private forViewer<T>(user: AuthenticatedUser, value: T): T {
+    return isDmrvViewer(user.role) ? withoutPeopleForDmrvViewer(value) : value;
+  }
+
   private assertCanManage(user: AuthenticatedUser): void {
     if (!canAccessNetwork(user.role)) {
       throw new ForbiddenException('Not allowed to manage kontikkis');
@@ -149,7 +162,7 @@ export class KontikkisService {
     biocharProducerId?: string,
     operatorId?: string,
   ): Promise<KontikkiRecord[]> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     let query = this.supabase
       .from('kontikkis')
@@ -184,11 +197,11 @@ export class KontikkisService {
       throw new BadRequestException(error.message);
     }
 
-    return (data ?? []) as unknown as KontikkiRecord[];
+    return this.forViewer(user, (data ?? []) as unknown as KontikkiRecord[]);
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<KontikkiRecord> {
-    this.assertCanManage(user);
+    this.assertCanView(user);
 
     const { data, error } = await this.supabase
       .from('kontikkis')
@@ -204,7 +217,7 @@ export class KontikkisService {
       throw new NotFoundException('Kontikki not found');
     }
 
-    return data as unknown as KontikkiRecord;
+    return this.forViewer(user, data as unknown as KontikkiRecord);
   }
 
   async create(

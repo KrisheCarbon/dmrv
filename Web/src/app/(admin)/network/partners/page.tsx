@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,6 +23,7 @@ function formatPartnerStatus(status?: string) {
 }
 
 export default function PartnersPage() {
+  const readOnly = useIsDmrvViewer();
   const [partners, setPartners] = useState<PartnerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,12 +67,14 @@ export default function PartnersPage() {
             Manage partner organisations across your network.
           </p>
         </div>
-        <Link
-          href="/network/partners/new"
-          className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
-        >
-          + Add partner
-        </Link>
+        {readOnly ? null : (
+          <Link
+            href="/network/partners/new"
+            className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+          >
+            + Add partner
+          </Link>
+        )}
       </div>
 
       {error ? (
