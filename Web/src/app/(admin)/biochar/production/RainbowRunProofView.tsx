@@ -64,7 +64,7 @@ function moistureSummary(proof: RainbowRunProof): string {
         : "This feedstock";
   const mean =
     proof.moisture_mean != null ? `${proof.moisture_mean.toFixed(1)}%` : "not calculated";
-  const rule = `${kind} needs a moisture photo before each layer: at least ${proof.required_moisture_count} for a full kiln, a mean at or below ${limit}, and no reading above 25%.`;
+  const rule = `${kind} needs all moisture photos before loading: at least ${proof.required_moisture_count} for a 1,000-1,099 L kiln, a mean at or below ${limit}, and no reading above 25%.`;
   if (proof.moisture.length === 0) {
     return `${rule} None are uploaded.`;
   }
@@ -116,47 +116,50 @@ export default function RainbowRunProofView({
   return (
     <>
       <section className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
-        <h3 className="text-sm font-semibold text-neutral-950">Moisture and layers</h3>
+        <h3 className="text-sm font-semibold text-neutral-950">Moisture readings</h3>
         <p className="mt-1 text-sm text-neutral-900">{moistureSummary(proof)}</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {proof.moisture.map((reading) => (
+            <ProofPhoto
+              key={reading.slot}
+              label={
+                reading.reading != null
+                  ? `Moisture ${reading.slot}: ${reading.reading}%`
+                  : `Moisture ${reading.slot}`
+              }
+              path={reading.photo_url ?? null}
+              capturedAt={reading.captured_at ?? null}
+              photoLayout={photoLayout}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
+        <h3 className="text-sm font-semibold text-neutral-950">Pyrolysis layers</h3>
         <p className="mt-1 text-sm text-neutral-900">
           {proof.last_layer_confirmed
-            ? "Each charge has a moisture photo taken before that layer, and the last layer is marked."
+            ? "Every layer is photographed and the last layer is marked."
             : "The last layer is not marked yet."}
         </p>
         <div className="mt-3 grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {proof.layers.map((layer) => (
+              <ProofPhoto
+                key={layer.sequence}
+                label={`Layer ${layer.sequence} in the kiln`}
+                path={layer.photo_url ?? null}
+                capturedAt={layer.captured_at ?? null}
+                photoLayout={photoLayout}
+              />
+            ))}
+          </div>
           <ProofPhoto
             label="Flame curtain after the last layer"
             path={proof.flame_curtain_photo_url}
             capturedAt={proof.flame_curtain_captured_at}
             photoLayout={photoLayout}
           />
-          {Array.from(
-            { length: Math.max(proof.moisture.length, proof.layers.length) },
-            (_, index) => {
-              const reading = proof.moisture.find((item) => item.slot === index + 1);
-              const layer = proof.layers.find((item) => item.sequence === index + 1);
-              return (
-                <div key={index + 1} className="grid gap-3 sm:grid-cols-2">
-                  <ProofPhoto
-                    label={
-                      reading?.reading != null
-                        ? `Layer ${index + 1} moisture: ${reading.reading}%`
-                        : `Layer ${index + 1} moisture`
-                    }
-                    path={reading?.photo_url ?? null}
-                    capturedAt={reading?.captured_at ?? null}
-                    photoLayout={photoLayout}
-                  />
-                  <ProofPhoto
-                    label={`Layer ${index + 1} in the kiln`}
-                    path={layer?.photo_url ?? null}
-                    capturedAt={layer?.captured_at ?? null}
-                    photoLayout={photoLayout}
-                  />
-                </div>
-              );
-            },
-          )}
         </div>
       </section>
 

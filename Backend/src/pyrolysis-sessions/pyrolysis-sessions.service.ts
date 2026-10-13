@@ -992,7 +992,7 @@ export class PyrolysisSessionsService {
       );
       if (!ok) {
         throw new BadRequestException(
-          'Each layer needs a moisture photo taken before that biomass goes in. Cotton needs at least 10 and corn at least 12. The mean must stay within the feedstock limit, and no reading may be above 25%.',
+          'Take all moisture photos before loading the kiln. On a 1,000-1,099 L kiln cotton needs at least 10 and corn cobs at least 12. The mean must stay within the feedstock limit, and no reading may be above 25%.',
         );
       }
     }
@@ -1022,7 +1022,7 @@ export class PyrolysisSessionsService {
       );
       if (!ok) {
         throw new BadRequestException(
-          'Each charge needs a moisture photo before its layer photo. After the last layer, photograph the flame curtain, then record quenching with photos or a short video.',
+          'Finish the moisture photos first, then photograph every layer. After the last layer, photograph the flame curtain, then record quenching with photos or a short video.',
         );
       }
     }

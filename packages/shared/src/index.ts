@@ -444,6 +444,7 @@ export {
   isRainbowMoistureComplete,
   isRainbowLayeringComplete,
   isRainbowLayerPairComplete,
+  isRainbowLayerPhotosComplete,
   isRainbowBiomassLoadComplete,
   isRainbowProductionComplete,
   isRainbowQuenchComplete,

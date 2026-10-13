@@ -13,6 +13,8 @@ import {
   PYROLYSIS_KONTIKKI_SECTIONS,
   RAINBOW_KONTIKKI_SECTIONS,
   rainbowRequiredMoistureCount,
+  RAINBOW_MOISTURE_READING_COUNT,
+  RAINBOW_CORN_MOISTURE_READING_COUNT,
   emptyMoistureReadings,
   emptyRainbowMoistureReadings,
   isKontikkiWorkflowSectionCompleted,
@@ -224,6 +226,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   const [infoDraft, setInfoDraft] = useState(emptyInfoDraft());
   const [moistureDraft, setMoistureDraft] = useState(emptyMoistureReadings());
   const [expandedMoistureIndex, setExpandedMoistureIndex] = useState(0);
+  const [expandedLayerIndex, setExpandedLayerIndex] = useState(0);
   const [locationLoading, setLocationLoading] = useState(false);
   const [stagePhotos, setStagePhotos] = useState<PyrolysisStagePhotos>({});
   const [biomassLoads, setBiomassLoads] = useState<RainbowBiomassLoad[]>([]);
@@ -370,11 +373,15 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       firstIncompleteMoisture === -1 ? moisture.length - 1 : firstIncompleteMoisture,
     );
     setStagePhotos(normalizeStagePhotos(payload.stage_photos));
-    setBiomassLoads(
+    const loads =
       kontikki.standard === "rainbow"
-        ? fitLayerLoads(kontikki.biomassLoads ?? [], moisture.length)
-        : (kontikki.biomassLoads ?? []),
+        ? fitLayerLoads(kontikki.biomassLoads ?? [], Math.max(kontikki.biomassLoads?.length ?? 0, 1))
+        : (kontikki.biomassLoads ?? []);
+    setBiomassLoads(loads);
+    const firstIncompleteLayer = loads.findIndex(
+      (load) => !(load.photo_local_uri || load.photo_url),
     );
+    setExpandedLayerIndex(firstIncompleteLayer === -1 ? loads.length - 1 : firstIncompleteLayer);
     setYieldDraft({
       yield_percent: payload.yield_percent ?? null,
       comment: payload.comment ?? "",
@@ -458,7 +465,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
           setSavingSection(section);
           if (isRainbow) {
             if (section === "info") await saveRainbowInfoLocal(kontikkiRowId, { ...infoDraft, ...payload });
-            else if (section === "layers" || section === "quench") {
+            else if (section === "moisture" || section === "layers" || section === "quench") {
               const readings = payload.moisture_readings ?? moistureDraft;
               await saveRainbowMoistureLocal(kontikkiRowId, readings);
               await saveRainbowBiomassLoadsLocal(kontikkiRowId, loads ?? biomassLoads, {
@@ -754,13 +761,9 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         photo_metadata: photo.metadata,
       };
       setMoistureDraft(next);
-      if (isRainbow) {
-        queueAutoSave("layers", { moisture_readings: next }, biomassLoads);
-      } else {
-        queueAutoSave("moisture", { moisture_readings: next });
-        if (isMoistureReadingCompleted(next[index]) && index < next.length - 1) {
-          setExpandedMoistureIndex(index + 1);
-        }
+      queueAutoSave("moisture", { moisture_readings: next }, biomassLoads);
+      if (isMoistureReadingCompleted(next[index]) && index < next.length - 1) {
+        setExpandedMoistureIndex(index + 1);
       }
     });
   }
@@ -785,13 +788,6 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
   async function handleLayerPhoto(index: number) {
     const load = biomassLoads[index];
     if (!load) return;
-    if (!isMoistureReadingCompleted(moistureDraft[index])) {
-      Alert.alert(
-        "Moisture first",
-        "Photograph the moisture of this biomass before it goes into the kiln.",
-      );
-      return;
-    }
     await reviewCapturedPhoto(`biomass-${load.id}`, async (photo) => {
       const next = biomassLoads.map((item, itemIndex) =>
         itemIndex === index
@@ -805,15 +801,29 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       );
       setBiomassLoads(next);
       queueAutoSave("layers", { moisture_readings: moistureDraft }, next);
-      if (index < next.length - 1) setExpandedMoistureIndex(index + 1);
+      if (index < next.length - 1) setExpandedLayerIndex(index + 1);
     });
   }
 
-  function addLayerPair() {
+  function addMoistureReading() {
     const nextReadings = [
       ...moistureDraft,
       { reading: null, photo_local_uri: null, photo_url: null },
     ];
+    setMoistureDraft(nextReadings);
+    setExpandedMoistureIndex(nextReadings.length - 1);
+    queueAutoSave("moisture", { moisture_readings: nextReadings }, biomassLoads);
+  }
+
+  function removeMoistureReading(index: number) {
+    const required = rainbowRequiredMoistureCount(infoDraft.feedstock_name);
+    if (index < required) return;
+    const nextReadings = moistureDraft.filter((_, itemIndex) => itemIndex !== index);
+    setMoistureDraft(nextReadings);
+    queueAutoSave("moisture", { moisture_readings: nextReadings }, biomassLoads);
+  }
+
+  function addLayer() {
     const nextLoads = [
       ...biomassLoads,
       {
@@ -829,9 +839,8 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         infoDraft.flame_curtain_photo_local_uri ||
         infoDraft.flame_curtain_photo_url,
     );
-    setMoistureDraft(nextReadings);
     setBiomassLoads(nextLoads);
-    setExpandedMoistureIndex(nextLoads.length - 1);
+    setExpandedLayerIndex(nextLoads.length - 1);
     if (hadLastLayer) {
       const cleared = {
         ...infoDraft,
@@ -841,26 +850,24 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
         flame_curtain_photo_metadata: null,
       };
       setInfoDraft(cleared);
-      queueAutoSave("layers", { ...cleared, moisture_readings: nextReadings }, nextLoads);
+      queueAutoSave("layers", { ...cleared, moisture_readings: moistureDraft }, nextLoads);
       Alert.alert(
         "Last layer cleared",
         "Photograph the flame curtain again after this new layer.",
       );
       return;
     }
-    queueAutoSave("layers", { moisture_readings: nextReadings }, nextLoads);
+    queueAutoSave("layers", { moisture_readings: moistureDraft }, nextLoads);
   }
 
-  function removeLayerPair(index: number) {
-    const required = rainbowRequiredMoistureCount(infoDraft.feedstock_name);
-    if (index < required) return;
-    const nextReadings = moistureDraft.filter((_, itemIndex) => itemIndex !== index);
+  function removeLayer(index: number) {
+    if (biomassLoads.length <= 1) return;
     const nextLoads = biomassLoads
       .filter((_, itemIndex) => itemIndex !== index)
       .map((load, itemIndex) => ({ ...load, sequence: itemIndex + 1 }));
-    setMoistureDraft(nextReadings);
     setBiomassLoads(nextLoads);
-    queueAutoSave("layers", { moisture_readings: nextReadings }, nextLoads);
+    setExpandedLayerIndex(Math.min(index, nextLoads.length - 1));
+    queueAutoSave("layers", { moisture_readings: moistureDraft }, nextLoads);
   }
 
   async function handleSamplePhoto() {
@@ -907,8 +914,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
       photo_metadata: null,
     };
     setMoistureDraft(next);
-    if (isRainbow) queueAutoSave("layers", { moisture_readings: next }, biomassLoads);
-    else queueAutoSave("moisture", { moisture_readings: next });
+    queueAutoSave("moisture", { moisture_readings: next }, biomassLoads);
   }
 
   function handleRemoveStagePhoto(stage: PyrolysisStageKey) {
@@ -955,10 +961,8 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
     if (isRainbow && patch.feedstock_name !== undefined) {
       const nextReadings = fittedRainbowMoisture(moistureDraft, patch.feedstock_name);
-      const nextLoads = fitLayerLoads(biomassLoads, nextReadings.length);
       setMoistureDraft(nextReadings);
-      setBiomassLoads(nextLoads);
-      queueAutoSave("layers", { moisture_readings: nextReadings }, nextLoads);
+      queueAutoSave("moisture", { moisture_readings: nextReadings }, biomassLoads);
     }
 
     if (patch.batch_number !== undefined) {
@@ -1234,6 +1238,13 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
 
               {section === "moisture" ? (
                 <View style={styles.form}>
+                  {isRainbow ? (
+                    <Text style={styles.pairHint}>
+                      Take every moisture photo before loading the kiln. Cotton needs at least{" "}
+                      {RAINBOW_MOISTURE_READING_COUNT} and corn cobs at least{" "}
+                      {RAINBOW_CORN_MOISTURE_READING_COUNT} for a 1,000-1,099 L kiln.
+                    </Text>
+                  ) : null}
                   {moistureDraft.map((reading, index) => {
                     const readingCompleted = isMoistureReadingCompleted(reading);
                     const readingUnlocked =
@@ -1269,7 +1280,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                               reading: text ? Number(text) : null,
                             };
                             setMoistureDraft(next);
-                            queueAutoSave("moisture", { moisture_readings: next });
+                            queueAutoSave("moisture", { moisture_readings: next }, biomassLoads);
                             if (
                               isMoistureReadingCompleted(next[index]) &&
                               index < next.length - 1
@@ -1279,7 +1290,7 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                           }}
                         />
                         <PyrolysisPhotoSlot
-                          label="Moisture photo"
+                          label={isRainbow ? "Moisture photo, before loading" : "Moisture photo"}
                           required
                           localUri={reading.photo_local_uri}
                           remoteUrl={reading.photo_url}
@@ -1288,125 +1299,90 @@ export default function PyrolysisKontikkiWorkflowScreen({ route, navigation }) {
                           onCapture={() => handleMoisturePhoto(index)}
                           onRemove={() => handleRemoveMoisturePhoto(index)}
                         />
+                        {isRainbow &&
+                        index >= rainbowRequiredMoistureCount(infoDraft.feedstock_name) ? (
+                          <TouchableOpacity
+                            onPress={() => removeMoistureReading(index)}
+                            style={styles.metaRetryWrap}
+                          >
+                            <Text style={styles.metaRetry}>Remove this extra reading</Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </PyrolysisCollapsibleSection>
                     );
                   })}
+                  {isRainbow ? (
+                    <TouchableOpacity onPress={addMoistureReading} style={styles.metaRetryWrap}>
+                      <Text style={styles.metaRetry}>+ Add another moisture reading</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ) : null}
 
               {section === "layers" ? (
                 <View style={styles.form}>
                   <Text style={styles.pairHint}>
-                    For each charge, record the moisture, photograph the meter, then photograph that biomass in the kiln.
+                    Photograph each layer of biomass as it goes into the kiln.
                   </Text>
-                  {moistureDraft.map((reading, index) => {
-                    const load = biomassLoads[index];
-                    const moistureDone = isMoistureReadingCompleted(reading);
-                    const pairDone =
-                      moistureDone && Boolean(load?.photo_local_uri || load?.photo_url);
-                    const pairUnlocked =
+                  {biomassLoads.map((load, index) => {
+                    const layerDone = Boolean(load.photo_local_uri || load.photo_url);
+                    const layerUnlocked =
                       index === 0 ||
-                      (isMoistureReadingCompleted(moistureDraft[index - 1]) &&
-                        Boolean(
-                          biomassLoads[index - 1]?.photo_local_uri ||
-                            biomassLoads[index - 1]?.photo_url,
-                        ));
-                    const requiredPairs = rainbowRequiredMoistureCount(infoDraft.feedstock_name);
+                      Boolean(
+                        biomassLoads[index - 1]?.photo_local_uri ||
+                          biomassLoads[index - 1]?.photo_url,
+                      );
                     return (
                       <PyrolysisCollapsibleSection
-                        key={`layer-${load?.id ?? index}`}
+                        key={`layer-${load.id}`}
                         title={`Layer ${index + 1}`}
-                        subtitle="Moisture first, then the layer"
-                        expanded={expandedMoistureIndex === index}
-                        unlocked={pairUnlocked}
-                        completed={pairDone}
-                        savedLocally={pairDone}
+                        expanded={expandedLayerIndex === index}
+                        unlocked={layerUnlocked}
+                        completed={layerDone}
+                        savedLocally={layerDone}
                         onToggle={() => {
-                          if (!pairUnlocked) return;
-                          setExpandedMoistureIndex(index);
+                          if (!layerUnlocked) return;
+                          setExpandedLayerIndex(index);
                         }}
                       >
-                        <FormInput
-                          label="Moisture value"
-                          keyboardType="decimal-pad"
-                          value={reading.reading != null ? String(reading.reading) : ""}
-                          onChangeText={(text) => {
-                            if (isMoistureAboveLimit(text)) {
-                              Alert.alert(
-                                "Moisture not allowed",
-                                "Moisture more than 25 is not allowed.",
-                              );
-                              return;
-                            }
-                            const next = [...moistureDraft];
-                            next[index] = {
-                              ...next[index],
-                              reading: text ? Number(text) : null,
-                            };
-                            setMoistureDraft(next);
-                            queueAutoSave("layers", { moisture_readings: next }, biomassLoads);
+                        <PyrolysisPhotoSlot
+                          label="Layer in the kiln"
+                          required
+                          localUri={load.photo_local_uri}
+                          remoteUrl={load.photo_url}
+                          metadata={load.photo_metadata}
+                          capturing={capturingKey === `biomass-${load.id}`}
+                          onCapture={() => handleLayerPhoto(index)}
+                          onRemove={() => {
+                            const next = biomassLoads.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    photo_local_uri: null,
+                                    photo_url: null,
+                                    photo_metadata: null,
+                                  }
+                                : item,
+                            );
+                            setBiomassLoads(next);
+                            queueAutoSave("layers", { moisture_readings: moistureDraft }, next);
                           }}
                         />
-                        <PyrolysisPhotoSlot
-                          label="Moisture photo, before loading"
-                          required
-                          localUri={reading.photo_local_uri}
-                          remoteUrl={reading.photo_url}
-                          metadata={reading.photo_metadata}
-                          capturing={capturingKey === `moisture-${index}`}
-                          onCapture={() => handleMoisturePhoto(index)}
-                          onRemove={() => handleRemoveMoisturePhoto(index)}
-                        />
-                        {moistureDone ? (
-                          <PyrolysisPhotoSlot
-                            label="Layer in the kiln"
-                            required
-                            localUri={load?.photo_local_uri}
-                            remoteUrl={load?.photo_url}
-                            metadata={load?.photo_metadata}
-                            capturing={capturingKey === `biomass-${load?.id}`}
-                            onCapture={() => handleLayerPhoto(index)}
-                            onRemove={() => {
-                              if (!load) return;
-                              const next = biomassLoads.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? {
-                                      ...item,
-                                      photo_local_uri: null,
-                                      photo_url: null,
-                                      photo_metadata: null,
-                                    }
-                                  : item,
-                              );
-                              setBiomassLoads(next);
-                              queueAutoSave("layers", { moisture_readings: moistureDraft }, next);
-                            }}
-                          />
-                        ) : (
-                          <Text style={styles.pairHint}>
-                            The layer photo opens after this moisture photo is saved.
-                          </Text>
-                        )}
-                        {index >= requiredPairs ? (
+                        {biomassLoads.length > 1 && !layerDone ? (
                           <TouchableOpacity
-                            onPress={() => removeLayerPair(index)}
+                            onPress={() => removeLayer(index)}
                             style={styles.metaRetryWrap}
                           >
-                            <Text style={styles.metaRetry}>Remove this extra layer</Text>
+                            <Text style={styles.metaRetry}>Remove this layer</Text>
                           </TouchableOpacity>
                         ) : null}
                       </PyrolysisCollapsibleSection>
                     );
                   })}
-                  <TouchableOpacity onPress={addLayerPair} style={styles.metaRetryWrap}>
+                  <TouchableOpacity onPress={addLayer} style={styles.metaRetryWrap}>
                     <Text style={styles.metaRetry}>+ Add another layer</Text>
                   </TouchableOpacity>
-                  {moistureDraft.every((reading, index) =>
-                    Boolean(
-                      isMoistureReadingCompleted(reading) &&
-                        (biomassLoads[index]?.photo_local_uri || biomassLoads[index]?.photo_url),
-                    ),
-                  ) ? (
+                  {biomassLoads.every((load) => Boolean(load.photo_local_uri || load.photo_url)) ? (
                     <TouchableOpacity
                       onPress={() =>
                         saveProcessDraft({

@@ -5,11 +5,11 @@ import {
 } from "./producerRegistry";
 
 /**
- * Moisture photos for cotton on a 1,000 L kiln.
+ * Moisture photos for cotton on a 1,000-1,099 L kiln.
  * A full kiln is about 780 kg, and Rainbow's floor is 10 readings.
  */
 export const RAINBOW_MOISTURE_READING_COUNT = 10;
-/** Corn cobs fill a 1,000 L kiln to about 1,200 kg, so one reading per 100 kg is 12. */
+/** Corn cobs fill a 1,000-1,099 L kiln to about 1,200 kg, so one reading per 100 kg is 12. */
 export const RAINBOW_CORN_MOISTURE_READING_COUNT = 12;
 /** Kept for the Rainbow rate. The app uses the feedstock minimum above for a full kiln. */
 export const RAINBOW_KG_PER_MOISTURE_READING = 100;
@@ -84,6 +84,7 @@ export function rainbowMoistureMeanLimit(
 
 export const RAINBOW_KONTIKKI_SECTIONS = [
   "info",
+  "moisture",
   "layers",
   "quench",
   "yield",
@@ -234,7 +235,7 @@ export function isRainbowMoistureComplete(
   return mean <= limit;
 }
 
-/** Moisture of the charge, photographed before that biomass is loaded as the layer. */
+/** @deprecated Moisture and layers are recorded as separate steps; kept for older callers. */
 export function isRainbowLayerPairComplete(
   reading: MoistureReading | undefined,
   load: RainbowBiomassLoad | undefined,
@@ -243,6 +244,16 @@ export function isRainbowLayerPairComplete(
   return moistureSlotFilled(reading) && isRainbowBiomassLoadComplete(load);
 }
 
+/** Layer photos only: every layer photographed, the last one marked, then the flame curtain. */
+export function isRainbowLayerPhotosComplete(
+  loads: RainbowBiomassLoad[],
+  proof?: Pick<RainbowProcessProof, "lastLayerConfirmed" | "flameCurtainPhoto"> | null,
+): boolean {
+  if (loads.length === 0 || !loads.every(isRainbowBiomassLoadComplete)) return false;
+  return Boolean(proof?.lastLayerConfirmed && proof.flameCurtainPhoto);
+}
+
+/** All moisture photos come first, then the layer photos. */
 export function isRainbowLayeringComplete(
   readings: MoistureReading[],
   loads: RainbowBiomassLoad[],
@@ -250,13 +261,8 @@ export function isRainbowLayeringComplete(
   feedstockClass?: RainbowFeedstockClass | null,
   proof?: Pick<RainbowProcessProof, "lastLayerConfirmed" | "flameCurtainPhoto"> | null,
 ): boolean {
-  const required = rainbowRequiredMoistureCount(feedstockName);
-  if (loads.length < required || readings.length !== loads.length) return false;
-  if (!readings.every((reading, index) => isRainbowLayerPairComplete(reading, loads[index]))) {
-    return false;
-  }
   if (!isRainbowMoistureComplete(readings, feedstockName, feedstockClass)) return false;
-  return Boolean(proof?.lastLayerConfirmed && proof.flameCurtainPhoto);
+  return isRainbowLayerPhotosComplete(loads, proof);
 }
 
 export function isRainbowInfoComplete(input: {
@@ -289,9 +295,8 @@ export function isRainbowProductionComplete(
     if (!isRainbowLayeringComplete(readings, loads, feedstockName, feedstockClass, proof)) {
       return false;
     }
-  } else {
-    const layersOk = loads.length > 0 && loads.every(isRainbowBiomassLoadComplete);
-    if (!layersOk || !proof?.lastLayerConfirmed || !proof.flameCurtainPhoto) return false;
+  } else if (!isRainbowLayerPhotosComplete(loads, proof)) {
+    return false;
   }
   return isRainbowQuenchComplete(proof);
 }
@@ -300,7 +305,8 @@ export function rainbowWorkflowSectionLabel(
   section: RainbowKontikkiWorkflowSection,
 ): string {
   if (section === "info") return "Batch info";
-  if (section === "layers") return "Moisture and layers";
+  if (section === "moisture") return "Moisture readings";
+  if (section === "layers") return "Pyrolysis layers";
   if (section === "quench") return "Quenching";
   if (section === "yield") return "Yield & comment";
   if (section === "sample") return "Sample";
@@ -313,8 +319,11 @@ export function rainbowWorkflowSectionSubtitle(
   if (section === "info") {
     return "Kiln photo, batch number, feedstock, and location";
   }
+  if (section === "moisture") {
+    return "All moisture photos before loading. At least 10 for cotton and 12 for corn cobs on a 1,000-1,099 L kiln.";
+  }
   if (section === "layers") {
-    return "Moisture of each charge, then a photo of that layer. Cotton 10, corn 12, then more if you keep loading.";
+    return "A photo of each layer as it goes in, then the flame curtain after the last layer.";
   }
   if (section === "quench") {
     return "After the flame curtain. Photos from the start of quenching to the end, or one short video.";
@@ -342,6 +351,14 @@ export type RainbowSectionInput = {
   feedstockClass?: RainbowFeedstockClass | null;
 };
 
+function moistureSectionDone(input?: RainbowSectionInput | null): boolean {
+  return isRainbowMoistureComplete(
+    input?.readings ?? [],
+    input?.feedstockName,
+    input?.feedstockClass,
+  );
+}
+
 function layeringSectionDone(
   loads: RainbowBiomassLoad[],
   proof?: RainbowProcessProof | null,
@@ -364,6 +381,7 @@ export function isRainbowSectionCompleted(
   input?: RainbowSectionInput | null,
 ): boolean {
   if (section === "info") return flags.infoCompleted;
+  if (section === "moisture") return moistureSectionDone(input);
   if (section === "layers") return layeringSectionDone(loads, proof, input);
   if (section === "quench") return isRainbowQuenchComplete(proof);
   if (section === "yield") return flags.yieldCompleted;
@@ -379,7 +397,8 @@ export function isRainbowSectionUnlocked(
   input?: RainbowSectionInput | null,
 ): boolean {
   if (section === "info") return true;
-  if (section === "layers") return flags.infoCompleted;
+  if (section === "moisture") return flags.infoCompleted;
+  if (section === "layers") return flags.infoCompleted && moistureSectionDone(input);
   if (section === "quench") return layeringSectionDone(loads, proof, input);
   if (section === "yield") {
     return layeringSectionDone(loads, proof, input) && isRainbowQuenchComplete(proof);
