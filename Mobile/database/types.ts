@@ -479,6 +479,10 @@ export interface SoilTest {
   /** Photo of the filled-in soil sample info sheet. */
   infoSheetPhotoUri: string | null;
   infoSheetPhotoUrl: string | null;
+  /** Crop harvested from these farms before sampling. */
+  lastCrop: string | null;
+  /** Crop the farmer plans to sow next. */
+  nextCrop: string | null;
   receivePhotoUri: string | null;
   receivePhotoUrl: string | null;
   labSource: string | null;
@@ -519,6 +523,8 @@ interface SoilTestRowRaw {
   sample_sites_json?: string | null;
   info_sheet_photo_uri?: string | null;
   info_sheet_photo_url?: string | null;
+  last_crop?: string | null;
+  next_crop?: string | null;
   receive_photo_uri?: string | null;
   receive_photo_url?: string | null;
   lab_source: string | null;
@@ -563,6 +569,8 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
     sampleSites: parseSoilSampleSites(row.sample_sites_json),
     infoSheetPhotoUri: row.info_sheet_photo_uri ?? null,
     infoSheetPhotoUrl: row.info_sheet_photo_url ?? null,
+    lastCrop: row.last_crop ?? null,
+    nextCrop: row.next_crop ?? null,
     receivePhotoUri: row.receive_photo_uri ?? null,
     receivePhotoUrl: row.receive_photo_url ?? null,
     labSource: row.lab_source,
@@ -604,6 +612,8 @@ export function soilTestToRow(test: Omit<SoilTest, "id">): Record<string, unknow
     sample_sites_json: JSON.stringify(test.sampleSites ?? []),
     info_sheet_photo_uri: test.infoSheetPhotoUri,
     info_sheet_photo_url: test.infoSheetPhotoUrl,
+    last_crop: test.lastCrop,
+    next_crop: test.nextCrop,
     receive_photo_uri: test.receivePhotoUri,
     receive_photo_url: test.receivePhotoUrl,
     lab_source: test.labSource,
@@ -1931,3 +1941,79 @@ export function rowToRainbowBiomassLoad(row: {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// biomass_collections
+// ---------------------------------------------------------------------------
+
+export interface BiomassCollection {
+  id: string;
+  serverId: string | null;
+  operatorId: string;
+  /** draft → loaded (saved at the farm) → submitted (unloaded and queued) → synced */
+  status: string;
+  farmId: string | null;
+  farmName: string | null;
+  producerId: string | null;
+  producerName: string | null;
+  tractorNumber: string | null;
+  loadedPhotoLocalUri: string | null;
+  loadedPhotoUrl: string | null;
+  loadedPhotoMetadataJson: string | null;
+  loadedSavedAt: string | null;
+  unloadedPhotoLocalUri: string | null;
+  unloadedPhotoUrl: string | null;
+  unloadedPhotoMetadataJson: string | null;
+  uploadStatus: string;
+  syncError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface BiomassCollectionRowRaw {
+  id: string;
+  server_id: string | null;
+  operator_id: string;
+  status: string;
+  farm_id: string | null;
+  farm_name: string | null;
+  producer_id: string | null;
+  producer_name: string | null;
+  tractor_number: string | null;
+  loaded_photo_local_uri: string | null;
+  loaded_photo_url: string | null;
+  loaded_photo_metadata_json: string | null;
+  loaded_saved_at: string | null;
+  unloaded_photo_local_uri: string | null;
+  unloaded_photo_url: string | null;
+  unloaded_photo_metadata_json: string | null;
+  sync_status: string;
+  sync_error: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export function rowToBiomassCollection(row: BiomassCollectionRowRaw): BiomassCollection {
+  return {
+    id: row.id,
+    serverId: row.server_id,
+    operatorId: row.operator_id,
+    status: row.status,
+    farmId: row.farm_id,
+    farmName: row.farm_name,
+    producerId: row.producer_id,
+    producerName: row.producer_name,
+    tractorNumber: row.tractor_number,
+    loadedPhotoLocalUri: row.loaded_photo_local_uri,
+    loadedPhotoUrl: row.loaded_photo_url,
+    loadedPhotoMetadataJson: row.loaded_photo_metadata_json,
+    loadedSavedAt: row.loaded_saved_at,
+    unloadedPhotoLocalUri: row.unloaded_photo_local_uri,
+    unloadedPhotoUrl: row.unloaded_photo_url,
+    unloadedPhotoMetadataJson: row.unloaded_photo_metadata_json,
+    uploadStatus: row.sync_status,
+    syncError: row.sync_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}

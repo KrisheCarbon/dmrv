@@ -3,6 +3,7 @@ export const MODULE_STORAGE_BUCKETS = {
   pyrolysis: "pyrolysis",
   mixing: "mixing",
   application: "application",
+  biomassCollection: "biomass-collection",
   trainings: "trainings",
   farmersNetwork: "farmer-network-photos",
   soilReports: "soil-reports",

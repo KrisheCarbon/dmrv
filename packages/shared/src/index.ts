@@ -691,3 +691,12 @@ export type {
   ApplicationEntryStatusRecord,
   SubmitApplicationEntryStatusPayload,
 } from "./applicationEntryStatus";
+export {
+  BIOMASS_COLLECTION_TRACTOR_NOTICE,
+  BIOMASS_COLLECTION_STATUSES,
+} from "./biomassCollection";
+export type {
+  BiomassCollectionStatus,
+  BiomassCollectionRecord,
+  CreateBiomassCollectionPayload,
+} from "./biomassCollection";

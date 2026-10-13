@@ -20,6 +20,7 @@ const ALL_TABLES = [
   "mixing_pyrolysis_links",
   "application_entries",
   "application_pyrolysis_links",
+  "biomass_collections",
   "encrypted_batches",
 ];
 

@@ -44,6 +44,8 @@ import MixingDashboardScreen from "./screens/MixingDashboardScreen";
 import MixingEntryScreen from "./screens/MixingEntryScreen";
 import ApplicationDashboardScreen from "./screens/ApplicationDashboardScreen";
 import ApplicationEntryScreen from "./screens/ApplicationEntryScreen";
+import BiomassCollectionDashboardScreen from "./screens/BiomassCollectionDashboardScreen";
+import BiomassCollectionEntryScreen from "./screens/BiomassCollectionEntryScreen";
 import KilnSelectKontikkiScreen from "./screens/KilnSelectKontikkiScreen";
 import KilnScannerScreen from "./screens/KilnScannerScreen";
 import KilnDashboardScreen from "./screens/KilnDashboardScreen";
@@ -145,6 +147,14 @@ function MainStack() {
       <Stack.Screen
         name="ApplicationEntry"
         component={screen(ApplicationEntryScreen)}
+      />
+      <Stack.Screen
+        name="BiomassCollectionDashboard"
+        component={screen(BiomassCollectionDashboardScreen)}
+      />
+      <Stack.Screen
+        name="BiomassCollectionEntry"
+        component={screen(BiomassCollectionEntryScreen)}
       />
       <Stack.Screen
         name="KilnSelectKontikki"

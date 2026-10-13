@@ -41,6 +41,15 @@ const BASE_MODULES = [
     roles: ["climapreneur"]
   },
   {
+    id: "biomass",
+    title: "Biomass Collection",
+    desc: "Tractor loads from farms to the production site",
+    active: true,
+    screen: "BiomassCollectionDashboard",
+    roles: ["admin", "manager", "supervisor", "climapreneur"],
+    showSyncStatus: true
+  },
+  {
     id: "pyrolysis",
     title: "Pyrolysis",
     desc: "Log batch runs & production data",
@@ -243,18 +252,20 @@ export default function HomeScreen({ navigation }) {
     }
 
     try {
-      const [summary, pyrolysisSync, mixingSync, applicationSync] = await Promise.all([
+      const [summary, pyrolysisSync, mixingSync, applicationSync, biomassSync] = await Promise.all([
         getSyncStatusSummary(profile?.id, profile?.role),
         getEntitySyncSummary("pyrolysis_sessions", profile?.id),
         getEntitySyncSummary("mixing_entries", profile?.id),
-        getEntitySyncSummary("application_entries", profile?.id)
+        getEntitySyncSummary("application_entries", profile?.id),
+        getEntitySyncSummary("biomass_collections", profile?.id)
       ]);
       setSync(summary);
       setSyncByModule({
         farms: summary,
         pyrolysis: pyrolysisSync,
         mixing: mixingSync,
-        application: applicationSync
+        application: applicationSync,
+        biomass: biomassSync
       });
 
       if (profile?.id) {

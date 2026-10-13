@@ -58,6 +58,7 @@ export const MAIN_NAV: NavEntry[] = [
     prefix: "/biochar",
     children: [
       { href: "/biochar", label: "Overview", exact: true },
+      { href: "/biochar/biomass-collection", label: "Biomass collection" },
       { href: "/biochar/production", label: "Production" },
       { href: "/biochar/mixing", label: "Mixing" },
       { href: "/biochar/application", label: "Application" },
@@ -121,7 +122,7 @@ export const DASHBOARD_SECTIONS = [
   {
     key: "biochar",
     title: "Biochar",
-    description: "Production runs, mixing, application, feedstock, and sensor data.",
+    description: "Biomass collection, production runs, mixing, application, feedstock, and sensor data.",
     href: "/biochar",
     links: MAIN_NAV.find(
       (n): n is NavGroupConfig => n.type === "group" && n.label === "Biochar",

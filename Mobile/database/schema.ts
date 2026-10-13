@@ -1,6 +1,6 @@
 // Plain SQLite DDL replacing the WatermelonDB schema/migrations. Fresh start:
 // this creates the final (v11-equivalent) shape directly, no historical replay.
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS farmers (
@@ -141,6 +141,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     sample_sites_json TEXT,
     info_sheet_photo_uri TEXT,
     info_sheet_photo_url TEXT,
+    last_crop TEXT,
+    next_crop TEXT,
     receive_photo_uri TEXT,
     receive_photo_url TEXT,
     lab_source TEXT,
@@ -373,6 +375,30 @@ export const SCHEMA_STATEMENTS: string[] = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_application_links_entry_id ON application_pyrolysis_links(application_entry_id);`,
   `CREATE INDEX IF NOT EXISTS idx_application_links_batch_server_id ON application_pyrolysis_links(pyrolysis_batch_server_id);`,
+
+  `CREATE TABLE IF NOT EXISTS biomass_collections (
+    id TEXT PRIMARY KEY NOT NULL,
+    server_id TEXT,
+    operator_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    farm_id TEXT,
+    farm_name TEXT,
+    producer_id TEXT,
+    producer_name TEXT,
+    tractor_number TEXT,
+    loaded_photo_local_uri TEXT,
+    loaded_photo_url TEXT,
+    loaded_photo_metadata_json TEXT,
+    loaded_saved_at TEXT,
+    unloaded_photo_local_uri TEXT,
+    unloaded_photo_url TEXT,
+    unloaded_photo_metadata_json TEXT,
+    sync_status TEXT NOT NULL,
+    sync_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_biomass_collections_operator_id ON biomass_collections(operator_id);`,
 
   `CREATE TABLE IF NOT EXISTS encrypted_batches (
     id TEXT PRIMARY KEY NOT NULL,

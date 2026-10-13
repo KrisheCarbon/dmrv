@@ -15,6 +15,7 @@ import { backendFetch, clearBackendUrlCache } from "./backendApi";
 import { getPyrolysisSession, syncPyrolysisBatch } from "./pyrolysisService";
 import { getMixingEntry, syncMixingEntry } from "./mixingService";
 import { getApplicationEntry, syncApplicationEntry } from "./applicationService";
+import { getBiomassCollection, syncBiomassCollection } from "./biomassCollectionService";
 import { syncEncryptedKilnBatches } from "./kiln/kilnSyncService";
 import { supabase } from "./supabase";
 import { getUserProfile } from "./userProfile";
@@ -41,6 +42,7 @@ const progressByFarmerId = new Map<string, number>();
 const syncingPyrolysisSessionIds = new Set<string>();
 const syncingMixingEntryIds = new Set<string>();
 const syncingApplicationEntryIds = new Set<string>();
+const syncingBiomassCollectionIds = new Set<string>();
 const syncEventListeners = new Set<(event: Record<string, unknown>) => void>();
 
 function canStartSync(net: NetInfoState) {
@@ -79,6 +81,10 @@ export function isMixingEntrySyncing(entryId: string) {
 
 export function isApplicationEntrySyncing(entryId: string) {
   return syncingApplicationEntryIds.has(entryId);
+}
+
+export function isBiomassCollectionSyncing(collectionId: string) {
+  return syncingBiomassCollectionIds.has(collectionId);
 }
 
 export function getSyncProgressForFarmer(farmerId: string) {
@@ -349,6 +355,64 @@ async function processPendingSyncItems(pendingItems: any[], userId: string) {
   let failed = 0;
 
   for (const item of pendingItems) {
+    if (item.entity_type === "biomass_collection") {
+      try {
+        const collection = await getBiomassCollection(item.entity_local_id);
+
+        await db.withTransactionAsync(async () => {
+          await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", [
+            "processing",
+            item.id,
+          ]);
+          await db.runAsync(
+            "UPDATE biomass_collections SET sync_status = ?, sync_error = NULL WHERE id = ?",
+            ["syncing", collection.id],
+          );
+        });
+
+        syncingBiomassCollectionIds.add(collection.id);
+        emitSyncEvent({ type: "biomassCollectionSyncStart", entryId: collection.id });
+
+        await syncBiomassCollection(collection);
+
+        await db.runAsync("UPDATE sync_queue SET status = ? WHERE id = ?", ["done", item.id]);
+
+        syncingBiomassCollectionIds.delete(collection.id);
+        emitSyncEvent({
+          type: "biomassCollectionSyncComplete",
+          entryId: collection.id,
+          success: true,
+        });
+        synced += 1;
+      } catch (err) {
+        const message = syncErrorMessage(err);
+        console.warn("[sync] biomass collection sync failed:", item.entity_local_id, message);
+        failed += 1;
+        const retries = item.retries + 1;
+
+        syncingBiomassCollectionIds.delete(item.entity_local_id);
+        emitSyncEvent({
+          type: "biomassCollectionSyncComplete",
+          entryId: item.entity_local_id,
+          success: false,
+          error: message,
+        });
+
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(
+            "UPDATE sync_queue SET retries = ?, error_message = ?, status = ? WHERE id = ?",
+            [retries, message, retries >= MAX_RETRIES ? "failed" : "pending", item.id],
+          );
+
+          await db.runAsync(
+            "UPDATE biomass_collections SET sync_status = ?, sync_error = ? WHERE id = ?",
+            [retries >= MAX_RETRIES ? "error" : "pending", message, item.entity_local_id],
+          );
+        });
+      }
+      continue;
+    }
+
     if (item.entity_type === "application_entry") {
       try {
         const entry = await getApplicationEntry(item.entity_local_id);
@@ -1006,7 +1070,11 @@ export async function getSyncStatusSummary(
   return { pending, errors, online };
 }
 
-export type EntitySyncTable = "pyrolysis_sessions" | "mixing_entries" | "application_entries";
+export type EntitySyncTable =
+  | "pyrolysis_sessions"
+  | "mixing_entries"
+  | "application_entries"
+  | "biomass_collections";
 
 async function countByStatus(
   table: EntitySyncTable,
@@ -1084,6 +1152,49 @@ export async function retryFailedApplicationSyncs() {
       if (queueItems.length === 0) {
         const queueRow = syncQueueItemToRow({
           entityType: "application_entry",
+          entityLocalId: row.id,
+          operation: "create",
+          status: "pending",
+          retries: 0,
+          errorMessage: null,
+          createdAt: Date.now(),
+        });
+        const { sql, args } = buildInsert("sync_queue", { id: generateId(), ...queueRow });
+        await db.runAsync(sql, args);
+      }
+    }
+  });
+}
+
+export async function retryFailedBiomassCollectionSyncs() {
+  const db = await getDb();
+  const failedRows = await db.getAllAsync<any>(
+    "SELECT * FROM biomass_collections WHERE sync_status = ?",
+    ["error"],
+  );
+
+  await db.withTransactionAsync(async () => {
+    for (const row of failedRows) {
+      await db.runAsync(
+        "UPDATE biomass_collections SET sync_status = ?, sync_error = NULL WHERE id = ?",
+        ["pending", row.id],
+      );
+
+      const queueItems = await db.getAllAsync<any>(
+        "SELECT * FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+        [row.id, "biomass_collection"],
+      );
+
+      for (const item of queueItems.filter((queued) => queued.status === "failed")) {
+        await db.runAsync(
+          "UPDATE sync_queue SET status = ?, retries = 0, error_message = NULL WHERE id = ?",
+          ["pending", item.id],
+        );
+      }
+
+      if (queueItems.length === 0) {
+        const queueRow = syncQueueItemToRow({
+          entityType: "biomass_collection",
           entityLocalId: row.id,
           operation: "create",
           status: "pending",
@@ -1209,6 +1320,10 @@ async function recoverStuckSyncItems() {
       ["syncing"],
     ),
     db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM biomass_collections WHERE sync_status = ?",
+      ["syncing"],
+    ),
+    db.getFirstAsync<{ count: number }>(
       "SELECT COUNT(*) as count FROM sync_queue WHERE status = ?",
       ["processing"],
     ),
@@ -1231,6 +1346,10 @@ async function recoverStuckSyncItems() {
       "syncing",
     ]);
     await db.runAsync("UPDATE application_entries SET sync_status = ? WHERE sync_status = ?", [
+      "pending",
+      "syncing",
+    ]);
+    await db.runAsync("UPDATE biomass_collections SET sync_status = ? WHERE sync_status = ?", [
       "pending",
       "syncing",
     ]);
