@@ -6,6 +6,7 @@ import {
   updateUser,
   type RoleChangeImpact,
 } from "./actions";
+import { unwrapUserAction } from "./userActionResult";
 import RoleSelect from "@/components/RoleSelect";
 import {
   formatRoleLabel,
@@ -69,6 +70,7 @@ export default function EditUserModal({
     setError(null);
 
     getUserRoleChangeImpact(data.id)
+      .then(unwrapUserAction)
       .then((result) => {
         if (cancelled) return;
         setImpact(result);
@@ -150,7 +152,7 @@ export default function EditUserModal({
     setLoading(true);
 
     try {
-      await updateUser(
+      unwrapUserAction(await updateUser(
         data.id,
         form,
         roleSwap
@@ -160,7 +162,7 @@ export default function EditUserModal({
               reassignSoilSamplesTo: reassignTo || null,
             }
           : undefined,
-      );
+      ));
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");

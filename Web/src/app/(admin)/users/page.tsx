@@ -8,6 +8,7 @@ import RoleSelect from "@/components/RoleSelect";
 import AddUserModal from "./AddUserModal";
 import EditUserModal from "./EditUserModal";
 import { resendSignupEmail } from "./actions";
+import { unwrapUserAction } from "./userActionResult";
 import type { UserProfile } from "@/types";
 import type { UserTableRow } from "@/types/entities";
 
@@ -87,7 +88,7 @@ export default function UsersPage() {
   async function handleResendEmail(row: UserTableRow) {
     setResendLoading(row.id);
     try {
-      await resendSignupEmail(row.id, row.email);
+      unwrapUserAction(await resendSignupEmail(row.id, row.email));
       alert(`Setup email resent to ${row.email}`);
       fetchData();
     } catch (err) {

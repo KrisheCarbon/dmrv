@@ -90,7 +90,38 @@ async function assertPhoneAvailable(phone: string | null, excludeId?: string) {
   }
 }
 
-export async function createUser(form: UserFormData): Promise<CreateUserResult> {
+/**
+ * Production hides the message of any error thrown out of a server action
+ * ("An error occurred in the Server Components render..."), so the actions the
+ * Users page calls return their error as data. Read it with unwrapUserAction.
+ */
+export type UserActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+async function asResult<T>(work: () => Promise<T>): Promise<UserActionResult<T>> {
+  try {
+    return { ok: true, data: await work() };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
+  }
+}
+
+export async function createUser(form: UserFormData) {
+  return asResult(() => createUserOrThrow(form));
+}
+
+export async function resendSignupEmail(id: string, email: string) {
+  return asResult(() => resendSignupEmailOrThrow(id, email));
+}
+
+export async function getUserRoleChangeImpact(id: string) {
+  return asResult(() => getUserRoleChangeImpactOrThrow(id));
+}
+
+export async function updateUser(id: string, form: UserFormData, roleChange?: RoleChangePlan) {
+  return asResult(() => updateUserOrThrow(id, form, roleChange));
+}
+
+async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> {
   const actorRole = await getActorRole();
   assertCanAssignRole(actorRole, form.role);
 
@@ -161,7 +192,7 @@ export async function createUser(form: UserFormData): Promise<CreateUserResult> 
   };
 }
 
-export async function resendSignupEmail(id: string, email: string) {
+async function resendSignupEmailOrThrow(id: string, email: string) {
   const actorRole = await getActorRole();
 
   const { data: target } = await admin
@@ -219,7 +250,7 @@ function asName(
   return row?.name?.trim() || "Unnamed producer";
 }
 
-export async function getUserRoleChangeImpact(
+async function getUserRoleChangeImpactOrThrow(
   id: string,
 ): Promise<RoleChangeImpact> {
   const actorRole = await getActorRole();
@@ -418,7 +449,7 @@ async function getPendingSoilAndSupervisorState(userId: string) {
   return { pendingSoilSamples: count ?? 0 };
 }
 
-export async function updateUser(
+async function updateUserOrThrow(
   id: string,
   form: UserFormData,
   roleChange?: RoleChangePlan,

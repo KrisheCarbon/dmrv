@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createUser } from "./actions";
+import { unwrapUserAction } from "./userActionResult";
 import UserCreatedModal from "./UserCreatedModal";
 import RoleSelect from "@/components/RoleSelect";
 import { getAssignableRoles, getUserManagementHint, type UserRole } from "@/lib/roles";
@@ -74,7 +75,7 @@ export default function AddUserModal({
     setLoading(true);
 
     try {
-      const result = await createUser(form);
+      const result = unwrapUserAction(await createUser(form));
       setCreated({
         ...result,
         password:
