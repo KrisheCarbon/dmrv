@@ -238,8 +238,8 @@ function SignupForm() {
             <p className="text-sm text-gray-600 text-center">
               Enter the email your admin registered. We&apos;ll send a one-time
               code to verify it&apos;s you — then you&apos;ll{" "}
-              <strong>create your password</strong> (used for admin portal and
-              dMRV app login).
+              <strong>create your password</strong> (used to sign in to the
+              KriSHE Carbon web portal or mobile app).
             </p>
 
             <div>
@@ -313,8 +313,8 @@ function SignupForm() {
         {step === "setup" && (
           <>
             <p className="text-sm text-gray-600 text-center">
-              Create the password you&apos;ll use to sign in (admin portal and
-              dMRV app):
+              Create the password you&apos;ll use to sign in to the KriSHE Carbon
+              web portal or mobile app:
             </p>
             <EmailBadge email={email} />
 

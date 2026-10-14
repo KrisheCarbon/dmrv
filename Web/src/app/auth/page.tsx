@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   OTP_EMAIL_REQUIRED_ERROR,
+  canAccessMobileApp,
+  formatRoleLabel,
   isKrishecarbonEmail,
 } from "@krishecarbon/shared";
 import { supabase } from "@/lib/supabase";
@@ -31,8 +33,11 @@ function AuthForm() {
 
   useEffect(() => {
     if (searchParams.get("error") === "unauthorized_role") {
+      const role = searchParams.get("role") ?? "";
       setError(
-        "The web portal is for admins, managers, and supervisors only. Climapreneurs should sign in through the mobile app.",
+        canAccessMobileApp(role)
+          ? `${formatRoleLabel(role)}s must sign in through the KriSHE Carbon mobile app only.`
+          : "Your account doesn't have access to the web portal. Ask your admin to check your role.",
       );
     }
   }, [searchParams]);

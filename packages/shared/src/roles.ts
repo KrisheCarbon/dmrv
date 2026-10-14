@@ -17,7 +17,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   dmrv_viewer: "dMRV viewer",
 };
 
-/** Roles that can sign in to the web admin portal. */
+/** Roles that can sign in to the web portal. */
 export const PORTAL_ROLES: readonly UserRole[] = [
   "admin",
   "manager",

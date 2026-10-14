@@ -90,7 +90,10 @@ export async function middleware(req: NextRequest) {
 
   if (!canAccessWebPortal(profile.role)) {
     await supabase.auth.signOut();
-    return NextResponse.redirect(new URL("/auth?error=unauthorized_role", req.url));
+    const url = new URL("/auth", req.url);
+    url.searchParams.set("error", "unauthorized_role");
+    url.searchParams.set("role", profile.role);
+    return NextResponse.redirect(url);
   }
 
   return res;
