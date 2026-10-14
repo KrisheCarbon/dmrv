@@ -1,4 +1,4 @@
-const PRODUCTION_URL = "https://admin.krishecarbon.com";
+const PRODUCTION_URL = "https://app.krishecarbon.com";
 
 export function getSiteUrl() {
   const url =
@@ -9,13 +9,13 @@ export function getSiteUrl() {
 
   if (!url) {
     throw new Error(
-      "SITE_URL is not configured. Set SITE_URL=https://admin.krishecarbon.com in Vercel (or http://localhost:3000 locally)."
+      "SITE_URL is not configured. Set SITE_URL=https://app.krishecarbon.com in Vercel (or http://localhost:3000 locally)."
     );
   }
 
   let normalized = url.trim().replace(/\/$/, "");
 
-  // Fix common mistake: "admin.krishecarbon.com" without protocol.
+  // Fix common mistake: "app.krishecarbon.com" without protocol.
   if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
     normalized = `https://${normalized}`;
   }

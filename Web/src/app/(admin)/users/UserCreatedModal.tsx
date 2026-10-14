@@ -89,7 +89,7 @@ export default function UserCreatedModal({
           <p className="text-xs text-gray-500">
             If the link in the email doesn&apos;t work, check Supabase → URL
             Configuration: Site URL must be{" "}
-            <strong>https://admin.krishecarbon.com</strong> (with https://). Then
+            <strong>https://app.krishecarbon.com</strong> (with https://). Then
             click <strong>Resend email</strong> on the Users page.
           </p>
         ) : null}
