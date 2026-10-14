@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../services/supabase";
 import { assertActiveAccount, resolvePasswordLoginEmail } from "../services/auth";
 import {
+  EMAIL_OTP_LENGTH,
   OTP_EMAIL_REQUIRED_ERROR,
   canAccessMobileApp,
   isKrishecarbonEmail,
@@ -295,12 +296,12 @@ export default function LoginScreen() {
               <TextInput
                 ref={otpRef}
                 style={styles.input}
-                placeholder="Enter 8-digit code"
+                placeholder={`Enter your ${EMAIL_OTP_LENGTH}-digit OTP`}
                 placeholderTextColor={colors.smokeLight}
                 value={otp}
-                onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 8))}
+                onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, EMAIL_OTP_LENGTH))}
                 keyboardType="number-pad"
-                maxLength={8}
+                maxLength={EMAIL_OTP_LENGTH}
                 returnKeyType="go"
                 onSubmitEditing={handleSubmit}
               />

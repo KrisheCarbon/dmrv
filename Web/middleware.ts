@@ -3,7 +3,13 @@ import { createServerClient } from "@supabase/ssr";
 import { canAccessWebPortal } from "@krishecarbon/shared";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 
-const PUBLIC_PREFIXES = ["/auth", "/onboarding", "/signup"];
+const PUBLIC_PREFIXES = [
+  "/auth",
+  "/onboarding",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+];
 
 function isPublicRoute(pathname: string): boolean {
   return PUBLIC_PREFIXES.some(

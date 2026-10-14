@@ -1,5 +1,8 @@
 export const KRISHECARBON_OTP_DOMAIN = "krishecarbon.com";
 
+/** Digits in an email sign-in code. Must match Supabase Auth → Email OTP Length. */
+export const EMAIL_OTP_LENGTH = 6;
+
 export const OTP_EMAIL_REQUIRED_ERROR =
   "OTP login is only available for @krishecarbon.com accounts. Sign in with your password instead.";
 

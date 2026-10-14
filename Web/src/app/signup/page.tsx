@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
+import { EMAIL_OTP_LENGTH } from "@krishecarbon/shared";
 import { supabase } from "@/lib/supabase";
 import { establishSessionFromUrl } from "@/lib/parseAuthHash";
 import { checkSignupEmail, completeSignup } from "./actions";
@@ -279,12 +280,12 @@ function SignupForm() {
               </label>
               <input
                 type="text"
-                placeholder="8-digit code"
+                placeholder={`Enter your ${EMAIL_OTP_LENGTH}-digit OTP`}
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                maxLength={8}
+                maxLength={EMAIL_OTP_LENGTH}
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, EMAIL_OTP_LENGTH))}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>

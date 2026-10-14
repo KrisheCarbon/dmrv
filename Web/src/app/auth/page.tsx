@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
+  EMAIL_OTP_LENGTH,
   OTP_EMAIL_REQUIRED_ERROR,
   canAccessMobileApp,
   formatRoleLabel,
@@ -25,6 +26,7 @@ function AuthForm() {
   const [loading, setLoading] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [processingInvite, setProcessingInvite] = useState(
     () =>
       typeof window !== "undefined" &&
@@ -32,6 +34,9 @@ function AuthForm() {
   );
 
   useEffect(() => {
+    if (searchParams.get("reset") === "done") {
+      setNotice("Your password has been updated. Sign in with your new password.");
+    }
     if (searchParams.get("error") === "unauthorized_role") {
       const role = searchParams.get("role") ?? "";
       setError(
@@ -202,6 +207,11 @@ function AuthForm() {
 
         <div className="px-6 py-6 space-y-4">
           <div className="min-h-[40px]">
+            {notice && !error && (
+              <div className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
+                {notice}
+              </div>
+            )}
             {error && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
                 {error}
@@ -226,9 +236,17 @@ function AuthForm() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-700">
-                  Password
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-gray-700">
+                    Password
+                  </label>
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-gray-500 hover:text-gray-900 hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <input
                   type="password"
                   placeholder="Enter your password"
@@ -270,7 +288,7 @@ function AuthForm() {
           ) : (
             <>
               <p className="text-sm text-gray-500 text-center">
-                An 8-digit code was sent to{" "}
+                A {EMAIL_OTP_LENGTH}-digit code was sent to{" "}
                 <span className="font-medium text-gray-700">{email}</span>
               </p>
 
@@ -280,12 +298,12 @@ function AuthForm() {
                 </label>
                 <input
                   type="text"
-                  placeholder="Enter the 8-digit code"
+                  placeholder={`Enter your ${EMAIL_OTP_LENGTH}-digit OTP`}
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  maxLength={8}
+                  maxLength={EMAIL_OTP_LENGTH}
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, EMAIL_OTP_LENGTH))}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
                 />
               </div>
