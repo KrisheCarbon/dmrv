@@ -7,7 +7,7 @@ import DataTable from "@/components/table/DataTable";
 import RoleSelect from "@/components/RoleSelect";
 import AddUserModal from "./AddUserModal";
 import EditUserModal from "./EditUserModal";
-import { resendSignupEmail } from "./actions";
+import { resendSignupEmail, sendPasswordReset } from "./actions";
 import { unwrapUserAction } from "./userActionResult";
 import type { UserProfile } from "@/types";
 import type { UserTableRow } from "@/types/entities";
@@ -39,6 +39,7 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [resendLoading, setResendLoading] = useState<string | null>(null);
+  const [resetLoading, setResetLoading] = useState<string | null>(null);
 
   async function fetchData() {
     setLoading(true);
@@ -84,6 +85,19 @@ export default function UsersPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  async function handlePasswordReset(row: UserTableRow) {
+    if (!confirm(`Email ${row.email} a link to set a new password?`)) return;
+
+    setResetLoading(row.id);
+    try {
+      const { email } = unwrapUserAction(await sendPasswordReset(row.id));
+      alert(`Password reset link sent to ${email}`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Unknown error");
+    }
+    setResetLoading(null);
+  }
 
   async function handleResendEmail(row: UserTableRow) {
     setResendLoading(row.id);
@@ -203,6 +217,15 @@ export default function UsersPage() {
                   className="text-green-700 hover:underline text-sm disabled:opacity-50"
                 >
                   {resendLoading === row.id ? "Sending…" : "Resend email"}
+                </button>
+              )}
+              {editable && row.status === "Active" && (
+                <button
+                  onClick={() => handlePasswordReset(row)}
+                  disabled={resetLoading === row.id}
+                  className="text-green-700 hover:underline text-sm disabled:opacity-50"
+                >
+                  {resetLoading === row.id ? "Sending…" : "Send reset link"}
                 </button>
               )}
               {editable ? (

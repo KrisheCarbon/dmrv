@@ -6,10 +6,10 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 const MODULES = [
   {
     key: "payments",
-    title: "Payments stats",
-    subtitle: "Amounts paid, once payment records are connected",
-    screen: "DashboardModule",
-    params: { module: "payments" },
+    title: "Payments",
+    subtitle: "What is owed, and what has been paid",
+    screen: "Payments",
+    params: undefined,
   },
   {
     key: "farms",

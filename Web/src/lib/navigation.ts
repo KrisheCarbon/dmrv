@@ -95,6 +95,12 @@ export const MAIN_NAV: NavEntry[] = [
   },
   {
     type: "item",
+    href: "/payments",
+    label: "Payments",
+    icon: "/icons/payments.svg",
+  },
+  {
+    type: "item",
     href: "/users",
     label: "Users",
     icon: "/icons/users.svg",
@@ -151,6 +157,14 @@ export const DASHBOARD_SECTIONS = [
     description: "CSI C-Sink download and the Rainbow credit package.",
     href: "/verification-reports",
     links: [{ href: "/verification-reports", label: "Download" }],
+  },
+  {
+    key: "payments",
+    title: "Payments",
+    description:
+      "Rates by site and village, what each climapreneur and supervisor is owed, and the payments already made.",
+    href: "/payments",
+    links: [{ href: "/payments", label: "Open payments" }],
   },
   {
     key: "users",

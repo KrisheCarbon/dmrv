@@ -1,112 +1,86 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
-import Modal from "@/components/Modal";
-import SignedStorageLink from "@/components/SignedStorageLink";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
+import FileDrop from "@/components/FileDrop";
+import LocationPicker from "@/components/maps/Locationpicker";
+import MultiSelectDropdown from "@/components/MultiSelectDropdown";
 import { supabase } from "@/lib/supabase";
 import { canAccessNetwork, type UserRole } from "@/lib/roles";
+import type { LocationValue } from "@/types";
 import {
-  deleteTrainingCertificate,
-  TRAINING_CERTIFICATE_ACCEPT,
-  TRAINING_DOCS_BUCKET,
-  uploadTrainingCertificate,
-} from "@/lib/uploadTrainingDocs";
+  DOC_TYPES,
+  PHOTO_TYPES,
+  TRAINING_SESSION_BUCKET,
+  VIDEO_TYPES,
+  acceptFor,
+  uploadOpsFiles,
+} from "@/lib/uploadOpsFiles";
 import {
-  createTraining,
-  deleteTraining,
-  getTrainingFormOptions,
-  listTrainings,
-  updateTraining,
+  createTrainingSession,
+  getTrainingSessionOptions,
+  listTrainingSessions,
+  type OpsFile,
+  type OpsProducer,
+  type TrainingSession,
 } from "./actions";
-import type {
-  TrainingFormOptions,
-  TrainingRecord,
-  TrainingTableRow,
-} from "@/types/entities";
 
-function formatLocation(record: TrainingRecord): string {
-  if (record.producer_site?.site_name) {
-    const producerName = record.biochar_producer?.name;
-    return producerName
-      ? `${record.producer_site.site_name} (${producerName})`
-      : record.producer_site.site_name;
-  }
-  return record.biochar_producer?.name ?? "—";
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("en-IN", {
+function formatWhen(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
-function mapTrainingRow(record: TrainingRecord): TrainingTableRow {
-  return {
-    id: record.id,
-    supervisor: record.supervisor?.full_name?.trim() || "—",
-    location: formatLocation(record),
-    date: formatDate(record.created_at),
-    raw: record,
-  };
+function localNow(): string {
+  const date = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function locationValue(record: TrainingRecord): string {
-  if (record.producer_site_id) {
-    return `site:${record.producer_site_id}`;
-  }
-  if (record.biochar_producer_id) {
-    return `producer:${record.biochar_producer_id}`;
-  }
-  return "";
-}
-
-function parseLocationValue(value: string): {
-  location_type: "producer" | "site";
-  location_id: string;
-} | null {
-  const [type, id] = value.split(":");
-  if ((type !== "producer" && type !== "site") || !id) return null;
-  return { location_type: type, location_id: id };
-}
+const FILE_LABELS: Record<string, string> = {
+  attendance: "Attendance sheet",
+  material: "Training material",
+  photo: "Photo",
+  video: "Video",
+  report: "Report",
+};
 
 export default function OperationsTrainingsPage() {
-  const [actorRole, setActorRole] = useState<UserRole | null>(null);
-  const [rows, setRows] = useState<TrainingTableRow[]>([]);
-  const [options, setOptions] = useState<TrainingFormOptions | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const adding = searchParams.get("new") === "1";
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [rows, setRows] = useState<TrainingSession[]>([]);
+  const [producers, setProducers] = useState<OpsProducer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const canManage = role ? canAccessNetwork(role) : false;
+  const selected = rows.find((row) => row.id === selectedId) ?? null;
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<TrainingRecord | null>(null);
-  const [supervisorId, setSupervisorId] = useState("");
-  const [locationValueState, setLocationValueState] = useState("");
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const canManage = actorRole ? canAccessNetwork(actorRole) : false;
-
-  async function loadData() {
+  async function load() {
     setLoading(true);
     setError(null);
-
     try {
-      const [trainings, formOptions] = await Promise.all([
-        listTrainings(),
-        getTrainingFormOptions(),
+      const [sessions, options] = await Promise.all([
+        listTrainingSessions(),
+        getTrainingSessionOptions(),
       ]);
-      setRows(trainings.map(mapTrainingRow));
-      setOptions(formOptions);
+      setRows(sessions);
+      setProducers(options.producers);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load trainings");
-      setRows([]);
+      setError(err instanceof Error ? err.message : "Could not load trainings.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -114,327 +88,284 @@ export default function OperationsTrainingsPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-
       if (user) {
-        const { data: profile } = await supabase
-          .from("users")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-
-        if (profile?.role) {
-          setActorRole(profile.role as UserRole);
-        }
+        const { data } = await supabase.from("users").select("role").eq("id", user.id).single();
+        if (data?.role) setRole(data.role as UserRole);
       }
-
-      await loadData();
+      await load();
     }
-
-    init();
+    void init();
   }, []);
-
-  function resetForm() {
-    setEditing(null);
-    setSupervisorId("");
-    setLocationValueState("");
-    setPdfFile(null);
-    setFormError(null);
-  }
-
-  function openCreateModal() {
-    resetForm();
-    setModalOpen(true);
-  }
-
-  function openEditModal(record: TrainingRecord) {
-    setEditing(record);
-    setSupervisorId(record.supervisor_id);
-    setLocationValueState(locationValue(record));
-    setPdfFile(null);
-    setFormError(null);
-    setModalOpen(true);
-  }
-
-  function closeModal() {
-    setModalOpen(false);
-    resetForm();
-  }
-
-  async function handleSave() {
-    setFormError(null);
-
-    if (!supervisorId) {
-      setFormError("Select the supervisor who conducted the training.");
-      return;
-    }
-
-    const location = parseLocationValue(locationValueState);
-    if (!location) {
-      setFormError("Select where the training took place.");
-      return;
-    }
-
-    if (!editing && !pdfFile) {
-      setFormError("Upload the training certificate PDF.");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      if (editing) {
-        const patch: {
-          supervisor_id: string;
-          location_type: "producer" | "site";
-          location_id: string;
-          certificate_url?: string;
-        } = {
-          supervisor_id: supervisorId,
-          ...location,
-        };
-
-        if (pdfFile) {
-          if (editing.certificate_url) {
-            await deleteTrainingCertificate({
-              path: editing.certificate_url,
-            }).catch(() => undefined);
-          }
-          patch.certificate_url = await uploadTrainingCertificate({
-            file: pdfFile,
-            trainingId: editing.id,
-          });
-        }
-
-        await updateTraining(editing.id, patch);
-      } else {
-        const trainingId = crypto.randomUUID();
-        const certificateUrl = await uploadTrainingCertificate({
-          file: pdfFile!,
-          trainingId,
-        });
-
-        await createTraining({
-          id: trainingId,
-          supervisor_id: supervisorId,
-          ...location,
-          certificate_url: certificateUrl,
-        });
-      }
-
-      closeModal();
-      await loadData();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to save training");
-    }
-
-    setSaving(false);
-  }
-
-  async function handleDelete(record: TrainingRecord) {
-    const confirmed = window.confirm(
-      "Delete this training record? This cannot be undone.",
-    );
-    if (!confirmed) return;
-
-    try {
-      if (record.certificate_url) {
-        await deleteTrainingCertificate({
-          path: record.certificate_url,
-        }).catch(() => undefined);
-      }
-      await deleteTraining(record.id);
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete training");
-    }
-  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-950">
-            Trainings
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Track field training sessions, supervisors, locations, and certificates.
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-950">Trainings</h1>
+          <p className="mt-1 max-w-3xl text-sm text-neutral-500">
+            Sessions held for producers, with the attendance sheet, materials, and photos.
           </p>
-          {!canManage ? (
-            <p className="mt-2 text-sm text-neutral-500">
-              Only admins and managers can add or edit training records.
-            </p>
-          ) : null}
         </div>
-        {canManage ? (
+        {canManage && !adding ? (
           <button
             type="button"
-            onClick={openCreateModal}
-            className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark-hover"
+            onClick={() => {
+              setSelectedId(null);
+              router.push(`${pathname}?new=1`);
+            }}
+            className="min-h-14 rounded-xl bg-brand-dark px-4 text-sm font-medium text-white"
           >
-            + Add training
+            Add entry
           </button>
         ) : null}
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-status-error/30 bg-status-error-bg px-4 py-3 text-sm text-status-error">
           {error}
         </div>
       ) : null}
 
-      <DataTable
-        loading={loading}
-        columns={[
-          { key: "supervisor", label: "Supervisor" },
-          { key: "location", label: "Site / Producer" },
-          { key: "date", label: "Recorded" },
-          {
-            key: "certificate",
-            label: "Certificate",
-            render: (_, row) =>
-              row.raw.certificate_url ? (
-                <SignedStorageLink
-                  bucket={TRAINING_DOCS_BUCKET}
-                  path={row.raw.certificate_url}
-                  className="text-sm font-medium text-brand-dark hover:underline"
-                >
-                  View PDF
-                </SignedStorageLink>
-              ) : (
-                "—"
-              ),
-          },
-        ]}
-        rows={rows}
-        actions={
-          canManage
-            ? (row) => (
-                <div className="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(row.raw)}
-                    className="text-sm font-medium text-brand-dark hover:underline"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(row.raw)}
-                    className="text-sm font-medium text-red-600 hover:underline"
-                  >
-                    Delete
-                  </button>
-                </div>
-              )
-            : undefined
-        }
+      {adding ? (
+        <TrainingForm
+          producers={producers}
+          onCancel={() => router.back()}
+          onSaved={() => {
+            router.back();
+            void load();
+          }}
+        />
+      ) : (
+        <>
+          <DataTable
+            loading={loading}
+            emptyText="No trainings yet."
+            onRowClick={(row) => setSelectedId((current) => (current === row.id ? null : String(row.id)))}
+            selectedRowId={selectedId}
+            columns={[
+              { key: "when", label: "Date and time" },
+              { key: "trainer", label: "Trainer", filterable: true },
+              { key: "producers", label: "Producers", filterable: true },
+              { key: "location", label: "Location", filterable: true },
+            ]}
+            rows={rows.map((row) => ({
+              id: row.id,
+              when: formatWhen(row.held_at),
+              trainer: row.trainer_name,
+              producers: row.producers.map((producer) => producer.name).join(", ") || "—",
+              location: row.location_label?.trim() || "Map location",
+            }))}
+          />
+          {selected ? <SessionDetail session={selected} /> : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrainingForm({
+  producers,
+  onCancel,
+  onSaved,
+}: {
+  producers: OpsProducer[];
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [heldAt, setHeldAt] = useState(localNow);
+  const [trainer, setTrainer] = useState("");
+  const [producerIds, setProducerIds] = useState<string[]>([]);
+  const [location, setLocation] = useState<LocationValue | null>(null);
+  const [attendance, setAttendance] = useState<File[]>([]);
+  const [materials, setMaterials] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [videos, setVideos] = useState<File[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setError(null);
+    if (!trainer.trim()) {
+      setError("Enter the trainer’s name.");
+      return;
+    }
+    if (producerIds.length === 0) {
+      setError("Select at least one producer.");
+      return;
+    }
+    if (location == null) {
+      setError("Choose the location on the map.");
+      return;
+    }
+    if (attendance.length === 0) {
+      setError("Upload at least one attendance sheet.");
+      return;
+    }
+    if (photos.length === 0) {
+      setError("Upload at least one photo of the session.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const files = [
+        ...(await uploadOpsFiles(TRAINING_SESSION_BUCKET, "attendance", attendance, DOC_TYPES)),
+        ...(await uploadOpsFiles(TRAINING_SESSION_BUCKET, "material", materials, DOC_TYPES)),
+        ...(await uploadOpsFiles(TRAINING_SESSION_BUCKET, "photo", photos, PHOTO_TYPES)),
+        ...(await uploadOpsFiles(TRAINING_SESSION_BUCKET, "video", videos, VIDEO_TYPES)),
+      ];
+      await createTrainingSession({
+        held_at: new Date(heldAt).toISOString(),
+        trainer_name: trainer.trim(),
+        producer_ids: producerIds,
+        latitude: location.lat,
+        longitude: location.lng,
+        location_label: location.place_name ?? null,
+        files,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the training.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 rounded-2xl border border-neutral-200 bg-white p-4">
+      <h2 className="text-lg font-medium text-neutral-950">New training</h2>
+      <label className="flex max-w-md flex-col gap-2.5">
+        <span className="text-xs font-medium text-neutral-700">Date and time</span>
+        <input
+          type="datetime-local"
+          value={heldAt}
+          onChange={(event) => setHeldAt(event.target.value)}
+          className="min-h-12 w-full rounded-xl border border-neutral-300 px-3 text-base"
+        />
+      </label>
+      <label className="block max-w-md space-y-1">
+        <span className="text-xs font-medium text-neutral-700">Trainer name</span>
+        <input
+          value={trainer}
+          onChange={(event) => setTrainer(event.target.value)}
+          className="min-h-12 w-full rounded-xl border border-neutral-300 px-3 text-base"
+        />
+      </label>
+      <MultiSelectDropdown
+        label="Producers"
+        placeholder="Select producers"
+        options={producers.map((producer) => ({ id: producer.id, label: producer.name }))}
+        values={producerIds}
+        onChange={setProducerIds}
       />
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-neutral-700">Location</span>
+        <LocationPicker value={location} onChange={setLocation} allowClear />
+      </div>
+      <FileDrop
+        label="Attendance sheet"
+        hint="PDF or photo. You can add more than one."
+        required
+        multiple
+        accept={acceptFor("doc")}
+        files={attendance}
+        onChange={setAttendance}
+      />
+      <FileDrop
+        label="Training materials"
+        hint="PDF or photo."
+        multiple
+        accept={acceptFor("doc")}
+        files={materials}
+        onChange={setMaterials}
+      />
+      <FileDrop
+        label="Photos of the session"
+        hint="JPG, PNG, or WEBP. At least one photo."
+        required
+        multiple
+        accept={acceptFor("photo")}
+        files={photos}
+        onChange={setPhotos}
+      />
+      <FileDrop
+        label="Videos of the session"
+        hint="MP4, MOV, or WEBM."
+        multiple
+        accept={acceptFor("video")}
+        files={videos}
+        onChange={setVideos}
+      />
+      {error ? <p className="text-sm text-status-error">{error}</p> : null}
+      <div className="flex flex-wrap gap-2.5">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void save()}
+          className="min-h-14 rounded-xl bg-brand-dark px-4 text-sm font-medium text-white disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save training"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="min-h-14 rounded-xl border border-neutral-300 px-4 text-sm font-medium"
+        >
+          Back to list
+        </button>
+      </div>
+    </div>
+  );
+}
 
-      <Modal
-        open={modalOpen}
-        onClose={closeModal}
-        title={editing ? "Edit training record" : "Add training record"}
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={closeModal}
-              disabled={saving}
-              className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="rounded-xl bg-brand-dark px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {saving ? "Saving..." : editing ? "Save changes" : "Create record"}
-            </button>
-          </>
-        }
-      >
-        <form className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-800">
-              Supervisor *
-            </label>
-            <select
-              value={supervisorId}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                setSupervisorId(e.target.value)
-              }
-              className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm"
-            >
-              <option value="">Select supervisor</option>
-              {options?.supervisors.map((supervisor) => (
-                <option key={supervisor.id} value={supervisor.id}>
-                  {supervisor.full_name}
-                </option>
+function SessionDetail({ session }: { session: TrainingSession }) {
+  const maps = `https://www.google.com/maps?q=${session.latitude},${session.longitude}`;
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-4">
+      <h2 className="text-lg font-medium text-neutral-950">{session.trainer_name}</h2>
+      <p className="mt-1 text-sm text-neutral-500">
+        {formatWhen(session.held_at)} · {session.producers.map((producer) => producer.name).join(", ")}
+      </p>
+      <p className="mt-2 text-sm text-neutral-800">
+        {session.location_label?.trim() || "Map location"} ·{" "}
+        <a href={maps} target="_blank" rel="noreferrer" className="font-medium text-brand-dark hover:underline">
+          Open map
+        </a>
+      </p>
+      <FileGroups files={session.files} />
+    </section>
+  );
+}
+
+export function FileGroups({ files }: { files: OpsFile[] }) {
+  const kinds = [...new Set(files.map((file) => file.kind))];
+  if (kinds.length === 0) return null;
+  return (
+    <div className="mt-4 space-y-3">
+      {kinds.map((kind) => (
+        <div key={kind}>
+          <h3 className="text-sm font-medium text-neutral-950">{FILE_LABELS[kind] ?? kind}</h3>
+          <ul className="mt-1 space-y-1">
+            {files
+              .filter((file) => file.kind === kind)
+              .map((file) => (
+                <li key={file.id} className="text-sm">
+                  {file.signed_url ? (
+                    <a
+                      href={file.signed_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-brand-dark hover:underline"
+                    >
+                      {file.file_name}
+                    </a>
+                  ) : (
+                    file.file_name
+                  )}
+                </li>
               ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-800">
-              Site / Producer *
-            </label>
-            <select
-              value={locationValueState}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                setLocationValueState(e.target.value)
-              }
-              className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm"
-            >
-              <option value="">Select site or producer</option>
-              {options?.locations.map((location) => (
-                <option
-                  key={`${location.type}:${location.id}`}
-                  value={`${location.type}:${location.id}`}
-                >
-                  {location.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-800">
-              Training certificate (PDF){editing ? "" : " *"}
-            </label>
-            {editing?.certificate_url && !pdfFile ? (
-              <p className="mb-2 text-sm text-neutral-600">
-                Current file:{" "}
-                <SignedStorageLink
-                  bucket={TRAINING_DOCS_BUCKET}
-                  path={editing.certificate_url}
-                  className="font-medium text-brand-dark hover:underline"
-                >
-                  View PDF
-                </SignedStorageLink>
-              </p>
-            ) : null}
-            <input
-              type="file"
-              accept={TRAINING_CERTIFICATE_ACCEPT}
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setPdfFile(e.target.files?.[0] ?? null)
-              }
-              className="block w-full text-sm text-neutral-700 file:mr-4 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-4 file:py-2 file:text-sm file:font-medium"
-            />
-            {pdfFile ? (
-              <p className="mt-2 text-xs text-neutral-500">{pdfFile.name}</p>
-            ) : null}
-          </div>
-
-          {formError ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
-          ) : null}
-        </form>
-      </Modal>
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }

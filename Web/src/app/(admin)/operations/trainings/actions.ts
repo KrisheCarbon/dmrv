@@ -1,46 +1,51 @@
 "use server";
 
 import { backendFetch } from "@/lib/backendApi";
-import type {
-  TrainingFormOptions,
-  TrainingRecord,
-} from "@/types/entities";
+import type { UploadedOpsFile } from "@/lib/uploadOpsFiles";
 
-export interface TrainingSavePayload {
-  id?: string;
-  supervisor_id: string;
-  location_type: "producer" | "site";
-  location_id: string;
-  certificate_url: string;
+export interface OpsProducer {
+  id: string;
+  name: string;
 }
 
-export async function listTrainings() {
-  return backendFetch<TrainingRecord[]>("/trainings");
+export interface OpsFile {
+  id: string;
+  kind: string;
+  file_name: string;
+  content_type: string;
+  signed_url: string | null;
 }
 
-export async function getTrainingFormOptions() {
-  return backendFetch<TrainingFormOptions>("/trainings/form-options");
+export interface TrainingSession {
+  id: string;
+  held_at: string;
+  trainer_name: string;
+  latitude: number;
+  longitude: number;
+  location_label: string | null;
+  producers: OpsProducer[];
+  files: OpsFile[];
 }
 
-export async function createTraining(payload: TrainingSavePayload) {
-  return backendFetch<TrainingRecord>("/trainings", {
+export async function listTrainingSessions() {
+  return backendFetch<TrainingSession[]>("/training-sessions");
+}
+
+export async function getTrainingSessionOptions() {
+  return backendFetch<{ producers: OpsProducer[] }>("/training-sessions/options");
+}
+
+export async function createTrainingSession(payload: {
+  held_at: string;
+  trainer_name: string;
+  producer_ids: string[];
+  latitude: number;
+  longitude: number;
+  location_label: string | null;
+  files: UploadedOpsFile[];
+}) {
+  return backendFetch<TrainingSession>("/training-sessions", {
     method: "POST",
     body: JSON.stringify(payload),
-  });
-}
-
-export async function updateTraining(
-  id: string,
-  payload: Partial<TrainingSavePayload>,
-) {
-  return backendFetch<TrainingRecord>(`/trainings/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function deleteTraining(id: string) {
-  await backendFetch<void>(`/trainings/${id}`, {
-    method: "DELETE",
   });
 }

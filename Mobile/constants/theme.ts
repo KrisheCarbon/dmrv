@@ -15,6 +15,7 @@ export const colors = {
   smokeLight: "#A5A5A9",
   text: "#1A1A1A",
   textSecondary: "#5C5C5E",
+  neutralFill: "#F5F5F5",
   border: "#E8E4DE",
   borderDark: "#D4CFC6",
   error: "#A83232",

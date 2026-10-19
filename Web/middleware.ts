@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { canAccessWebPortal } from "@krishecarbon/shared";
 import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
+import { isRecoveryAccessToken } from "@/lib/recoverySession";
 
 const PUBLIC_PREFIXES = [
   "/auth",
@@ -39,6 +40,17 @@ export async function middleware(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // A session opened from a reset link can only set the new password. Anything
+  // else goes back to the reset form until the password is saved.
+  if (user && pathname !== "/reset-password") {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (isRecoveryAccessToken(session?.access_token)) {
+      return NextResponse.redirect(new URL("/reset-password", req.url));
+    }
+  }
 
   if (isPublicRoute(pathname)) {
     if (user && (pathname === "/auth" || pathname === "/signup")) {

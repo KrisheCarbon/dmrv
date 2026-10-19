@@ -14,6 +14,7 @@ import {
 } from "@krishecarbon/shared";
 import { getSignupRedirect, getSiteUrl } from "@/lib/siteUrl";
 import { getServiceRoleKey, supabaseUrl } from "@/lib/env";
+import { sendPasswordResetEmail } from "@/lib/passwordReset";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import type { CreateUserResult, UserFormData } from "@/types";
 
@@ -126,6 +127,10 @@ export async function resendSignupEmail(id: string, email: string) {
   return asResult(() => resendSignupEmailOrThrow(id, email));
 }
 
+export async function sendPasswordReset(id: string) {
+  return asResult(() => sendPasswordResetOrThrow(id));
+}
+
 export async function getUserRoleChangeImpact(id: string) {
   return asResult(() => getUserRoleChangeImpactOrThrow(id));
 }
@@ -226,6 +231,40 @@ async function resendSignupEmailOrThrow(id: string, email: string) {
   await admin().from("users").update({ status: "pending_auth" }).eq("id", id);
 
   return { emailSent: true };
+}
+
+/** Emails an active user a link to set a new password. Their current one keeps working until they do. */
+async function sendPasswordResetOrThrow(id: string) {
+  const actorRole = await getActorRole();
+
+  const { data: target } = await admin()
+    .from("users")
+    .select("role, email, status")
+    .eq("id", id)
+    .single();
+
+  if (!target) throw new Error("User not found.");
+  assertCanEditUser(actorRole, target.role);
+
+  if (target.status !== "active") {
+    throw new Error(
+      target.status === "pending_auth"
+        ? "This user hasn't finished signup yet. Use Resend email instead."
+        : "This user is disabled. Re-enable them before sending a reset link.",
+    );
+  }
+  if (!target.email) throw new Error("This user has no email address.");
+
+  const error = await sendPasswordResetEmail(target.email);
+  if (error) {
+    throw new Error(
+      error.status === 429
+        ? "Too many reset emails. Wait a minute and try again."
+        : error.message,
+    );
+  }
+
+  return { email: target.email as string };
 }
 
 export interface RoleChangeNamedItem {

@@ -1,19 +1,13 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
 import {
   INVALID_LOGIN_IDENTIFIER_ERROR,
   parseLoginIdentifier,
 } from "@krishecarbon/shared";
-import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
-import { getSiteUrl } from "@/lib/siteUrl";
+import { sendPasswordResetEmail } from "@/lib/passwordReset";
 import { lookupLoginEmailByPhone } from "@/app/auth/actions";
 
-/**
- * Sends a password reset email. Runs on the server with the implicit flow so the
- * link carries its own tokens and works on any device, not only the browser that
- * asked for it. Says nothing about whether the account exists.
- */
+/** Sends a password reset email. Says nothing about whether the account exists. */
 export async function requestPasswordReset(
   identifier: string,
 ): Promise<{ error?: string }> {
@@ -28,13 +22,7 @@ export async function requestPasswordReset(
       : await lookupLoginEmailByPhone(parsed.phone);
   if (!email) return {};
 
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { flowType: "implicit", persistSession: false },
-  });
-
-  const { error } = await client.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getSiteUrl()}/reset-password`,
-  });
+  const error = await sendPasswordResetEmail(email);
 
   if (error) {
     console.error("requestPasswordReset:", error.message);

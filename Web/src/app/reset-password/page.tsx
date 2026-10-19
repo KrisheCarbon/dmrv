@@ -68,9 +68,15 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    // Sign out so the person signs in fresh where their role belongs: web or mobile app.
-    await supabase.auth.signOut();
+    // Sign out on every device so the person signs in fresh with the new password,
+    // where their role belongs: web or mobile app.
+    await supabase.auth.signOut({ scope: "global" });
     router.replace("/auth?reset=done");
+  }
+
+  async function cancelReset() {
+    await supabase.auth.signOut({ scope: "local" });
+    router.replace("/auth");
   }
 
   return (
@@ -159,6 +165,15 @@ export default function ResetPasswordPage() {
                 className="w-full bg-gray-900 text-white py-2.5 rounded-md text-sm font-medium hover:bg-black transition disabled:opacity-60"
               >
                 {loading ? "Saving…" : "Save new password"}
+              </button>
+
+              <button
+                type="button"
+                onClick={cancelReset}
+                disabled={loading}
+                className="w-full text-sm text-gray-600 hover:text-gray-900 disabled:opacity-60"
+              >
+                Cancel and go to sign in
               </button>
             </>
           )}

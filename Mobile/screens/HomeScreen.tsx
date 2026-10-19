@@ -85,6 +85,14 @@ const BASE_MODULES = [
     roles: ["admin", "manager", "supervisor", "climapreneur"]
   },
   {
+    id: "payments",
+    title: "Payments",
+    desc: "What you have earned and what you have been paid",
+    active: true,
+    screen: "Payments",
+    roles: ["admin", "manager", "supervisor", "climapreneur"]
+  },
+  {
     id: "farms",
     title: "Farmers Network",
     desc: "Onboard and manage farmers",
@@ -95,14 +103,18 @@ const BASE_MODULES = [
   {
     id: "trainings",
     title: "Trainings",
-    desc: "Guides, courses & field resources",
-    active: false
+    desc: "Sessions, attendance, and photos",
+    active: true,
+    screen: "Trainings",
+    roles: ["admin", "manager"]
   },
   {
     id: "inspections",
     title: "Inspections",
-    desc: "Field inspections & verification visits",
-    active: false
+    desc: "Producer visits, reports, and photos",
+    active: true,
+    screen: "Inspections",
+    roles: ["admin", "manager"]
   }
 ];
 
@@ -115,7 +127,7 @@ const TONE = {
   warning: {
     dot: colors.warning,
     bg: colors.warningBg,
-    text: "#9A7200"
+    text: colors.warning
   },
   error: {
     dot: colors.error,

@@ -24,6 +24,8 @@ import { ClustersModule } from './clusters/clusters.module';
 import { VerificationReportsModule } from './verification-reports/verification-reports.module';
 import { MapStatsModule } from './map-stats/map-stats.module';
 import { FieldActivityModule } from './field-activity/field-activity.module';
+import { PaymentsModule } from './payments/payments.module';
+import { FieldOperationsModule } from './field-operations/field-operations.module';
 
 @Module({
   imports: [
@@ -50,6 +52,8 @@ import { FieldActivityModule } from './field-activity/field-activity.module';
     VerificationReportsModule,
     MapStatsModule,
     FieldActivityModule,
+    PaymentsModule,
+    FieldOperationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

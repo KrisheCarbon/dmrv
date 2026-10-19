@@ -30,6 +30,9 @@ import SoilSampleReceiveScreen from "./screens/SoilSampleReceiveScreen";
 import SoilReportUploadScreen from "./screens/SoilReportUploadScreen";
 import FarmerDashboardScreen from "./screens/FarmerDashboardScreen";
 import DashboardHubScreen from "./screens/DashboardHubScreen";
+import PaymentsScreen from "./screens/PaymentsScreen";
+import TrainingsScreen from "./screens/TrainingsScreen";
+import InspectionsScreen from "./screens/InspectionsScreen";
 import DashboardModuleScreen from "./screens/DashboardModuleScreen";
 import FieldActivityScreen from "./screens/FieldActivityScreen";
 import AddFarmerScreen from "./screens/AddFarmerScreen";
@@ -107,6 +110,9 @@ function MainStack() {
         name="DashboardHub"
         component={screen(DashboardHubScreen)}
       />
+      <Stack.Screen name="Payments" component={screen(PaymentsScreen)} />
+      <Stack.Screen name="Trainings" component={screen(TrainingsScreen)} />
+      <Stack.Screen name="Inspections" component={screen(InspectionsScreen)} />
       <Stack.Screen
         name="DashboardModule"
         component={screen(DashboardModuleScreen)}

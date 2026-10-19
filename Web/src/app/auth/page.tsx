@@ -68,6 +68,12 @@ function AuthForm() {
 
       if (!hash.includes("access_token")) return;
 
+      // A reset link that lands here must finish on the reset form, not sign in.
+      if (params.get("type") === "recovery") {
+        window.location.replace(`/reset-password#${hash}`);
+        return;
+      }
+
       setProcessingInvite(true);
 
       try {
