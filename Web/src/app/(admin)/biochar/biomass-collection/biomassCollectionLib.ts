@@ -1,4 +1,5 @@
 import type { BiomassCollectionRecord, FieldPhotoMetadata } from "@krishecarbon/shared";
+import { describeFarmPhotoDistance } from "@krishecarbon/shared";
 import type { DbRow } from "@/types/entities";
 import { buildSearchIndex, photoMetadataSearchParts } from "@/lib/searchIndex";
 
@@ -11,6 +12,9 @@ export interface BiomassCollectionTableRow extends DbRow {
   producer_name: string;
   tractor_number: string;
   operator_name: string;
+  distance_label: string;
+  distance_detail: string;
+  distance_outside: boolean;
   search_index: string;
 }
 
@@ -35,6 +39,15 @@ export function mapsUrl(metadata: FieldPhotoMetadata) {
   return `https://www.google.com/maps?q=${metadata.latitude},${metadata.longitude}`;
 }
 
+export function farmDistanceSummary(record: BiomassCollectionRecord) {
+  const latitude = record.loaded_photo_metadata?.latitude;
+  const longitude = record.loaded_photo_metadata?.longitude;
+  return describeFarmPhotoDistance(record.loaded_distance_from_farm_m, {
+    hasGps: Number.isFinite(latitude) && Number.isFinite(longitude),
+    hasBoundary: record.farm_has_mapped_boundary === true,
+  });
+}
+
 export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): string {
   return buildSearchIndex(
     record.id,
@@ -48,5 +61,7 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
     formatDateTime(record.unloaded_at),
     photoMetadataSearchParts(record.loaded_photo_metadata),
     photoMetadataSearchParts(record.unloaded_photo_metadata),
+    farmDistanceSummary(record).short,
+    farmDistanceSummary(record).detail,
   );
 }

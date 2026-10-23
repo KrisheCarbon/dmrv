@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 import type { GeoPoint } from "@krishecarbon/shared";
+import { polygonCentroid } from "@krishecarbon/shared";
 import PrimaryButton from "./PrimaryButton";
 import MapMyLocationButton from "./MapMyLocationButton";
 import {
@@ -30,6 +31,9 @@ type Props = {
   initialLatitude?: number | null;
   initialLongitude?: number | null;
   initialPoints: GeoPoint[];
+  farmOutline?: GeoPoint[];
+  title?: string;
+  hint?: string;
   onClose: () => void;
   onConfirm: (points: GeoPoint[]) => void;
 };
@@ -39,6 +43,9 @@ export default function PolygonMapperModal({
   initialLatitude,
   initialLongitude,
   initialPoints,
+  farmOutline,
+  title = "Clip farm on map",
+  hint = "The map opens on you. The blue dot is where you are standing. Tap the satellite image to draw the farm boundary. Pan and pinch to move.",
   onClose,
   onConfirm,
 }: Props) {
@@ -89,19 +96,31 @@ export default function PolygonMapperModal({
           Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
       );
       const coord = await getInitialMapCoordinate();
+      const outlineCenter = polygonCentroid(farmOutline ?? []);
 
       if (cancelled) return;
 
       setSeedPoints(seed);
       setPoints(seed);
-      if (!coord.hasUserFix) {
+      if (!coord.hasUserFix && !outlineCenter) {
         setLocationNote(
           "Couldn't read your GPS, so the map was not opened on a default place. Turn location on and tap Try again.",
         );
         setLoading(false);
         return;
       }
-      setCenter(coord);
+      setCenter(
+        coord.hasUserFix
+          ? coord
+          : {
+              latitude: outlineCenter!.latitude,
+              longitude: outlineCenter!.longitude,
+              hasUserFix: false,
+              userLatitude: null,
+              userLongitude: null,
+              accuracy: null,
+            },
+      );
       setLoading(false);
     }
 
@@ -118,11 +137,16 @@ export default function PolygonMapperModal({
       latitude: center.latitude,
       longitude: center.longitude,
       points: seedPoints,
+      outline: farmOutline,
+      hint:
+        farmOutline && farmOutline.length >= 3
+          ? "The dark outline is the farm. Tap inside it to mark where biochar was applied."
+          : undefined,
       userLatitude: center.userLatitude,
       userLongitude: center.userLongitude,
       accuracy: center.accuracy,
     });
-  }, [center, mapboxToken, seedPoints]);
+  }, [center, farmOutline, mapboxToken, seedPoints]);
 
   useLiveUserDot(visible && mapReady, webViewRef);
 
@@ -201,14 +225,11 @@ export default function PolygonMapperModal({
           >
             <Text style={styles.closeText}>Close</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Clip farm on map</Text>
+          <Text style={styles.headerTitle}>{title}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
-        <Text style={styles.hint}>
-          The map opens on you. The blue dot is where you are standing. Tap the
-          satellite image to draw the farm boundary. Pan and pinch to move.
-        </Text>
+        <Text style={styles.hint}>{hint}</Text>
         {locationNote ? (
           <Text style={styles.locationNote}>{locationNote}</Text>
         ) : null}

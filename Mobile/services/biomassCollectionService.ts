@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   BiomassCollectionRecord,
+  BiomassFarmOption,
   CreateBiomassCollectionPayload,
   FieldPhotoMetadata,
 } from "@krishecarbon/shared";
@@ -14,7 +15,6 @@ import {
 import {
   backendFetch,
   fetchMobileNetworkOverview,
-  type NetworkFarm,
   type NetworkProducer,
 } from "./backendApi";
 import { uploadBiomassCollectionPhoto } from "../utils/biomassCollectionPhotoUpload";
@@ -45,7 +45,7 @@ export type BiomassCollectionView = {
 };
 
 export type BiomassCollectionOptions = {
-  farms: NetworkFarm[];
+  farms: BiomassFarmOption[];
   producers: NetworkProducer[];
 };
 
@@ -88,19 +88,38 @@ async function triggerBackgroundSync() {
   void processSyncQueue();
 }
 
-/** Farms and production sites from the network, cached so a trip can be recorded offline. */
+function normalizeFarm(farm: Partial<BiomassFarmOption> & { id?: string }): BiomassFarmOption {
+  return {
+    id: farm.id ?? "",
+    farmer_name: farm.farmer_name ?? "Unnamed farm",
+    village: farm.village ?? null,
+    cluster_name: farm.cluster_name ?? null,
+    boundaries: Array.isArray(farm.boundaries) ? farm.boundaries : [],
+  };
+}
+
+/** Farms with a mapped boundary, and production sites, cached so a trip can be recorded offline. */
 export async function loadBiomassCollectionOptions(): Promise<BiomassCollectionOptions> {
   try {
-    const overview = await fetchMobileNetworkOverview();
+    const [overview, farms] = await Promise.all([
+      fetchMobileNetworkOverview(),
+      backendFetch<BiomassFarmOption[]>("/biomass-collections/farms"),
+    ]);
     const options = {
-      farms: overview.farms ?? [],
+      farms: (farms ?? []).map(normalizeFarm).filter((farm) => farm.boundaries.length > 0),
       producers: overview.producers ?? [],
     };
     await AsyncStorage.setItem(OPTIONS_CACHE_KEY, JSON.stringify(options));
     return options;
   } catch (err) {
     const cached = await AsyncStorage.getItem(OPTIONS_CACHE_KEY);
-    if (cached) return JSON.parse(cached) as BiomassCollectionOptions;
+    if (cached) {
+      const parsed = JSON.parse(cached) as BiomassCollectionOptions;
+      return {
+        farms: (parsed.farms ?? []).map(normalizeFarm).filter((farm) => farm.boundaries.length > 0),
+        producers: parsed.producers ?? [],
+      };
+    }
     throw err;
   }
 }

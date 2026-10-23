@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { APPLICATION_ENTRY_MEDIA_KEYS } from "@krishecarbon/shared";
+import { APPLICATION_ENTRY_MEDIA_KEYS, formatApplicationAcres } from "@krishecarbon/shared";
 import StatusBadge from "../production/StatusBadge";
 import ApplicationMediaThumb from "./ApplicationMediaThumb";
 import {
@@ -11,6 +11,7 @@ import {
   formatMediaType,
   formatReviewStatus,
   mediaFlagMap,
+  applicationPlaceSummary,
   resolveReviewStatus,
   reviewStatusTone,
   type ApplicationEntryDetail,
@@ -42,6 +43,7 @@ export default function ApplicationEntryDetailView({
   const reviewStatus = resolveReviewStatus(data);
   const mediaKey = APPLICATION_ENTRY_MEDIA_KEYS[0];
   const flagged = canReview ? Boolean(mediaFlagged) : savedFlags.has(mediaKey);
+  const photoPlace = applicationPlaceSummary(data);
 
   return (
     <div className="space-y-3">
@@ -61,6 +63,12 @@ export default function ApplicationEntryDetailView({
               data.farm_name ?? "—"
             )}
           </DetailRow>
+          <DetailRow label="Farm plot">{data.field_code ?? "—"}</DetailRow>
+          <DetailRow label="Farm area">{formatApplicationAcres(data.farm_area_acres)}</DetailRow>
+          <DetailRow label="Applied area">
+            {formatApplicationAcres(data.application_area_acres)}
+          </DetailRow>
+          <DetailRow label="Photo place">{photoPlace.detail}</DetailRow>
           <DetailRow label="Media">{formatMediaType(data)}</DetailRow>
           {!canReview ? (
             <DetailRow label="Status">

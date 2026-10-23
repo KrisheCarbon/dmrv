@@ -15,6 +15,11 @@ export class BiomassCollectionsController {
     return this.biomassCollectionsService.listCollections(user);
   }
 
+  @Get('farms')
+  farms(@AuthUser() user: AuthenticatedUser) {
+    return this.biomassCollectionsService.listMappedFarms(user);
+  }
+
   @Get(':id')
   getOne(@AuthUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.biomassCollectionsService.getCollection(user, id);

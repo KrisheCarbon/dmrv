@@ -9,6 +9,12 @@ import {
   canAccessMobileApp,
   canAccessNetwork,
   contactEmail,
+  parseBoundaryGeojson,
+  polygonAreaAcres,
+  type ApplicationFarmerOption,
+  type ApplicationFarmFieldOption,
+  type BiomassFarmOption,
+  type GeoPoint,
   type UserRole,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
@@ -114,6 +120,54 @@ export class MobileNetworkService {
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
+
+  /** Onboarded farms that have a mapped plot, scoped the same way as the network overview. */
+  async listMappedFarms(user: AuthenticatedUser): Promise<BiomassFarmOption[]> {
+    if (!canAccessMobileApp(user.role)) {
+      throw new ForbiddenException('Not allowed to view network assignments');
+    }
+
+    const farms = await this.farmsForUser(user);
+    const boundaries = await this.boundariesForFarms(farms.map((farm) => farm.id));
+
+    return farms.flatMap((farm) => {
+      const rings = boundaries.get(farm.id) ?? [];
+      if (rings.length === 0) return [];
+      return [
+        {
+          id: farm.id,
+          farmer_name: farm.farmer_name,
+          village: farm.village ?? null,
+          cluster_name: farm.cluster_name ?? null,
+          boundaries: rings,
+        },
+      ];
+    });
+  }
+
+  /** Onboarded farmers and each mapped plot, for choosing where biochar was applied. */
+  async listApplicationFarms(user: AuthenticatedUser): Promise<ApplicationFarmerOption[]> {
+    if (!canAccessMobileApp(user.role)) {
+      throw new ForbiddenException('Not allowed to view network assignments');
+    }
+
+    const farms = await this.farmsForUser(user);
+    const fieldsByFarm = await this.fetchApplicationFields(farms.map((farm) => farm.id));
+
+    return farms.flatMap((farm) => {
+      const fields = fieldsByFarm.get(farm.id) ?? [];
+      if (fields.length === 0) return [];
+      return [
+        {
+          id: farm.id,
+          farmer_name: farm.farmer_name,
+          village: farm.village ?? null,
+          cluster_name: farm.cluster_name ?? null,
+          fields,
+        },
+      ];
+    });
+  }
 
   async getOverview(user: AuthenticatedUser): Promise<MobileNetworkOverview> {
     if (!canAccessMobileApp(user.role)) {
@@ -425,6 +479,104 @@ export class MobileNetworkService {
       email: contactEmail(row.email as string | null),
       phone: (row.phone as string | null) ?? null,
     }));
+  }
+
+  private async farmsForUser(user: AuthenticatedUser): Promise<MobileNetworkFarm[]> {
+    if (canAccessNetwork(user.role)) {
+      return this.fetchAllFarms();
+    }
+
+    if (user.role === 'supervisor') {
+      const producerIds = this.uniqueIds([
+        ...(await this.fetchProducerIdsForSupervisor(user.id)),
+        ...(await this.fetchProducerIdsForAssignedKontikkis(user.id)),
+      ]);
+      return this.fetchFarmsForProducers(producerIds);
+    }
+
+    if (user.role === 'climapreneur') {
+      const kontikkiIds = await this.fetchKontikkiIdsForOperator(user.id);
+      const kontikkis = await this.fetchKontikkis(undefined, kontikkiIds);
+      const producerIds = this.uniqueIds(
+        kontikkis.map((kontikki) => kontikki.biochar_producer_id),
+      );
+      return this.fetchFarmsForProducers(producerIds);
+    }
+
+    throw new ForbiddenException('Not allowed to view network assignments');
+  }
+
+  async boundariesForFarms(farmIds: string[]): Promise<Map<string, GeoPoint[][]>> {
+    const ids = [...new Set(farmIds.filter(Boolean))];
+    const boundaries = new Map<string, GeoPoint[][]>();
+    const chunkSize = 80;
+
+    for (let offset = 0; offset < ids.length; offset += chunkSize) {
+      const chunk = ids.slice(offset, offset + chunkSize);
+      const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
+        this.supabase
+          .from('farm_fields')
+          .select('farm_id, boundary_geojson')
+          .eq('status', 'active')
+          .in('farm_id', chunk)
+          .range(from, to),
+      );
+
+      for (const row of rows) {
+        const farmId = row.farm_id as string | null;
+        if (!farmId) continue;
+        const ring = parseBoundaryGeojson(
+          row.boundary_geojson as string | Record<string, unknown> | null,
+        );
+        if (ring.length < 3) continue;
+        const list = boundaries.get(farmId) ?? [];
+        list.push(ring);
+        boundaries.set(farmId, list);
+      }
+    }
+
+    return boundaries;
+  }
+
+  private async fetchApplicationFields(
+    farmIds: string[],
+  ): Promise<Map<string, ApplicationFarmFieldOption[]>> {
+    const ids = [...new Set(farmIds.filter(Boolean))];
+    const fields = new Map<string, ApplicationFarmFieldOption[]>();
+    const chunkSize = 80;
+
+    for (let offset = 0; offset < ids.length; offset += chunkSize) {
+      const chunk = ids.slice(offset, offset + chunkSize);
+      const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
+        this.supabase
+          .from('farm_fields')
+          .select('id, farm_id, field_code, boundary_geojson')
+          .eq('status', 'active')
+          .in('farm_id', chunk)
+          .order('field_code', { ascending: true })
+          .range(from, to),
+      );
+
+      for (const row of rows) {
+        const farmId = row.farm_id as string | null;
+        const fieldId = row.id as string | null;
+        if (!farmId || !fieldId) continue;
+        const boundary = parseBoundaryGeojson(
+          row.boundary_geojson as string | Record<string, unknown> | null,
+        );
+        if (boundary.length < 3) continue;
+        const list = fields.get(farmId) ?? [];
+        list.push({
+          id: fieldId,
+          field_code: (row.field_code as string | null)?.trim() || 'Farm',
+          boundary,
+          area_acres: polygonAreaAcres(boundary),
+        });
+        fields.set(farmId, list);
+      }
+    }
+
+    return fields;
   }
 
   private async fetchFarmsForProducers(

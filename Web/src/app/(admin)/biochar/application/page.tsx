@@ -19,6 +19,8 @@ import BiocharRightDrawer, { BIOCHAR_DRAWER_OFFSET_CLASS } from "../BiocharRight
 import { listApplicationEntries } from "./actions";
 import {
   applicationEntrySearchIndex,
+  applicationPlaceSummary,
+  formatApplicationAcres,
   formatDateTime,
   formatLinkedBatchLabel,
   formatMediaType,
@@ -57,6 +59,10 @@ export default function ApplicationPage() {
           time: formatDateTime(entry.applied_at),
           farm_name: entry.farm_name ?? "—",
           farm_id: entry.farm_id,
+          field_code: entry.field_code ?? "—",
+          farm_acres: formatApplicationAcres(entry.farm_area_acres),
+          applied_acres: formatApplicationAcres(entry.application_area_acres),
+          photo_place: applicationPlaceSummary(entry).short,
           media: formatMediaType(entry),
           operator_name: entry.operator_name,
           pyrolysis_links: entry.pyrolysis_links,
@@ -203,6 +209,10 @@ export default function ApplicationPage() {
                 row.farm_name
               ),
           },
+          { key: "field_code", label: "Plot" },
+          { key: "farm_acres", label: "Farm acres" },
+          { key: "applied_acres", label: "Applied acres" },
+          { key: "photo_place", label: "Photo" },
           { key: "media", label: "Media" },
           { key: "operator_name", label: "Operator" },
           {

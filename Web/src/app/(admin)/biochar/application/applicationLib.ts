@@ -6,7 +6,11 @@ import type {
 import {
   applicationEntryReviewStatusLabel,
   applicationMediaTypeLabel,
+  describeApplicationPhoto,
+  formatApplicationAcres,
 } from "@krishecarbon/shared";
+
+export { formatApplicationAcres };
 import type { DbRow } from "@/types/entities";
 import { buildSearchIndex, photoMetadataSearchParts } from "@/lib/searchIndex";
 
@@ -23,6 +27,10 @@ export interface ApplicationEntryTableRow extends DbRow {
   time: string;
   farm_name: string;
   farm_id?: string | null;
+  field_code: string;
+  farm_acres: string;
+  applied_acres: string;
+  photo_place: string;
   media: string;
   operator_name: string;
   pyrolysis_links: ApplicationPyrolysisLinkRecord[];
@@ -70,11 +78,27 @@ export function formatMediaType(entry: Pick<ApplicationEntryRecord, "media_type"
   return applicationMediaTypeLabel(entry.media_type);
 }
 
+export function applicationPlaceSummary(entry: ApplicationEntryRecord) {
+  const hasGps =
+    Number.isFinite(Number(entry.media_metadata?.latitude ?? entry.location_lat)) &&
+    Number.isFinite(Number(entry.media_metadata?.longitude ?? entry.location_lng));
+  return describeApplicationPhoto({
+    hasGps,
+    hasBoundary: (entry.application_boundary?.length ?? 0) >= 3 && entry.farm_area_acres != null,
+    insideFarm: entry.photo_inside_farm,
+    distanceM: entry.photo_distance_from_applied_m,
+  });
+}
+
 export function applicationEntrySearchIndex(entry: ApplicationEntryListItem): string {
   const reviewStatus = resolveReviewStatus(entry);
   return buildSearchIndex(
     entry.id,
     entry.farm_name,
+    entry.field_code,
+    formatApplicationAcres(entry.farm_area_acres),
+    formatApplicationAcres(entry.application_area_acres),
+    applicationPlaceSummary(entry).short,
     entry.farm_id,
     entry.comment,
     entry.media_type,

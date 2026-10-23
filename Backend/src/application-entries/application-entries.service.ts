@@ -8,18 +8,25 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   APPLICATION_MEDIA_TYPES,
+  applicationAreaAcres,
+  applicationBoundaryGeojson,
+  applicationBoundaryPoints,
+  applicationPolygonInsideFarm,
   canAccessMobileApp,
   canAccessWebPortal,
   canReviewApplicationEntries,
+  checkApplicationPhoto,
   isApplicationEntryMediaKey,
   type ApplicationEntryMediaFlag,
   type ApplicationEntryRecord,
   type ApplicationEntryReviewStatus,
   type ApplicationEntryStatusRecord,
+  type ApplicationFarmerOption,
   type ApplicationMediaType,
   type ApplicationPyrolysisLinkRecord,
   type AvailableApplicationPyrolysisBatch,
   type CreateApplicationEntryPayload,
+  type GeoPoint,
   type SubmitApplicationEntryStatusPayload,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
@@ -32,6 +39,9 @@ const ENTRY_PORTAL_SELECT = `
   applied_at,
   farm_id,
   farm_name,
+  farm_field_id,
+  field_code,
+  application_boundary_geojson,
   location_lat,
   location_lng,
   location_address,
@@ -84,6 +94,9 @@ const ENTRY_SELECT = `
   applied_at,
   farm_id,
   farm_name,
+  farm_field_id,
+  field_code,
+  application_boundary_geojson,
   location_lat,
   location_lng,
   location_address,
@@ -157,7 +170,7 @@ export class ApplicationEntriesService {
         .order('applied_at', { ascending: false });
 
       if (error) throw new BadRequestException(error.message);
-      return (data ?? []).map((row) => this.mapPortalEntryRow(row));
+      return this.withApplicationAreas((data ?? []).map((row) => this.mapPortalEntryRow(row)));
     }
 
     this.assertMobileAccess(user);
@@ -169,7 +182,7 @@ export class ApplicationEntriesService {
       .order('applied_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
-    return (data ?? []).map((row) => this.mapEntryRow(row));
+    return this.withApplicationAreas((data ?? []).map((row) => this.mapEntryRow(row)));
   }
 
   async getEntry(
@@ -185,7 +198,9 @@ export class ApplicationEntriesService {
 
       if (error) throw new BadRequestException(error.message);
       if (!data) throw new NotFoundException('Application entry not found.');
-      return this.mapPortalEntryRow(data);
+      const [record] = await this.withApplicationAreas([this.mapPortalEntryRow(data)]);
+      if (!record) throw new NotFoundException('Application entry not found.');
+      return record;
     }
 
     this.assertMobileAccess(user);
@@ -199,7 +214,14 @@ export class ApplicationEntriesService {
 
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Application entry not found.');
-    return this.mapEntryRow(data);
+    const [record] = await this.withApplicationAreas([this.mapEntryRow(data)]);
+    if (!record) throw new NotFoundException('Application entry not found.');
+    return record;
+  }
+
+  async listApplicationFarms(user: AuthenticatedUser): Promise<ApplicationFarmerOption[]> {
+    this.assertMobileAccess(user);
+    return this.mobileNetworkService.listApplicationFarms(user);
   }
 
   async listAvailablePyrolysisBatches(
@@ -233,11 +255,17 @@ export class ApplicationEntriesService {
   ): Promise<ApplicationEntryRecord> {
     this.assertMobileAccess(user);
     this.validateCreatePayload(payload);
+    const field = await this.assertAppliedArea(user, payload);
 
     const allowedKontikkiIds = await this.getAllowedKontikkiIds(user);
     await this.assertPyrolysisBatchesAllowed(payload.pyrolysis_batch_ids, allowedKontikkiIds);
 
     const linkMeta = await this.fetchLinkMeta(payload.pyrolysis_batch_ids);
+
+    const geojson = applicationBoundaryGeojson(field.applied);
+    if (!geojson) {
+      throw new BadRequestException('Draw the applied area inside the selected farm boundary.');
+    }
 
     const { data: entry, error: entryError } = await this.supabase
       .from('application_entries')
@@ -246,6 +274,9 @@ export class ApplicationEntriesService {
         applied_at: payload.applied_at,
         farm_id: payload.farm_id ?? null,
         farm_name: payload.farm_name ?? null,
+        farm_field_id: field.id,
+        field_code: payload.field_code?.trim() || field.field_code,
+        application_boundary_geojson: JSON.parse(geojson),
         location_lat: payload.location_lat ?? null,
         location_lng: payload.location_lng ?? null,
         location_address: payload.location_address ?? null,
@@ -371,6 +402,83 @@ export class ApplicationEntriesService {
     }
   }
 
+  private async assertAppliedArea(
+    user: AuthenticatedUser,
+    payload: CreateApplicationEntryPayload,
+  ): Promise<{ id: string; field_code: string; applied: GeoPoint[] }> {
+    const farmers = await this.mobileNetworkService.listApplicationFarms(user);
+    const farmer = farmers.find((item) => item.id === payload.farm_id);
+    const field = farmer?.fields.find((item) => item.id === payload.farm_field_id);
+    const applied = payload.application_boundary ?? [];
+
+    if (!farmer || !field) {
+      throw new BadRequestException('Select the farmer and the farm plot.');
+    }
+    if (!applicationPolygonInsideFarm(applied, field.boundary)) {
+      throw new BadRequestException(
+        'Draw the applied area inside the selected farm boundary.',
+      );
+    }
+
+    const check = checkApplicationPhoto({
+      farmBoundary: field.boundary,
+      appliedBoundary: applied,
+      latitude: payload.media_metadata?.latitude ?? payload.location_lat,
+      longitude: payload.media_metadata?.longitude ?? payload.location_lng,
+    });
+    if (!check.ok) throw new BadRequestException(check.message);
+
+    return { id: field.id, field_code: field.field_code, applied };
+  }
+
+  private async withApplicationAreas<T extends ApplicationEntryRecord>(records: T[]): Promise<T[]> {
+    const fieldIds = [
+      ...new Set(records.map((record) => record.farm_field_id).filter((id): id is string => Boolean(id))),
+    ];
+    const farmRings = new Map<string, GeoPoint[]>();
+
+    for (let offset = 0; offset < fieldIds.length; offset += 80) {
+      const chunk = fieldIds.slice(offset, offset + 80);
+      const { data, error } = await this.supabase
+        .from('farm_fields')
+        .select('id, boundary_geojson')
+        .in('id', chunk);
+      if (error) throw new BadRequestException(error.message);
+      for (const row of data ?? []) {
+        farmRings.set(
+          String(row.id),
+          applicationBoundaryPoints(
+            row.boundary_geojson as string | Record<string, unknown> | null,
+          ),
+        );
+      }
+    }
+
+    return records.map((record) => {
+      const farmRing = record.farm_field_id ? (farmRings.get(record.farm_field_id) ?? []) : [];
+      const applied = record.application_boundary ?? [];
+      const latitude = record.media_metadata?.latitude ?? record.location_lat;
+      const longitude = record.media_metadata?.longitude ?? record.location_lng;
+      const hasBoundary = farmRing.length >= 3 && applied.length >= 3;
+      const check = hasBoundary
+        ? checkApplicationPhoto({
+            farmBoundary: farmRing,
+            appliedBoundary: applied,
+            latitude,
+            longitude,
+          })
+        : null;
+
+      return {
+        ...record,
+        farm_area_acres: applicationAreaAcres(farmRing),
+        application_area_acres: applicationAreaAcres(applied),
+        photo_inside_farm: check ? check.insideFarm : null,
+        photo_distance_from_applied_m: check?.appliedDistanceM ?? null,
+      };
+    });
+  }
+
   private validateCreatePayload(payload: CreateApplicationEntryPayload) {
     if (!payload.applied_at) {
       throw new BadRequestException('applied_at is required.');
@@ -484,6 +592,11 @@ export class ApplicationEntriesService {
       location_lat: (row.location_lat as number) ?? null,
       location_lng: (row.location_lng as number) ?? null,
       location_address: (row.location_address as string) ?? null,
+      farm_field_id: (row.farm_field_id as string) ?? null,
+      field_code: (row.field_code as string) ?? null,
+      application_boundary: applicationBoundaryPoints(
+        row.application_boundary_geojson as string | Record<string, unknown> | null,
+      ),
       comment: (row.comment as string) ?? null,
       media_type: row.media_type as ApplicationMediaType,
       media_url: (row.media_url as string) ?? null,

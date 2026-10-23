@@ -9,6 +9,13 @@ import {
   Image,
   Pressable,
 } from "react-native";
+import {
+  applicationAreaAcres,
+  applicationPolygonInsideFarm,
+  checkApplicationPhoto,
+  formatApplicationAcres,
+  type ApplicationFarmerOption,
+} from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
@@ -17,6 +24,7 @@ import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
+import PolygonMapperModal from "../components/PolygonMapperModal";
 import PrimaryButton from "../components/PrimaryButton";
 import KeyboardSafeScroll from "../components/KeyboardSafeScroll";
 import { PhotoRemoveBadge } from "../components/PhotoSlot";
@@ -27,6 +35,7 @@ import { startLocationCache } from "../services/locationCache";
 import {
   fetchAvailablePyrolysisBatches,
   getApplicationEntry,
+  loadApplicationFarmers,
   refreshApplicationReviewStatuses,
   setApplicationPyrolysisLinks,
   submitApplicationEntry,
@@ -35,9 +44,8 @@ import {
   type ApplicationEntryView,
   type SelectablePyrolysisBatch,
 } from "../services/applicationService";
-import { fetchMobileNetworkOverview, type NetworkFarm } from "../services/backendApi";
 import { normalizeImageUri } from "../utils/pyrolysisLocalPhotos";
-import { colors, fonts, spacing, radius } from "../constants/theme";
+import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 
 export default function ApplicationEntryScreen({ navigation, route }) {
   const entryId = route.params?.entryId as string;
@@ -48,25 +56,39 @@ export default function ApplicationEntryScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [entry, setEntry] = useState<ApplicationEntryView | null>(null);
-  const [farms, setFarms] = useState<NetworkFarm[]>([]);
+  const [farmers, setFarmers] = useState<ApplicationFarmerOption[]>([]);
   const [pyrolysisBatches, setPyrolysisBatches] = useState<SelectablePyrolysisBatch[]>([]);
   const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
   const [capturingKey, setCapturingKey] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [mapVisible, setMapVisible] = useState(false);
+  const [polygonVisible, setPolygonVisible] = useState(false);
 
   const isEditable = entry?.status === "draft" || entry?.uploadStatus === "local";
   const locationAutoFetchTried = useRef(false);
 
-  const farmOptions = useMemo(
+  const farmerOptions = useMemo(
     () =>
-      farms.map((farm) => ({
-        value: farm.id,
-        label: farm.farmer_name,
-        hint: [farm.village, farm.cluster_name].filter(Boolean).join(" · "),
+      farmers.map((farmer) => ({
+        value: farmer.id,
+        label: farmer.farmer_name,
+        hint: [farmer.village, farmer.cluster_name].filter(Boolean).join(" · "),
       })),
-    [farms],
+    [farmers],
   );
+
+  const selectedFarmer = farmers.find((farmer) => farmer.id === entry?.farmId) ?? null;
+  const fieldOptions = useMemo(
+    () =>
+      (selectedFarmer?.fields ?? []).map((field) => ({
+        value: field.id,
+        label: field.field_code,
+        hint: formatApplicationAcres(field.area_acres),
+      })),
+    [selectedFarmer],
+  );
+  const selectedField =
+    selectedFarmer?.fields.find((field) => field.id === entry?.farmFieldId) ?? null;
 
   const batchOptions = useMemo(
     () =>
@@ -107,14 +129,14 @@ export default function ApplicationEntryScreen({ navigation, route }) {
 
     async function init() {
       try {
-        const [overview, batches] = await Promise.all([
-          fetchMobileNetworkOverview(),
+        const [loadedFarmers, batches] = await Promise.all([
+          loadApplicationFarmers(),
           fetchAvailablePyrolysisBatches(),
         ]);
 
         if (cancelled) return;
 
-        setFarms(overview.farms ?? []);
+        setFarmers(loadedFarmers);
         setPyrolysisBatches(batches);
         await loadEntry();
       } catch (err) {
@@ -155,11 +177,49 @@ export default function ApplicationEntryScreen({ navigation, route }) {
     [entryId, isEditable, loadEntry],
   );
 
-  async function handleFarmChange(farmId: string) {
-    const farm = farms.find((item) => item.id === farmId);
+  function handleFarmerChange(farmerId: string) {
+    const farmer = farmers.find((item) => item.id === farmerId);
     queueAutoSave({
-      farmId: farmId || null,
-      farmName: farm?.farmer_name ?? null,
+      farmId: farmerId || null,
+      farmName: farmer?.farmer_name ?? null,
+      farmFieldId: null,
+      fieldCode: null,
+      applicationBoundary: null,
+      mediaType: null,
+      mediaLocalUri: null,
+      mediaMetadata: null,
+    });
+  }
+
+  function handleFieldChange(fieldId: string) {
+    const field = selectedFarmer?.fields.find((item) => item.id === fieldId);
+    const boundaryStillFits =
+      field &&
+      entry?.applicationBoundary.length &&
+      applicationPolygonInsideFarm(entry.applicationBoundary, field.boundary);
+    queueAutoSave({
+      farmFieldId: fieldId || null,
+      fieldCode: field?.field_code ?? null,
+      applicationBoundary: boundaryStillFits ? entry?.applicationBoundary : null,
+      mediaType: boundaryStillFits ? undefined : null,
+      mediaLocalUri: boundaryStillFits ? undefined : null,
+      mediaMetadata: boundaryStillFits ? undefined : null,
+    });
+  }
+
+  function photoCheck(latitude?: number | null, longitude?: number | null) {
+    if (!selectedField) {
+      return {
+        ok: false as const,
+        title: "Select a farm",
+        message: "Choose the farmer and the farm plot before taking the photo.",
+      };
+    }
+    return checkApplicationPhoto({
+      farmBoundary: selectedField.boundary,
+      appliedBoundary: entry?.applicationBoundary ?? [],
+      latitude,
+      longitude,
     });
   }
 
@@ -222,6 +282,11 @@ export default function ApplicationEntryScreen({ navigation, route }) {
       setCapturingKey("photo");
       const captured = await captureAndSaveFieldPhoto();
       if (!captured) return;
+      const check = photoCheck(captured.metadata.latitude, captured.metadata.longitude);
+      if (check.ok === false) {
+        Alert.alert(check.title, check.message);
+        return;
+      }
 
       queueAutoSave({
         mediaType: "photo",
@@ -247,8 +312,13 @@ export default function ApplicationEntryScreen({ navigation, route }) {
 
     try {
       setCapturingKey("video");
-      const captured = await captureApplicationVideo();
+      const captured = await captureApplicationVideo({ requireLocation: true });
       if (!captured) return;
+      const check = photoCheck(captured.metadata.latitude, captured.metadata.longitude);
+      if (check.ok === false) {
+        Alert.alert(check.title, check.message);
+        return;
+      }
 
       queueAutoSave({
         mediaType: "video",
@@ -266,6 +336,19 @@ export default function ApplicationEntryScreen({ navigation, route }) {
   }
 
   async function handleSubmit() {
+    const check = photoCheck(entry?.mediaMetadata?.latitude, entry?.mediaMetadata?.longitude);
+    if (check.ok === false) {
+      Alert.alert(check.title, check.message);
+      return;
+    }
+    if (!selectedField || (entry?.applicationBoundary.length ?? 0) < 3) {
+      Alert.alert(
+        "Draw the applied area",
+        "Choose the farm and draw where the biochar was applied before submitting.",
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       await submitApplicationEntry(entryId);
@@ -372,12 +455,55 @@ export default function ApplicationEntryScreen({ navigation, route }) {
 
         <View style={styles.sectionCard}>
           <FormPicker
-            label="Select farm *"
+            label="Farmer *"
             value={entry.farmId ?? ""}
-            options={farmOptions}
-            onValueChange={handleFarmChange}
+            options={farmerOptions}
+            onValueChange={handleFarmerChange}
             enabled={isEditable}
+            searchable
+            searchPlaceholder="Search farmer or village"
           />
+          <FormPicker
+            label="Farm plot *"
+            value={entry.farmFieldId ?? ""}
+            options={fieldOptions}
+            onValueChange={handleFieldChange}
+            enabled={isEditable && Boolean(selectedFarmer)}
+            searchable
+            searchPlaceholder="Search farm plot"
+          />
+          <Text style={styles.metaLine}>
+            {farmerOptions.length === 0
+              ? "No onboarded farm with a mapped boundary is on this phone. Draw the farm plot, then connect once so it can be selected."
+              : selectedField
+                ? `This farm is ${formatApplicationAcres(selectedField.area_acres)}.`
+                : "Select the farmer, then the farm plot."}
+          </Text>
+          <Text style={styles.areaText}>
+            {entry.applicationBoundary.length >= 3
+              ? `Biochar applied on ${formatApplicationAcres(applicationAreaAcres(entry.applicationBoundary))}.`
+              : "Draw the part of the farm where biochar was applied."}
+          </Text>
+          {isEditable ? (
+            <PrimaryButton
+              title={entry.applicationBoundary.length >= 3 ? "Redraw applied area" : "Draw applied area"}
+              variant="outline"
+              onPress={() => {
+                if (!selectedField) {
+                  Alert.alert("Select a farm", "Choose the farmer and the farm plot first.");
+                  return;
+                }
+                void openMapPickerIfOnline(() => setPolygonVisible(true)).then((opened) => {
+                  if (!opened) {
+                    Alert.alert(
+                      "Offline",
+                      "Drawing the applied area needs an internet connection for the map.",
+                    );
+                  }
+                });
+              }}
+            />
+          ) : null}
         </View>
 
         <View style={styles.sectionCard}>
@@ -397,7 +523,9 @@ export default function ApplicationEntryScreen({ navigation, route }) {
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Media *</Text>
-          <Text style={styles.sectionHint}>Capture a photo or video of the application.</Text>
+          <Text style={styles.sectionHint}>
+            Take the photo inside this farm, within 100 m of the area where biochar was applied.
+          </Text>
 
           {entry.mediaType && mediaPreviewUri ? (
             <View style={styles.previewBox}>
@@ -524,6 +652,33 @@ export default function ApplicationEntryScreen({ navigation, route }) {
         )}
       </KeyboardSafeScroll>
 
+      <PolygonMapperModal
+        visible={polygonVisible}
+        title="Applied area"
+        hint="The dark outline is the farm. Tap inside it to mark where the biochar was applied."
+        initialLatitude={entry.locationLat}
+        initialLongitude={entry.locationLng}
+        initialPoints={entry.applicationBoundary}
+        farmOutline={selectedField?.boundary ?? []}
+        onClose={() => setPolygonVisible(false)}
+        onConfirm={(points) => {
+          setPolygonVisible(false);
+          if (!selectedField || !applicationPolygonInsideFarm(points, selectedField.boundary)) {
+            Alert.alert(
+              "Outside the farm",
+              "Draw the applied area inside the farm boundary shown on the map.",
+            );
+            return;
+          }
+          queueAutoSave({
+            applicationBoundary: points,
+            mediaType: null,
+            mediaLocalUri: null,
+            mediaMetadata: null,
+          });
+        }}
+      />
+
       <LocationPickerModal
         visible={mapVisible}
         initialLatitude={entry.locationLat}
@@ -576,8 +731,13 @@ const styles = StyleSheet.create({
   },
   metaLine: {
     fontFamily: fonts.regular,
-    fontSize: 13,
+    fontSize: typeScale.label,
     color: colors.textSecondary,
+  },
+  areaText: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.text,
   },
   saveHint: {
     fontFamily: fonts.medium,

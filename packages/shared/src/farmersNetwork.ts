@@ -564,6 +564,72 @@ export function soilSampleSitesForApi(sites: SoilSampleSite[]): SoilSampleSite[]
   }));
 }
 
+const EARTH_RADIUS_M = 6378137;
+
+/** Great-circle distance in metres. */
+export function distanceMeters(from: GeoPoint, to: GeoPoint): number {
+  const lat1 = toRad(from.latitude);
+  const lat2 = toRad(to.latitude);
+  const dLat = lat2 - lat1;
+  const dLng = toRad(to.longitude - from.longitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Local east/north metres of `point` relative to `origin`. Accurate over a few kilometres. */
+function projectMeters(origin: GeoPoint, point: GeoPoint): { x: number; y: number } {
+  const lat = toRad(origin.latitude);
+  return {
+    x: toRad(point.longitude - origin.longitude) * Math.cos(lat) * EARTH_RADIUS_M,
+    y: toRad(point.latitude - origin.latitude) * EARTH_RADIUS_M,
+  };
+}
+
+/** Shortest distance from a point to a line segment, in metres. */
+function distanceToSegmentMeters(point: GeoPoint, start: GeoPoint, end: GeoPoint): number {
+  const a = projectMeters(point, start);
+  const b = projectMeters(point, end);
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const len2 = abx * abx + aby * aby;
+  if (len2 === 0) return Math.hypot(a.x, a.y);
+  const t = Math.max(0, Math.min(1, (-a.x * abx + -a.y * aby) / len2));
+  return Math.hypot(a.x + t * abx, a.y + t * aby);
+}
+
+/**
+ * Metres from a point to a polygon.
+ * 0 when the point is inside. Otherwise the distance to the nearest edge.
+ * Returns null when the ring is not a polygon.
+ */
+export function distanceToPolygonMeters(point: GeoPoint, polygon: GeoPoint[]): number | null {
+  if (polygon.length < 3) return null;
+  if (isPointInPolygon(point, polygon)) return 0;
+  let best = Infinity;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const distance = distanceToSegmentMeters(point, polygon[i], polygon[(i + 1) % polygon.length]);
+    if (distance < best) best = distance;
+  }
+  return Number.isFinite(best) ? best : null;
+}
+
+/** Nearest mapped boundary. 0 when the point is inside any ring. */
+export function nearestBoundaryDistanceMeters(
+  point: GeoPoint,
+  boundaries: GeoPoint[][],
+): number | null {
+  let best: number | null = null;
+  for (const polygon of boundaries) {
+    const distance = distanceToPolygonMeters(point, polygon);
+    if (distance == null) continue;
+    if (distance === 0) return 0;
+    best = best == null ? distance : Math.min(best, distance);
+  }
+  return best;
+}
+
 /** Ray-casting test; points exactly on an edge may fall either way. */
 export function isPointInPolygon(point: GeoPoint, polygon: GeoPoint[]): boolean {
   if (polygon.length < 3) return false;

@@ -23,6 +23,11 @@ export class ApplicationEntriesController {
     return this.applicationEntriesService.listAvailablePyrolysisBatches(user);
   }
 
+  @Get('farms')
+  farms(@AuthUser() user: AuthenticatedUser) {
+    return this.applicationEntriesService.listApplicationFarms(user);
+  }
+
   @Get(':id')
   getOne(@AuthUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.applicationEntriesService.getEntry(user, id);

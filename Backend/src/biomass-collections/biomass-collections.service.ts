@@ -9,11 +9,18 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessWebPortal,
+  checkLoadedPhotoNearFarm,
+  describeFarmPhotoDistance,
+  nearestBoundaryDistanceMeters,
   type BiomassCollectionRecord,
+  type BiomassFarmOption,
   type CreateBiomassCollectionPayload,
+  type FieldPhotoMetadata,
+  type GeoPoint,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { MobileNetworkService } from '../mobile-network/mobile-network.service';
 
 const COLLECTION_SELECT = `
   id,
@@ -40,7 +47,15 @@ const COLLECTION_SELECT = `
 
 @Injectable()
 export class BiomassCollectionsService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly mobileNetwork: MobileNetworkService,
+  ) {}
+
+  async listMappedFarms(user: AuthenticatedUser): Promise<BiomassFarmOption[]> {
+    this.assertMobileAccess(user);
+    return this.mobileNetwork.listMappedFarms(user);
+  }
 
   async listCollections(user: AuthenticatedUser): Promise<BiomassCollectionRecord[]> {
     let query = this.supabase
@@ -55,7 +70,7 @@ export class BiomassCollectionsService {
 
     const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);
-    return (data ?? []).map((row) => this.mapRow(row));
+    return this.withFarmDistances((data ?? []).map((row) => this.mapRow(row)));
   }
 
   async getCollection(user: AuthenticatedUser, id: string): Promise<BiomassCollectionRecord> {
@@ -69,7 +84,9 @@ export class BiomassCollectionsService {
     const { data, error } = await query.maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Biomass collection not found.');
-    return this.mapRow(data);
+    const [record] = await this.withFarmDistances([this.mapRow(data)]);
+    if (!record) throw new NotFoundException('Biomass collection not found.');
+    return record;
   }
 
   async createCollection(
@@ -78,6 +95,7 @@ export class BiomassCollectionsService {
   ): Promise<BiomassCollectionRecord> {
     this.assertMobileAccess(user);
     this.validateCreatePayload(payload);
+    await this.assertLoadedPhotoNearFarm(user, payload);
 
     const { data, error } = await this.supabase
       .from('biomass_collections')
@@ -104,6 +122,57 @@ export class BiomassCollectionsService {
     }
 
     return this.getCollection(user, String(data.id));
+  }
+
+  private async assertLoadedPhotoNearFarm(
+    user: AuthenticatedUser,
+    payload: CreateBiomassCollectionPayload,
+  ) {
+    const farms = await this.mobileNetwork.listMappedFarms(user);
+    const farm = farms.find((item) => item.id === payload.farm_id);
+    if (!farm) {
+      throw new BadRequestException(
+        'Select an onboarded farm whose boundary has been mapped.',
+      );
+    }
+
+    const check = checkLoadedPhotoNearFarm({
+      farmName: payload.farm_name ?? farm.farmer_name,
+      boundaries: farm.boundaries,
+      latitude: payload.loaded_photo_metadata?.latitude,
+      longitude: payload.loaded_photo_metadata?.longitude,
+    });
+    if (!check.ok) throw new BadRequestException(check.message);
+  }
+
+  private async withFarmDistances(
+    records: BiomassCollectionRecord[],
+  ): Promise<BiomassCollectionRecord[]> {
+    const boundaries = await this.mobileNetwork.boundariesForFarms(
+      records.map((record) => record.farm_id ?? ''),
+    );
+
+    return records.map((record) => {
+      const rings = record.farm_id ? (boundaries.get(record.farm_id) ?? []) : [];
+      const point = this.photoPoint(record.loaded_photo_metadata);
+      const distanceM = point ? nearestBoundaryDistanceMeters(point, rings) : null;
+      const summary = describeFarmPhotoDistance(distanceM, {
+        hasBoundary: rings.length > 0,
+        hasGps: point != null,
+      });
+      return {
+        ...record,
+        farm_has_mapped_boundary: rings.length > 0,
+        loaded_distance_from_farm_m: summary.distanceM,
+      };
+    });
+  }
+
+  private photoPoint(metadata?: FieldPhotoMetadata | null): GeoPoint | null {
+    const latitude = Number(metadata?.latitude);
+    const longitude = Number(metadata?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    return { latitude, longitude };
   }
 
   private validateCreatePayload(payload: CreateBiomassCollectionPayload) {

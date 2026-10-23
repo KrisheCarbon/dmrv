@@ -12,6 +12,7 @@ import BiomassCollectionPanel from "./BiomassCollectionPanel";
 import { listBiomassCollections } from "./actions";
 import {
   biomassCollectionSearchIndex,
+  farmDistanceSummary,
   formatDateTime,
   type BiomassCollectionTableRow,
 } from "./biomassCollectionLib";
@@ -39,17 +40,23 @@ export default function BiomassCollectionPage() {
     try {
       const data = await listBiomassCollections();
       setRows(
-        data.map((record) => ({
-          id: record.id,
-          loaded: formatDateTime(record.loaded_at),
-          unloaded: formatDateTime(record.unloaded_at),
-          farm_name: record.farm_name ?? "—",
-          farm_id: record.farm_id,
-          producer_name: record.producer_name ?? "—",
-          tractor_number: record.tractor_number?.trim() || "—",
-          operator_name: record.operator_name ?? "Unknown",
-          search_index: biomassCollectionSearchIndex(record),
-        })),
+        data.map((record) => {
+          const distance = farmDistanceSummary(record);
+          return {
+            id: record.id,
+            loaded: formatDateTime(record.loaded_at),
+            unloaded: formatDateTime(record.unloaded_at),
+            farm_name: record.farm_name ?? "—",
+            farm_id: record.farm_id,
+            producer_name: record.producer_name ?? "—",
+            tractor_number: record.tractor_number?.trim() || "—",
+            operator_name: record.operator_name ?? "Unknown",
+            distance_label: distance.short,
+            distance_detail: distance.detail,
+            distance_outside: distance.outsideLimit,
+            search_index: biomassCollectionSearchIndex(record),
+          };
+        }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load biomass collections");
@@ -94,8 +101,9 @@ export default function BiomassCollectionPage() {
           Biomass collection
         </h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Tractor loads photographed at the farm and again when unloaded at the production
-          site. Select a row to see both photos and their metadata.
+          Tractor loads photographed at an onboarded farm, within 1 km of that farm&apos;s
+          boundary, and again when unloaded at the production site. The distance is measured
+          from the loaded photo&apos;s GPS to the nearest edge of the farm polygon.
         </p>
       </div>
 
@@ -153,6 +161,20 @@ export default function BiomassCollectionPage() {
           },
           { key: "producer_name", label: "Production site" },
           { key: "tractor_number", label: "Tractor" },
+          {
+            key: "distance_label",
+            label: "From farm",
+            render: (_value, row) => (
+              <span
+                className={
+                  row.distance_outside ? "font-medium text-status-error" : "text-neutral-950"
+                }
+                title={String(row.distance_detail ?? "")}
+              >
+                {row.distance_label}
+              </span>
+            ),
+          },
           { key: "unloaded", label: "Unloaded" },
           { key: "operator_name", label: "Operator" },
         ]}

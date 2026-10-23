@@ -1352,6 +1352,9 @@ export interface ApplicationEntry {
   status: string;
   farmId: string | null;
   farmName: string | null;
+  farmFieldId: string | null;
+  fieldCode: string | null;
+  applicationBoundaryJson: string | null;
   locationLat: number | null;
   locationLng: number | null;
   locationAddress: string | null;
@@ -1376,6 +1379,9 @@ interface ApplicationEntryRowRaw {
   status: string;
   farm_id: string | null;
   farm_name: string | null;
+  farm_field_id: string | null;
+  field_code: string | null;
+  application_boundary_json: string | null;
   location_lat: number | null;
   location_lng: number | null;
   location_address: string | null;
@@ -1401,6 +1407,9 @@ export function rowToApplicationEntry(row: ApplicationEntryRowRaw): ApplicationE
     status: row.status,
     farmId: row.farm_id,
     farmName: row.farm_name,
+    farmFieldId: row.farm_field_id,
+    fieldCode: row.field_code,
+    applicationBoundaryJson: row.application_boundary_json,
     locationLat: row.location_lat,
     locationLng: row.location_lng,
     locationAddress: row.location_address,
@@ -1428,6 +1437,9 @@ export function applicationEntryToRow(
     status: entry.status,
     farm_id: entry.farmId,
     farm_name: entry.farmName,
+    farm_field_id: entry.farmFieldId,
+    field_code: entry.fieldCode,
+    application_boundary_json: entry.applicationBoundaryJson,
     location_lat: entry.locationLat,
     location_lng: entry.locationLng,
     location_address: entry.locationAddress,

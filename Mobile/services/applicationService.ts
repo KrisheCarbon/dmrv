@@ -1,9 +1,11 @@
 import type {
   ApplicationEntryRecord,
+  ApplicationFarmerOption,
   ApplicationMediaType,
   AvailableApplicationPyrolysisBatch,
   CreateApplicationEntryPayload,
   FieldPhotoMetadata,
+  GeoPoint,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
@@ -19,8 +21,10 @@ import {
 import { backendFetch, fetchMobileNetworkOverview } from "./backendApi";
 import { uploadApplicationEntryMedia } from "../utils/applicationMediaUpload";
 import { getCurrentIST } from "./trustedtime";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const LOCAL_SYNC_STATUS = "local";
+const FARMERS_CACHE_KEY = "dmrv_application_farmers";
 
 export type ApplicationPyrolysisLinkView = {
   id: string;
@@ -39,6 +43,9 @@ export type ApplicationEntryView = {
   status: string;
   farmId: string | null;
   farmName: string | null;
+  farmFieldId: string | null;
+  fieldCode: string | null;
+  applicationBoundary: GeoPoint[];
   locationLat: number | null;
   locationLng: number | null;
   locationAddress: string | null;
@@ -67,6 +74,16 @@ function parseMetadata(json: string | null | undefined): FieldPhotoMetadata | nu
     return JSON.parse(json) as FieldPhotoMetadata;
   } catch {
     return null;
+  }
+}
+
+function parseBoundary(json: string | null | undefined): GeoPoint[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json) as GeoPoint[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 
@@ -122,6 +139,9 @@ export async function toApplicationEntryView(
     status: entry.status,
     farmId: entry.farmId,
     farmName: entry.farmName,
+    farmFieldId: entry.farmFieldId,
+    fieldCode: entry.fieldCode,
+    applicationBoundary: parseBoundary(entry.applicationBoundaryJson),
     locationLat: entry.locationLat,
     locationLng: entry.locationLng,
     locationAddress: entry.locationAddress,
@@ -173,6 +193,20 @@ export async function refreshApplicationReviewStatuses() {
   }
 }
 
+export async function loadApplicationFarmers(): Promise<ApplicationFarmerOption[]> {
+  try {
+    const farmers = await backendFetch<ApplicationFarmerOption[]>("/application-entries/farms");
+    const options = (farmers ?? []).filter((farmer) => farmer.fields?.length);
+    await AsyncStorage.setItem(FARMERS_CACHE_KEY, JSON.stringify(options));
+    return options;
+  } catch (err) {
+    const cached = await AsyncStorage.getItem(FARMERS_CACHE_KEY);
+    if (!cached) throw err;
+    const parsed = JSON.parse(cached) as ApplicationFarmerOption[];
+    return parsed.filter((farmer) => Array.isArray(farmer.fields) && farmer.fields.length > 0);
+  }
+}
+
 export async function createApplicationEntryLocal(operatorId: string): Promise<string> {
   const db = await getDb();
   const now = Date.now();
@@ -186,6 +220,9 @@ export async function createApplicationEntryLocal(operatorId: string): Promise<s
     status: "draft",
     farmId: null,
     farmName: null,
+    farmFieldId: null,
+    fieldCode: null,
+    applicationBoundaryJson: null,
     locationLat: null,
     locationLng: null,
     locationAddress: null,
@@ -211,6 +248,9 @@ export async function createApplicationEntryLocal(operatorId: string): Promise<s
 export type ApplicationEntryUpdate = {
   farmId?: string | null;
   farmName?: string | null;
+  farmFieldId?: string | null;
+  fieldCode?: string | null;
+  applicationBoundary?: GeoPoint[] | null;
   locationLat?: number | null;
   locationLng?: number | null;
   locationAddress?: string | null;
@@ -230,6 +270,13 @@ export async function updateApplicationEntryLocal(
 
   if (patch.farmId !== undefined) columns.farm_id = patch.farmId;
   if (patch.farmName !== undefined) columns.farm_name = patch.farmName;
+  if (patch.farmFieldId !== undefined) columns.farm_field_id = patch.farmFieldId;
+  if (patch.fieldCode !== undefined) columns.field_code = patch.fieldCode;
+  if (patch.applicationBoundary !== undefined) {
+    columns.application_boundary_json = patch.applicationBoundary?.length
+      ? JSON.stringify(patch.applicationBoundary)
+      : null;
+  }
   if (patch.locationLat !== undefined) columns.location_lat = patch.locationLat;
   if (patch.locationLng !== undefined) columns.location_lng = patch.locationLng;
   if (patch.locationAddress !== undefined) columns.location_address = patch.locationAddress;
@@ -285,7 +332,11 @@ export async function setApplicationPyrolysisLinks(
 export function validateApplicationEntry(view: ApplicationEntryView): string[] {
   const errors: string[] = [];
 
-  if (!view.farmId) errors.push("Select a farm.");
+  if (!view.farmId) errors.push("Select the farmer.");
+  if (!view.farmFieldId) errors.push("Select the farm plot.");
+  if (view.applicationBoundary.length < 3) {
+    errors.push("Draw where the biochar was applied on the farm.");
+  }
   if (view.pyrolysisLinks.length === 0) {
     errors.push("Link at least one pyrolysis batch.");
   }
@@ -418,6 +469,9 @@ export async function syncApplicationEntry(entry: ApplicationEntry) {
     applied_at: view.appliedAt,
     farm_id: view.farmId,
     farm_name: view.farmName,
+    farm_field_id: view.farmFieldId,
+    field_code: view.fieldCode,
+    application_boundary: view.applicationBoundary,
     location_lat: view.locationLat,
     location_lng: view.locationLng,
     location_address: view.locationAddress,

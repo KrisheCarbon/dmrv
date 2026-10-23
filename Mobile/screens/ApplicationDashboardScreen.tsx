@@ -8,7 +8,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { applicationMediaTypeLabel } from "@krishecarbon/shared";
+import { applicationAreaAcres, applicationMediaTypeLabel, formatApplicationAcres } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
@@ -24,7 +24,7 @@ import {
   retryFailedApplicationSyncs,
   subscribeSyncEvents,
 } from "../services/syncService";
-import { colors, fonts, spacing, radius } from "../constants/theme";
+import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 
 function EntryCard({
   entry,
@@ -73,6 +73,12 @@ function EntryCard({
         )}
       </View>
       <Text style={styles.cardMeta}>{entry.farmName || "Farm not set"}</Text>
+      {entry.applicationBoundary.length >= 3 ? (
+        <Text style={styles.cardAcres}>
+          Applied on {formatApplicationAcres(applicationAreaAcres(entry.applicationBoundary))}
+          {entry.fieldCode ? ` · ${entry.fieldCode}` : ""}
+        </Text>
+      ) : null}
       <Text style={styles.cardMeta}>
         {batchLabel}
         {entry.mediaType ? ` · ${applicationMediaTypeLabel(entry.mediaType)}` : ""}
@@ -295,8 +301,13 @@ const styles = StyleSheet.create({
   },
   cardMeta: {
     fontFamily: fonts.regular,
-    fontSize: 13,
+    fontSize: typeScale.label,
     color: colors.textSecondary,
+  },
+  cardAcres: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.text,
   },
   syncRow: {
     flexDirection: "row",

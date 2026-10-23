@@ -9,7 +9,7 @@ import {
 } from "@krishecarbon/shared";
 import ApplicationMediaThumb from "../application/ApplicationMediaThumb";
 import { getBiomassCollection } from "./actions";
-import { formatDateTime, mapsUrl, transitDuration } from "./biomassCollectionLib";
+import { farmDistanceSummary, formatDateTime, mapsUrl, transitDuration } from "./biomassCollectionLib";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -20,7 +20,15 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
-function PhotoMetadata({ metadata }: { metadata?: FieldPhotoMetadata | null }) {
+function PhotoMetadata({
+  metadata,
+  distanceDetail,
+  distanceOutside,
+}: {
+  metadata?: FieldPhotoMetadata | null;
+  distanceDetail?: string | null;
+  distanceOutside?: boolean;
+}) {
   if (!metadata) {
     return <p className="text-sm text-neutral-500">No metadata on this photo.</p>;
   }
@@ -40,6 +48,13 @@ function PhotoMetadata({ metadata }: { metadata?: FieldPhotoMetadata | null }) {
         {metadata.accuracy_m != null ? ` · ±${Math.round(metadata.accuracy_m)} m` : ""}
       </DetailRow>
       <DetailRow label="Address">{metadata.address?.trim() || "—"}</DetailRow>
+      {distanceDetail ? (
+        <DetailRow label="From farm">
+          <span className={distanceOutside ? "font-medium text-status-error" : undefined}>
+            {distanceDetail}
+          </span>
+        </DetailRow>
+      ) : null}
       <DetailRow label="Device time">{formatDateTime(metadata.device_time_iso)}</DetailRow>
     </dl>
   );
@@ -49,11 +64,15 @@ function PhotoSection({
   title,
   url,
   metadata,
+  distanceDetail,
+  distanceOutside,
   layout,
 }: {
   title: string;
   url: string;
   metadata?: FieldPhotoMetadata | null;
+  distanceDetail?: string | null;
+  distanceOutside?: boolean;
   layout: "drawer" | "page";
 }) {
   return (
@@ -61,12 +80,16 @@ function PhotoSection({
       <h3 className="border-b border-neutral-100 pb-3 text-sm font-semibold text-neutral-950">
         {title}
       </h3>
-      <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+      <p className="mt-3 rounded-xl bg-[var(--status-warning-bg)] px-3 py-2 text-xs font-medium text-status-warning">
         {BIOMASS_COLLECTION_TRACTOR_NOTICE}
       </p>
       <div className={layout === "page" ? "mt-3 grid gap-4 md:grid-cols-2" : "mt-3 space-y-3"}>
         <ApplicationMediaThumb url={url} mediaType="photo" label={title} size={layout} />
-        <PhotoMetadata metadata={metadata} />
+        <PhotoMetadata
+          metadata={metadata}
+          distanceDetail={distanceDetail}
+          distanceOutside={distanceOutside}
+        />
       </div>
     </section>
   );
@@ -133,6 +156,7 @@ export default function BiomassCollectionPanel({
 
   const layout = embedded && !fullPage ? "drawer" : "page";
   const duration = transitDuration(data);
+  const distance = farmDistanceSummary(data);
 
   return (
     <div className={embedded ? "flex h-full min-h-0 flex-col" : "space-y-4"}>
@@ -203,6 +227,11 @@ export default function BiomassCollectionPanel({
             </DetailRow>
             <DetailRow label="Production site">{data.producer_name ?? "—"}</DetailRow>
             <DetailRow label="Tractor number">{data.tractor_number?.trim() || "—"}</DetailRow>
+            <DetailRow label="From farm">
+              <span className={distance.outsideLimit ? "font-medium text-status-error" : undefined}>
+                {distance.detail}
+              </span>
+            </DetailRow>
             <DetailRow label="Operator">{data.operator_name ?? "—"}</DetailRow>
             <DetailRow label="Loaded">{formatDateTime(data.loaded_at)}</DetailRow>
             <DetailRow label="Unloaded">{formatDateTime(data.unloaded_at)}</DetailRow>
@@ -214,6 +243,8 @@ export default function BiomassCollectionPanel({
           title="Loaded at the farm"
           url={data.loaded_photo_url}
           metadata={data.loaded_photo_metadata}
+          distanceDetail={distance.detail}
+          distanceOutside={distance.outsideLimit}
           layout={layout}
         />
         <PhotoSection

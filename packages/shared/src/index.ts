@@ -601,7 +601,16 @@ export type {
 } from "./mixingEntryStatus";
 export {
   APPLICATION_MEDIA_TYPES,
+  APPLICATION_FARM_EDGE_TOLERANCE_M,
+  APPLICATION_PHOTO_NEAR_APPLIED_M,
   applicationMediaTypeLabel,
+  formatApplicationAcres,
+  applicationPolygonInsideFarm,
+  applicationBoundaryGeojson,
+  applicationBoundaryPoints,
+  applicationAreaAcres,
+  checkApplicationPhoto,
+  describeApplicationPhoto,
 } from "./application";
 export type {
   ApplicationMediaType,
@@ -610,6 +619,9 @@ export type {
   ApplicationEntryRecord,
   AvailableApplicationPyrolysisBatch,
   CreateApplicationEntryPayload,
+  ApplicationFarmFieldOption,
+  ApplicationFarmerOption,
+  ApplicationPhotoCheck,
 } from "./application";
 export {
   APPLICATION_ENTRY_REVIEW_STATUS_VALUES,
@@ -642,6 +654,9 @@ export {
   polygonAreaSquareMeters,
   polygonAreaAcres,
   polygonCentroid,
+  distanceMeters,
+  distanceToPolygonMeters,
+  nearestBoundaryDistanceMeters,
   roundAcres,
   farmAreaToleranceAcres,
   farmAreasAreNearby,
@@ -705,9 +720,15 @@ export type {
 export {
   BIOMASS_COLLECTION_TRACTOR_NOTICE,
   BIOMASS_COLLECTION_STATUSES,
+  BIOMASS_COLLECTION_MAX_DISTANCE_M,
+  describeFarmPhotoDistance,
+  checkLoadedPhotoNearFarm,
 } from "./biomassCollection";
 export type {
   BiomassCollectionStatus,
   BiomassCollectionRecord,
   CreateBiomassCollectionPayload,
+  BiomassFarmOption,
+  FarmPhotoDistance,
+  LoadedPhotoFarmCheck,
 } from "./biomassCollection";

@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
-import { BIOMASS_COLLECTION_TRACTOR_NOTICE } from "@krishecarbon/shared";
+import {
+  BIOMASS_COLLECTION_TRACTOR_NOTICE,
+  checkLoadedPhotoNearFarm,
+  describeFarmPhotoDistance,
+  nearestBoundaryDistanceMeters,
+} from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
 import FormPicker from "../components/FormPicker";
@@ -125,10 +130,33 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   async function capture(kind: "loaded" | "unloaded") {
+    if (kind === "loaded" && !collection?.farmId) {
+      Alert.alert(
+        "Select a farm",
+        "Choose the onboarded farm before taking the loaded photo.",
+      );
+      return;
+    }
+
     try {
       setCapturing(kind);
       const photo = await captureAndSaveFieldPhoto();
       if (!photo) return;
+
+      if (kind === "loaded") {
+        const farm = options.farms.find((item) => item.id === collection?.farmId);
+        const check = checkLoadedPhotoNearFarm({
+          farmName: farm?.farmer_name ?? collection?.farmName,
+          boundaries: farm?.boundaries ?? [],
+          latitude: photo.metadata.latitude,
+          longitude: photo.metadata.longitude,
+        });
+        if (check.ok === false) {
+          Alert.alert(check.title, check.message);
+          return;
+        }
+      }
+
       await save(
         kind === "loaded"
           ? { loadedPhotoLocalUri: photo.uri, loadedPhotoMetadata: photo.metadata }
@@ -146,6 +174,18 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   async function handleSaveLoaded() {
+    const farm = options.farms.find((item) => item.id === collection?.farmId);
+    const check = checkLoadedPhotoNearFarm({
+      farmName: farm?.farmer_name ?? collection?.farmName,
+      boundaries: farm?.boundaries ?? [],
+      latitude: collection?.loadedPhotoMetadata?.latitude,
+      longitude: collection?.loadedPhotoMetadata?.longitude,
+    });
+    if (check.ok === false) {
+      Alert.alert(check.title, check.message);
+      return;
+    }
+
     setBusy(true);
     try {
       if (tractorTimer.current) clearTimeout(tractorTimer.current);
@@ -195,6 +235,24 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   const submitted = collection.status === "submitted" || collection.status === "synced";
+  const selectedFarm = options.farms.find((farm) => farm.id === collection.farmId);
+  const loadedDistance = collection.loadedPhotoMetadata
+    ? describeFarmPhotoDistance(
+        selectedFarm
+          ? nearestBoundaryDistanceMeters(
+              {
+                latitude: collection.loadedPhotoMetadata.latitude,
+                longitude: collection.loadedPhotoMetadata.longitude,
+              },
+              selectedFarm.boundaries,
+            )
+          : null,
+        {
+          hasGps: Number.isFinite(collection.loadedPhotoMetadata.latitude),
+          hasBoundary: (selectedFarm?.boundaries.length ?? 0) > 0,
+        },
+      )
+    : null;
 
   return (
     <ScreenShell>
@@ -209,7 +267,7 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
           </View>
 
           <FormPicker
-            label="Farm the biomass is coming from *"
+            label="Onboarded farm *"
             value={collection.farmId ?? ""}
             options={farmOptions}
             searchable
@@ -217,9 +275,35 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
             enabled={loadingEditable}
             onValueChange={(farmId) => {
               const farm = options.farms.find((item) => item.id === farmId);
-              void save({ farmId: farmId || null, farmName: farm?.farmer_name ?? null });
+              const next = { farmId: farmId || null, farmName: farm?.farmer_name ?? null };
+              if (collection.loadedPhotoMetadata && farm) {
+                const check = checkLoadedPhotoNearFarm({
+                  farmName: farm.farmer_name,
+                  boundaries: farm.boundaries,
+                  latitude: collection.loadedPhotoMetadata.latitude,
+                  longitude: collection.loadedPhotoMetadata.longitude,
+                });
+                if (check.ok === false) {
+                  Alert.alert(
+                    check.title,
+                    `${check.message}\n\nThe loaded photo was cleared. Take it again at this farm.`,
+                  );
+                  void save({
+                    ...next,
+                    loadedPhotoLocalUri: null,
+                    loadedPhotoMetadata: null,
+                  });
+                  return;
+                }
+              }
+              void save(next);
             }}
           />
+          <Text style={styles.metaLine}>
+            {farmOptions.length === 0
+              ? "No onboarded farm with a mapped boundary is on this phone. Draw the farm plot, then connect once so it can be selected."
+              : "The loaded photo must be taken within 1 km of this farm's boundary."}
+          </Text>
 
           <FormInput
             label="Tractor number"
@@ -247,6 +331,20 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
                 : undefined
             }
           />
+          {loadedDistance ? (
+            <Text
+              style={
+                loadedDistance.outsideLimit
+                  ? styles.distanceOutside
+                  : loadedDistance.distanceM == null
+                    ? styles.distanceUnknown
+                    : styles.distanceInside
+              }
+            >
+              {loadedDistance.outsideLimit ? "⚠ " : loadedDistance.distanceM == null ? "" : "✓ "}
+              {loadedDistance.detail}
+            </Text>
+          ) : null}
 
           {loadingEditable ? (
             <PrimaryButton
@@ -415,6 +513,21 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: typeScale.label,
     color: colors.textSecondary,
+  },
+  distanceUnknown: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.text,
+  },
+  distanceInside: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.success,
+  },
+  distanceOutside: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.error,
   },
   errorText: {
     fontFamily: fonts.regular,

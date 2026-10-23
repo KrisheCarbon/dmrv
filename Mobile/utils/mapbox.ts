@@ -329,6 +329,8 @@ export function buildMapboxPolygonHtml({
   userLatitude,
   userLongitude,
   accuracy,
+  outline,
+  hint,
 }: {
   token: string;
   latitude: number;
@@ -337,6 +339,8 @@ export function buildMapboxPolygonHtml({
   userLatitude?: number | null;
   userLongitude?: number | null;
   accuracy?: number | null;
+  outline?: Array<{ latitude: number; longitude: number }>;
+  hint?: string;
 }) {
   const safeToken = token.replace(/'/g, "\\'");
   const lat = Number(latitude);
@@ -354,6 +358,16 @@ export function buildMapboxPolygonHtml({
       )
       .map((point) => [point.longitude, point.latitude]),
   );
+  const farmOutline = JSON.stringify(
+    (outline || [])
+      .filter(
+        (point) =>
+          Number.isFinite(point.latitude) && Number.isFinite(point.longitude),
+      )
+      .map((point) => [point.longitude, point.latitude]),
+  );
+  const hintText = (hint || "Tap the map to clip each field corner. Pan and pinch to move.")
+    .replace(/</g, "");
 
   return `<!DOCTYPE html>
 <html>
@@ -388,11 +402,12 @@ export function buildMapboxPolygonHtml({
   </head>
   <body>
     <div id="map"></div>
-    <div id="hint">Tap the map to clip each field corner. Pan and pinch to move.</div>
+    <div id="hint">${hintText}</div>
     <script>
       ${userLocationRuntime(userLatitude, userLongitude, accuracy)}
       mapboxgl.accessToken = '${safeToken}';
       var points = ${initial};
+      var farmOutline = ${farmOutline};
       var dragging = false;
 
       var map = new mapboxgl.Map({
@@ -477,6 +492,30 @@ export function buildMapboxPolygonHtml({
       });
 
       map.on('load', function () {
+        if (farmOutline.length >= 3) {
+          var farmRing = farmOutline.concat([farmOutline[0]]);
+          map.addSource('farm-outline', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: { type: 'Polygon', coordinates: [farmRing] }
+            }
+          });
+          map.addLayer({
+            id: 'farm-outline-fill',
+            type: 'fill',
+            source: 'farm-outline',
+            paint: { 'fill-color': '#1A3C2A', 'fill-opacity': 0.18 }
+          });
+          map.addLayer({
+            id: 'farm-outline-line',
+            type: 'line',
+            source: 'farm-outline',
+            paint: { 'line-color': '#1A3C2A', 'line-width': 3 }
+          });
+        }
+
         map.addSource('boundary', {
           type: 'geojson',
           data: toGeojson()
@@ -514,7 +553,12 @@ export function buildMapboxPolygonHtml({
           }
         });
 
-        if (!(isFinite(userLat) && isFinite(userLng)) && points.length >= 2) {
+        if (farmOutline.length >= 3) {
+          var bounds = new mapboxgl.LngLatBounds(farmOutline[0], farmOutline[0]);
+          farmOutline.forEach(function (pair) { bounds.extend(pair); });
+          points.forEach(function (pair) { bounds.extend(pair); });
+          map.fitBounds(bounds, { padding: 48, maxZoom: 18 });
+        } else if (!(isFinite(userLat) && isFinite(userLng)) && points.length >= 2) {
           var bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
           points.forEach(function (pair) { bounds.extend(pair); });
           map.fitBounds(bounds, { padding: 48, maxZoom: 18 });

@@ -8,11 +8,17 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
+import {
+  describeFarmPhotoDistance,
+  nearestBoundaryDistanceMeters,
+  type BiomassFarmOption,
+} from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import { getStoredAuthUser } from "../services/auth";
 import {
   createBiomassCollectionLocal,
   listBiomassCollections,
+  loadBiomassCollectionOptions,
   toBiomassCollectionView,
   type BiomassCollectionView,
 } from "../services/biomassCollectionService";
@@ -38,14 +44,34 @@ function syncLabel(item: BiomassCollectionView, syncing: boolean) {
   return "Waiting to sync";
 }
 
+function distanceLabel(item: BiomassCollectionView, farms: BiomassFarmOption[]) {
+  if (!item.loadedPhotoMetadata || farms.length === 0) return null;
+  const farm = farms.find((entry) => entry.id === item.farmId);
+  const distanceM = farm
+    ? nearestBoundaryDistanceMeters(
+        {
+          latitude: item.loadedPhotoMetadata.latitude,
+          longitude: item.loadedPhotoMetadata.longitude,
+        },
+        farm.boundaries,
+      )
+    : null;
+  return describeFarmPhotoDistance(distanceM, {
+    hasGps: Number.isFinite(item.loadedPhotoMetadata.latitude),
+    hasBoundary: (farm?.boundaries.length ?? 0) > 0,
+  });
+}
+
 function CollectionCard({
   item,
   syncing,
+  distance,
   onPress,
   onRetry,
 }: {
   item: BiomassCollectionView;
   syncing: boolean;
+  distance: ReturnType<typeof distanceLabel>;
   onPress: () => void;
   onRetry: () => void;
 }) {
@@ -62,6 +88,20 @@ function CollectionCard({
         {item.tractorNumber ? ` · ${item.tractorNumber}` : ""}
       </Text>
       <Text style={styles.cardMeta}>{startedAt.slice(0, 16).replace("T", " ")} IST</Text>
+      {distance ? (
+        <Text
+          style={
+            distance.outsideLimit
+              ? styles.cardDistanceFar
+              : distance.distanceM == null
+                ? styles.cardDistanceUnknown
+                : styles.cardDistance
+          }
+        >
+          {distance.outsideLimit ? "⚠ " : ""}
+          From farm: {distance.short}
+        </Text>
+      ) : null}
       <View style={styles.syncRow}>
         {syncing || item.uploadStatus === "syncing" ? (
           <ActivityIndicator size="small" color={colors.brunswick} />
@@ -94,6 +134,7 @@ function CollectionCard({
 
 export default function BiomassCollectionDashboardScreen({ navigation }) {
   const [items, setItems] = useState<BiomassCollectionView[]>([]);
+  const [farms, setFarms] = useState<BiomassFarmOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -104,6 +145,12 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
       if (!user) return;
       const rows = await listBiomassCollections(user.id);
       setItems(rows.map(toBiomassCollectionView));
+      try {
+        const options = await loadBiomassCollectionOptions();
+        setFarms(options.farms);
+      } catch {
+        setFarms([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -197,6 +244,7 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
             <CollectionCard
               item={item}
               syncing={syncingIds.has(item.id) || isBiomassCollectionSyncing(item.id)}
+              distance={distanceLabel(item, farms)}
               onPress={() =>
                 navigation.navigate("BiomassCollectionEntry", { collectionId: item.id })
               }
@@ -275,6 +323,21 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: typeScale.label,
     color: colors.textSecondary,
+  },
+  cardDistanceUnknown: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.text,
+  },
+  cardDistance: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.success,
+  },
+  cardDistanceFar: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.error,
   },
   syncRow: {
     flexDirection: "row",
