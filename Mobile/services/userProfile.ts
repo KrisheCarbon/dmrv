@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { formatRoleLabel, type UserRole } from "@krishecarbon/shared";
+import { contactEmail, formatRoleLabel, type UserRole } from "@krishecarbon/shared";
 import { supabase } from "./supabase";
 import { getStoredAuthUser } from "./auth";
 
@@ -41,7 +41,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   const fallbackName =
     user.user_metadata?.full_name?.trim() ||
     user.user_metadata?.name?.trim() ||
-    user.email?.split("@")[0] ||
+    contactEmail(user.email)?.split("@")[0] ||
     "User";
 
   const cached = await readCachedProfile(user.id);
@@ -65,7 +65,10 @@ export async function getUserProfile(): Promise<UserProfile | null> {
       full_name: profile?.full_name?.trim() || cached?.full_name || fallbackName,
       role,
       role_label: formatRoleLabel(role),
-      email: profile?.email ?? cached?.email ?? user.email ?? null,
+      email:
+        contactEmail(profile?.email) ??
+        contactEmail(cached?.email) ??
+        contactEmail(user.email),
       phone: profile?.phone ?? cached?.phone ?? null,
       collector_code: profile?.collector_code ?? cached?.collector_code ?? null,
     };
@@ -81,7 +84,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
       full_name: fallbackName,
       role,
       role_label: formatRoleLabel(role),
-      email: user.email ?? null,
+      email: contactEmail(user.email),
       phone: null,
     };
   }

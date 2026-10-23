@@ -93,8 +93,9 @@ export interface SignupCheckResult {
 }
 
 export interface CreateUserResult {
+  /** Empty when the account was created with a mobile number only. */
   email: string;
-  /** Missing for dMRV viewers added without a mobile number. */
+  /** Missing when the account was created with an email only. */
   phone?: string;
   signupUrl: string;
   emailSent: boolean;

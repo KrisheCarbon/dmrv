@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { contactEmail } from "./contact";
 
 interface UserCreatedModalProps {
   email: string;
@@ -21,9 +22,17 @@ export default function UserCreatedModal({
 }: UserCreatedModalProps) {
   const [copied, setCopied] = useState(false);
   const passwordReady = Boolean(password);
+  const inbox = contactEmail(email);
+  const signInWith =
+    inbox && phone
+      ? "email or mobile number"
+      : inbox
+        ? "their email"
+        : "their mobile number";
 
   async function copyLogin() {
-    const lines = [`Email: ${email}`];
+    const lines: string[] = [];
+    if (inbox) lines.push(`Email: ${inbox}`);
     if (phone) lines.push(`Mobile: ${phone}`);
     if (password) lines.push(`Password: ${password}`);
     const text = lines.join("\n");
@@ -44,14 +53,16 @@ export default function UserCreatedModal({
           <>
             <p className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-md px-3 py-2">
               No setup email was sent. Share these login details so they can
-              sign in with email or mobile number
+              sign in with {signInWith}
               {activated ? " now" : " after you mark them Active"}.
             </p>
             <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 space-y-1">
-              <p className="text-sm">
-                <span className="text-gray-500">Email:</span>{" "}
-                <span className="font-medium break-all">{email}</span>
-              </p>
+              {inbox ? (
+                <p className="text-sm">
+                  <span className="text-gray-500">Email:</span>{" "}
+                  <span className="font-medium break-all">{inbox}</span>
+                </p>
+              ) : null}
               {phone ? (
                 <p className="text-sm">
                   <span className="text-gray-500">Mobile:</span>{" "}

@@ -11,12 +11,13 @@ import { resendSignupEmail, sendPasswordReset } from "./actions";
 import { unwrapUserAction } from "./userActionResult";
 import type { UserProfile } from "@/types";
 import type { UserTableRow } from "@/types/entities";
+import { contactEmail } from "./contact";
 
 function mapUserRow(u: UserProfile & { full_name?: string | null }): UserTableRow {
   return {
     id: u.id,
     name: u.full_name ?? "",
-    email: u.email,
+    email: contactEmail(u.email) ?? "",
     phone: u.phone ?? "",
     role: formatRoleLabel(u.role),
     status:
@@ -112,9 +113,11 @@ export default function UsersPage() {
   }
 
   const filteredRows = rows.filter((r) => {
+    const query = search.toLowerCase();
     const matchesSearch =
-      r.name.toLowerCase().includes(search.toLowerCase()) ||
-      r.email.toLowerCase().includes(search.toLowerCase());
+      r.name.toLowerCase().includes(query) ||
+      r.email.toLowerCase().includes(query) ||
+      r.phone.toLowerCase().includes(query);
     const matchesStatus = !statusFilter || r.status === statusFilter;
     const matchesRole = !roleFilter || r.raw.role === roleFilter;
     return matchesSearch && matchesStatus && matchesRole;
@@ -142,9 +145,10 @@ export default function UsersPage() {
       <p className="text-sm text-gray-500">
         Web portal access is for <strong>admins</strong>,{" "}
         <strong>managers</strong>, and <strong>supervisors</strong> only.
-        Climapreneurs use the mobile app. Company and personal emails are both
-        allowed — for field users, set a password here instead of waiting on
-        invite email.
+        Climapreneurs use the mobile app. Each account needs an email or a
+        mobile number. If one is entered, the other is optional. Company and
+        personal emails are both allowed. For someone with no email, set a
+        password here so they can sign in with their mobile number.
         {actorRole && getUserManagementHint(actorRole) ? (
           <> {getUserManagementHint(actorRole)}</>
         ) : null}
@@ -152,7 +156,7 @@ export default function UsersPage() {
 
       <div className="flex flex-wrap gap-3 items-center">
         <input
-          placeholder="Search by name or email"
+          placeholder="Search by name, email, or phone"
           className="border px-3 py-2 rounded text-sm w-64"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -182,8 +186,16 @@ export default function UsersPage() {
         loading={loading}
         columns={[
           { key: "name", label: "Name" },
-          { key: "email", label: "Email" },
-          { key: "phone", label: "Phone" },
+          {
+            key: "email",
+            label: "Email",
+            render: (value) => (value ? String(value) : "—"),
+          },
+          {
+            key: "phone",
+            label: "Phone",
+            render: (value) => (value ? String(value) : "—"),
+          },
           { key: "role", label: "Role" },
           {
             key: "status",

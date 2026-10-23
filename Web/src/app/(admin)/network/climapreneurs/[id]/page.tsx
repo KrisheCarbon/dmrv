@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import EditBankAccountModal from "../EditBankAccountModal";
 import { getClimapreneur } from "../actions";
 import type { Climapreneur } from "@/types";
+import { contactEmail } from "@krishecarbon/shared";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -98,7 +99,9 @@ export default function ClimapreneurDetailsPage() {
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-950">
           {displayName}
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">{data.email}</p>
+        <p className="mt-1 text-sm text-neutral-500">
+          {contactEmail(data.email) || data.phone || "—"}
+        </p>
       </div>
 
       {error ? (
@@ -114,7 +117,7 @@ export default function ClimapreneurDetailsPage() {
 
         <dl className="px-6 py-2">
           <DetailRow label="Full name">{displayName}</DetailRow>
-          <DetailRow label="Email">{data.email}</DetailRow>
+          <DetailRow label="Email">{contactEmail(data.email) ?? "—"}</DetailRow>
           <DetailRow label="Phone">{data.phone || "—"}</DetailRow>
           <DetailRow label="Status">
             <span

@@ -15,6 +15,7 @@ import {
   type UserRole,
 } from "@/lib/roles";
 import type { ModalCallbacks, UserFormData, UserProfile } from "@/types";
+import { contactEmail } from "./contact";
 
 interface EditUserModalProps extends ModalCallbacks {
   data: UserProfile;
@@ -121,8 +122,15 @@ export default function EditUserModal({
     );
   }
 
+  const inbox = contactEmail(data.email);
+
   async function handleSubmit() {
     setError(null);
+
+    if (!inbox && !form.phone.trim()) {
+      setError("Enter a mobile number. This account has no email address.");
+      return;
+    }
 
     if (form.newPassword?.trim() && form.newPassword.trim().length < 8) {
       setError("New password must be at least 8 characters.");
@@ -178,7 +186,9 @@ export default function EditUserModal({
           <div className="bg-white w-full max-w-xl p-6 rounded space-y-4">
             <h2 className="text-lg font-semibold">Edit User</h2>
 
-            <p className="text-sm text-gray-500">{data.email}</p>
+            <p className="text-sm text-gray-500">
+              {inbox ?? "No email. They sign in with their mobile number."}
+            </p>
 
             <input
               placeholder="First name"
@@ -207,12 +217,19 @@ export default function EditUserModal({
               }
             />
 
-            <input
-              placeholder="Phone"
-              className="w-full border px-3 py-2 rounded"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
+            <div>
+              <input
+                placeholder={inbox ? "Phone (optional)" : "Phone *"}
+                className="w-full border px-3 py-2 rounded"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+              <p className="mt-1 text-sm text-gray-500">
+                {inbox
+                  ? "Optional, because this account already has an email."
+                  : "Required, because this account has no email."}
+              </p>
+            </div>
 
             <RoleSelect
               value={form.role}

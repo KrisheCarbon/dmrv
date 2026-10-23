@@ -6,7 +6,6 @@ import {
   assertCanEditUser,
   canManageUsers,
   isClimapreneurSupervisorSwap,
-  isDmrvViewer,
   isIndianMobileLogin,
   isUserRole,
   toLocalIndianMobile,
@@ -17,6 +16,7 @@ import { getServiceRoleKey, supabaseUrl } from "@/lib/env";
 import { sendPasswordResetEmail } from "@/lib/passwordReset";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import type { CreateUserResult, UserFormData } from "@/types";
+import { contactEmail, isPhoneLoginEmail, phoneLoginEmail } from "./contact";
 
 function createAdminClient() {
   return createClient(supabaseUrl, getServiceRoleKey());
@@ -81,10 +81,16 @@ function requirePhone(phone: string | undefined): string {
   return toLocalIndianMobile(value);
 }
 
-/** dMRV viewers only read the web portal, so their mobile number is optional. */
-function phoneForRole(role: string, phone: string | undefined): string | null {
-  if (isDmrvViewer(role) && !phone?.trim()) return null;
+/** Empty is allowed. A value must be a valid Indian mobile number. */
+function optionalPhone(phone: string | undefined): string | null {
+  if (!phone?.trim()) return null;
   return requirePhone(phone);
+}
+
+function requireContact(email: string | null, phone: string | null): void {
+  if (!email && !phone) {
+    throw new Error("Enter an email address or a mobile number.");
+  }
 }
 
 async function assertPhoneAvailable(phone: string | null, excludeId?: string) {
@@ -143,15 +149,30 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
   const actorRole = await getActorRole();
   assertCanAssignRole(actorRole, form.role);
 
-  const email = normalizeEmail(form.email);
-  if (!isValidEmail(email)) {
-    throw new Error("Enter a valid email address. Personal inboxes like Gmail are allowed.");
+  const rawEmail = form.email?.trim() ?? "";
+  let email: string | null = null;
+  if (rawEmail) {
+    email = normalizeEmail(rawEmail);
+    if (!isValidEmail(email) || isPhoneLoginEmail(email)) {
+      throw new Error(
+        "Enter a valid email address. Personal inboxes like Gmail are allowed.",
+      );
+    }
   }
 
-  const phone = phoneForRole(form.role, form.phone);
-  await assertPhoneAvailable(phone);
+  const phone = optionalPhone(form.phone);
+  requireContact(email, phone);
 
   const method = form.onboardingMethod === "password" ? "password" : "invite";
+  if (method === "invite" && !email) {
+    throw new Error(
+      "Sending a setup email needs an email address. Enter an email, or set a password instead.",
+    );
+  }
+
+  const loginEmail = email ?? phoneLoginEmail(phone!);
+  await assertPhoneAvailable(phone);
+
   const activateNow = method === "password" ? Boolean(form.activateNow) : false;
   const status = activateNow ? "active" : "pending_auth";
 
@@ -162,7 +183,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
       const password = requirePassword(form.password);
       const { data: authData, error: authError } =
         await admin().auth.admin.createUser({
-          email,
+          email: loginEmail,
           password,
           email_confirm: true,
           user_metadata: { role: form.role },
@@ -172,7 +193,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
       authUserId = authData.user.id;
     } else {
       const { data: authData, error: authError } =
-        await admin().auth.admin.inviteUserByEmail(email, {
+        await admin().auth.admin.inviteUserByEmail(loginEmail, {
           data: { role: form.role },
           redirectTo: getSignupRedirect(),
         });
@@ -183,7 +204,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
 
     const { error: dbError } = await admin().from("users").insert({
       id: authUserId,
-      email,
+      email: loginEmail,
       phone,
       role: form.role,
       first_name: form.first_name,
@@ -201,7 +222,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
   }
 
   return {
-    email,
+    email: email ?? "",
     phone: phone ?? undefined,
     signupUrl: `${getSiteUrl()}/signup`,
     emailSent: method === "invite",
@@ -210,19 +231,22 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
   };
 }
 
-async function resendSignupEmailOrThrow(id: string, email: string) {
+async function resendSignupEmailOrThrow(id: string, _email: string) {
   const actorRole = await getActorRole();
 
   const { data: target } = await admin()
     .from("users")
-    .select("role")
+    .select("role, email")
     .eq("id", id)
     .single();
 
   if (!target) throw new Error("User not found.");
   assertCanEditUser(actorRole, target.role);
 
-  const { error } = await admin().auth.admin.inviteUserByEmail(email, {
+  const inbox = contactEmail(target.email);
+  if (!inbox) throw new Error("This user has no email address.");
+
+  const { error } = await admin().auth.admin.inviteUserByEmail(inbox, {
     redirectTo: getSignupRedirect(),
   });
 
@@ -253,9 +277,14 @@ async function sendPasswordResetOrThrow(id: string) {
         : "This user is disabled. Re-enable them before sending a reset link.",
     );
   }
-  if (!target.email) throw new Error("This user has no email address.");
+  const inbox = contactEmail(target.email);
+  if (!inbox) {
+    throw new Error(
+      "This user has no email address. Set a password on their profile instead.",
+    );
+  }
 
-  const error = await sendPasswordResetEmail(target.email);
+  const error = await sendPasswordResetEmail(inbox);
   if (error) {
     throw new Error(
       error.status === 429
@@ -264,7 +293,7 @@ async function sendPasswordResetOrThrow(id: string) {
     );
   }
 
-  return { email: target.email as string };
+  return { email: inbox };
 }
 
 export interface RoleChangeNamedItem {
@@ -510,7 +539,7 @@ async function updateUserOrThrow(
 
   const { data: target } = await admin()
     .from("users")
-    .select("role")
+    .select("role, email")
     .eq("id", id)
     .single();
 
@@ -519,7 +548,12 @@ async function updateUserOrThrow(
   assertCanEditUser(actorRole, target.role);
   assertCanAssignRole(actorRole, form.role);
 
-  const phone = phoneForRole(form.role, form.phone);
+  const phone = optionalPhone(form.phone);
+  if (!phone && !contactEmail(target.email)) {
+    throw new Error(
+      "Enter a mobile number. This account has no email address.",
+    );
+  }
   await assertPhoneAvailable(phone, id);
 
   if (isClimapreneurSupervisorSwap(target.role, form.role)) {

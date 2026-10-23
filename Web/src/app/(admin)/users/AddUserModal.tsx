@@ -61,9 +61,23 @@ export default function AddUserModal({
   async function handleSubmit() {
     setError(null);
 
-    const phoneRequired = form.role !== "dmrv_viewer";
-    if (!form.first_name || !form.last_name || !form.email || (phoneRequired && !form.phone)) {
-      setError("Please fill all mandatory fields");
+    const hasEmail = Boolean(form.email.trim());
+    const hasPhone = Boolean(form.phone.trim());
+
+    if (!form.first_name.trim() || !form.last_name.trim()) {
+      setError("Enter a first and last name.");
+      return;
+    }
+
+    if (!hasEmail && !hasPhone) {
+      setError("Enter an email address or a mobile number.");
+      return;
+    }
+
+    if (form.onboardingMethod !== "password" && !hasEmail) {
+      setError(
+        "Sending a setup email needs an email address. Enter an email, or set a password instead.",
+      );
       return;
     }
 
@@ -144,25 +158,29 @@ export default function AddUserModal({
               }
             />
 
-            <div>
+            <div className="space-y-2">
+              <p className="text-sm text-gray-800">
+                Email or mobile number. At least one is required.
+              </p>
               <input
                 type="email"
-                placeholder="Email * (Gmail or any inbox)"
+                placeholder="Email"
                 className="w-full border px-3 py-2 rounded"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
-              <p className="mt-1 text-xs text-gray-500">
-                Company and personal emails are both allowed.
+              <input
+                placeholder="Phone"
+                className="w-full border px-3 py-2 rounded"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+              <p className="text-sm text-gray-500">
+                Company and personal emails are both allowed. If you enter one
+                of these, the other can be left blank. This applies to every
+                role.
               </p>
             </div>
-
-            <input
-              placeholder={form.role === "dmrv_viewer" ? "Phone (optional)" : "Phone *"}
-              className="w-full border px-3 py-2 rounded"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
 
             <RoleSelect
               value={form.role}
@@ -182,9 +200,9 @@ export default function AddUserModal({
                   }
                 />
                 <span>
-                  Set a password here — no email needed. They can sign in with
-                  email or their mobile number. Best for climapreneurs and
-                  personal inboxes.
+                  Set a password here. They sign in with whichever you entered:
+                  email, mobile number, or both. Use this when there is no
+                  email, and for climapreneurs and personal inboxes.
                 </span>
               </label>
               <label className="flex items-start gap-2 text-sm">

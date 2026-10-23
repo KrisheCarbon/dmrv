@@ -1,5 +1,11 @@
 export const KRISHECARBON_OTP_DOMAIN = "krishecarbon.com";
 
+/**
+ * Auth identities are email-based. A phone-only account gets an address on
+ * this domain so sign-in can look the mobile number up. It is not an inbox.
+ */
+export const PHONE_LOGIN_EMAIL_DOMAIN = "phone.krishecarbon.invalid";
+
 /** Digits in an email sign-in code. Must match Supabase Auth → Email OTP Length. */
 export const EMAIL_OTP_LENGTH = 6;
 
@@ -29,6 +35,24 @@ export function toLocalIndianMobile(
 
 export function isIndianMobileLogin(mobile: string | undefined | null): boolean {
   return /^[6-9]\d{9}$/.test(toLocalIndianMobile(mobile));
+}
+
+export function phoneLoginEmail(localPhone: string): string {
+  return `${toLocalIndianMobile(localPhone)}@${PHONE_LOGIN_EMAIL_DOMAIN}`;
+}
+
+export function isPhoneLoginEmail(email: string | undefined | null): boolean {
+  return String(email || "")
+    .trim()
+    .toLowerCase()
+    .endsWith(`@${PHONE_LOGIN_EMAIL_DOMAIN}`);
+}
+
+/** A real inbox, or null when the account signs in with a mobile number only. */
+export function contactEmail(email: string | undefined | null): string | null {
+  const value = String(email || "").trim();
+  if (!value || isPhoneLoginEmail(value)) return null;
+  return value;
 }
 
 export function isKrishecarbonEmail(email: string | undefined | null): boolean {

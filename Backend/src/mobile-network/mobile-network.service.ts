@@ -8,6 +8,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   canAccessMobileApp,
   canAccessNetwork,
+  contactEmail,
   type UserRole,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
@@ -335,7 +336,7 @@ export class MobileNetworkService {
           id: user.id,
           full_name: user.full_name?.trim() || 'Unnamed',
           role: user.role || 'climapreneur',
-          email: user.email ?? null,
+          email: contactEmail(user.email),
           phone: user.phone ?? null,
         };
       })
@@ -401,7 +402,7 @@ export class MobileNetworkService {
       id: row.id as string,
       full_name: (row.full_name as string | null)?.trim() || 'Unnamed',
       role: row.role as string,
-      email: (row.email as string | null) ?? null,
+      email: contactEmail(row.email as string | null),
       phone: (row.phone as string | null) ?? null,
     }));
   }
@@ -421,7 +422,7 @@ export class MobileNetworkService {
       id: row.id as string,
       full_name: (row.full_name as string | null)?.trim() || 'Unnamed',
       role: row.role as string,
-      email: (row.email as string | null) ?? null,
+      email: contactEmail(row.email as string | null),
       phone: (row.phone as string | null) ?? null,
     }));
   }

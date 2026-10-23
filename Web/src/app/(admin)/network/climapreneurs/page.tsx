@@ -6,6 +6,7 @@ import DataTable from "@/components/table/DataTable";
 import EditBankAccountModal from "./EditBankAccountModal";
 import { listClimapreneurs } from "./actions";
 import type { Climapreneur, ClimapreneurTableRow } from "@/types";
+import { contactEmail } from "@krishecarbon/shared";
 
 function formatStatus(status?: string | null) {
   if (status === "disabled") return "Disabled";
@@ -32,7 +33,7 @@ function mapClimapreneurRow(climapreneur: Climapreneur): ClimapreneurTableRow {
   return {
     id: climapreneur.id,
     name: climapreneur.full_name?.trim() || "Unnamed climapreneur",
-    email: climapreneur.email,
+    email: contactEmail(climapreneur.email) ?? "—",
     phone: climapreneur.phone ?? "—",
     status: formatStatus(climapreneur.status),
     bankDetails: formatBankDetails(climapreneur),

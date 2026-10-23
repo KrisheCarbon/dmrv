@@ -10,6 +10,7 @@ import {
   canAccessMobileApp,
   canAccessNetwork,
   canViewNetwork,
+  contactEmail,
   isDmrvViewer,
   withoutPeopleForDmrvViewer,
   type ClusterVillageInput,
@@ -641,7 +642,7 @@ export class ClustersService {
       id: row.id,
       full_name: row.full_name?.replace(/\s+/g, ' ').trim() || 'Unnamed',
       phone: row.phone ?? null,
-      email: row.email ?? null,
+      email: contactEmail(row.email),
       role: row.role ?? '',
     };
   }

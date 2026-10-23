@@ -7,7 +7,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { formatRoleLabel } from "@krishecarbon/shared";
+import { contactEmail, formatRoleLabel } from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import {
@@ -45,6 +45,7 @@ function EmptyRow({ message }: { message: string }) {
 }
 
 function PersonCard({ person }: { person: NetworkPerson }) {
+  const email = contactEmail(person.email);
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{person.full_name}</Text>
@@ -52,9 +53,7 @@ function PersonCard({ person }: { person: NetworkPerson }) {
       {person.phone ? (
         <Text style={styles.cardDetail}>{person.phone}</Text>
       ) : null}
-      {person.email ? (
-        <Text style={styles.cardDetail}>{person.email}</Text>
-      ) : null}
+      {email ? <Text style={styles.cardDetail}>{email}</Text> : null}
     </View>
   );
 }
