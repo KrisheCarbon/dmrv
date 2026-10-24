@@ -1,4 +1,5 @@
 import {
+  distanceMeters,
   nearestBoundaryDistanceMeters,
   type GeoPoint,
 } from "./farmersNetwork";
@@ -37,6 +38,10 @@ export interface BiomassCollectionRecord {
   operator_name?: string | null;
   farm_id?: string | null;
   farm_name?: string | null;
+  farm_field_id?: string | null;
+  field_code?: string | null;
+  /** Acres of the selected farm plot, from its mapped polygon. */
+  farm_area_acres?: number | null;
   producer_id?: string | null;
   producer_name?: string | null;
   tractor_number?: string | null;
@@ -58,6 +63,8 @@ export interface BiomassCollectionRecord {
 export interface CreateBiomassCollectionPayload {
   farm_id: string;
   farm_name?: string | null;
+  farm_field_id: string;
+  field_code?: string | null;
   producer_id: string;
   producer_name?: string | null;
   tractor_number?: string | null;
@@ -125,6 +132,40 @@ export function describeFarmPhotoDistance(
       ? `The photo was taken ${place} from the nearest edge of the farm. That is outside the 1 km limit.`
       : `The photo was taken ${place} from the nearest edge of the farm, within the 1 km limit.`,
     outsideLimit,
+    distanceM,
+  };
+}
+
+export interface BiomassTravelDistance {
+  short: string;
+  detail: string;
+  distanceM: number | null;
+}
+
+/** Straight-line distance from the loaded-photo GPS to the unloaded-photo GPS. */
+export function biomassTravelSummary(input: {
+  loaded?: FieldPhotoMetadata | null;
+  unloaded?: FieldPhotoMetadata | null;
+}): BiomassTravelDistance {
+  const fromLat = finiteCoord(input.loaded?.latitude);
+  const fromLng = finiteCoord(input.loaded?.longitude);
+  const toLat = finiteCoord(input.unloaded?.latitude);
+  const toLng = finiteCoord(input.unloaded?.longitude);
+  if (fromLat == null || fromLng == null || toLat == null || toLng == null) {
+    return {
+      short: "—",
+      detail: "Both photos need a GPS location before the distance travelled can be measured.",
+      distanceM: null,
+    };
+  }
+  const distanceM = distanceMeters(
+    { latitude: fromLat, longitude: fromLng },
+    { latitude: toLat, longitude: toLng },
+  );
+  const place = formatMetres(distanceM);
+  return {
+    short: place,
+    detail: `The tractor travelled ${place} in a straight line from the loaded photo to the unloaded photo.`,
     distanceM,
   };
 }

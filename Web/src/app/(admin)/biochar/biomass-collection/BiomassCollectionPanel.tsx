@@ -9,7 +9,14 @@ import {
 } from "@krishecarbon/shared";
 import ApplicationMediaThumb from "../application/ApplicationMediaThumb";
 import { getBiomassCollection } from "./actions";
-import { farmDistanceSummary, formatDateTime, mapsUrl, transitDuration } from "./biomassCollectionLib";
+import {
+  farmDistanceSummary,
+  formatApplicationAcres,
+  formatDateTime,
+  mapsUrl,
+  transitDuration,
+  travelSummary,
+} from "./biomassCollectionLib";
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -157,6 +164,7 @@ export default function BiomassCollectionPanel({
   const layout = embedded && !fullPage ? "drawer" : "page";
   const duration = transitDuration(data);
   const distance = farmDistanceSummary(data);
+  const travel = travelSummary(data);
 
   return (
     <div className={embedded ? "flex h-full min-h-0 flex-col" : "space-y-4"}>
@@ -213,7 +221,7 @@ export default function BiomassCollectionPanel({
       >
         <section className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
           <dl>
-            <DetailRow label="Farm">
+            <DetailRow label="Farmer">
               {data.farm_id && data.farm_name ? (
                 <Link
                   href={`/network/farmers/${data.farm_id}`}
@@ -225,12 +233,23 @@ export default function BiomassCollectionPanel({
                 data.farm_name ?? "—"
               )}
             </DetailRow>
+            <DetailRow label="Plot">{data.field_code ?? "—"}</DetailRow>
+            <DetailRow label="Farm area">{formatApplicationAcres(data.farm_area_acres)}</DetailRow>
             <DetailRow label="Production site">{data.producer_name ?? "—"}</DetailRow>
             <DetailRow label="Tractor number">{data.tractor_number?.trim() || "—"}</DetailRow>
             <DetailRow label="From farm">
               <span className={distance.outsideLimit ? "font-medium text-status-error" : undefined}>
                 {distance.detail}
               </span>
+            </DetailRow>
+            <DetailRow label="Travelled">
+              <span title={travel.detail}>{travel.detail}</span>
+            </DetailRow>
+            <DetailRow label="Loaded address">
+              {data.loaded_photo_metadata?.address?.trim() || "—"}
+            </DetailRow>
+            <DetailRow label="Unloaded address">
+              {data.unloaded_photo_metadata?.address?.trim() || "—"}
             </DetailRow>
             <DetailRow label="Operator">{data.operator_name ?? "—"}</DetailRow>
             <DetailRow label="Loaded">{formatDateTime(data.loaded_at)}</DetailRow>

@@ -10,8 +10,9 @@ import {
 } from "react-native";
 import {
   describeFarmPhotoDistance,
+  formatApplicationAcres,
   nearestBoundaryDistanceMeters,
-  type BiomassFarmOption,
+  type ApplicationFarmerOption,
 } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import { getStoredAuthUser } from "../services/auth";
@@ -44,21 +45,31 @@ function syncLabel(item: BiomassCollectionView, syncing: boolean) {
   return "Waiting to sync";
 }
 
-function distanceLabel(item: BiomassCollectionView, farms: BiomassFarmOption[]) {
-  if (!item.loadedPhotoMetadata || farms.length === 0) return null;
-  const farm = farms.find((entry) => entry.id === item.farmId);
-  const distanceM = farm
-    ? nearestBoundaryDistanceMeters(
-        {
-          latitude: item.loadedPhotoMetadata.latitude,
-          longitude: item.loadedPhotoMetadata.longitude,
-        },
-        farm.boundaries,
-      )
-    : null;
+function ringsFor(item: BiomassCollectionView, farmers: ApplicationFarmerOption[]) {
+  const farmer = farmers.find((entry) => entry.id === item.farmId);
+  if (!farmer) return [];
+  const plot = farmer.fields.find((field) => field.id === item.farmFieldId);
+  if (plot) return [plot.boundary];
+  if (item.farmFieldId) return [];
+  return farmer.fields.map((field) => field.boundary);
+}
+
+function distanceLabel(item: BiomassCollectionView, farmers: ApplicationFarmerOption[]) {
+  if (!item.loadedPhotoMetadata || farmers.length === 0) return null;
+  const rings = ringsFor(item, farmers);
+  const distanceM =
+    rings.length > 0
+      ? nearestBoundaryDistanceMeters(
+          {
+            latitude: item.loadedPhotoMetadata.latitude,
+            longitude: item.loadedPhotoMetadata.longitude,
+          },
+          rings,
+        )
+      : null;
   return describeFarmPhotoDistance(distanceM, {
     hasGps: Number.isFinite(item.loadedPhotoMetadata.latitude),
-    hasBoundary: (farm?.boundaries.length ?? 0) > 0,
+    hasBoundary: rings.some((ring) => ring.length >= 3),
   });
 }
 
@@ -66,12 +77,14 @@ function CollectionCard({
   item,
   syncing,
   distance,
+  plotLabel,
   onPress,
   onRetry,
 }: {
   item: BiomassCollectionView;
   syncing: boolean;
   distance: ReturnType<typeof distanceLabel>;
+  plotLabel: string | null;
   onPress: () => void;
   onRetry: () => void;
 }) {
@@ -87,6 +100,7 @@ function CollectionCard({
         To {item.producerName || "production site not set"}
         {item.tractorNumber ? ` · ${item.tractorNumber}` : ""}
       </Text>
+      {plotLabel ? <Text style={styles.cardDistanceUnknown}>{plotLabel}</Text> : null}
       <Text style={styles.cardMeta}>{startedAt.slice(0, 16).replace("T", " ")} IST</Text>
       {distance ? (
         <Text
@@ -134,7 +148,7 @@ function CollectionCard({
 
 export default function BiomassCollectionDashboardScreen({ navigation }) {
   const [items, setItems] = useState<BiomassCollectionView[]>([]);
-  const [farms, setFarms] = useState<BiomassFarmOption[]>([]);
+  const [farmers, setFarmers] = useState<ApplicationFarmerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -147,9 +161,9 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
       setItems(rows.map(toBiomassCollectionView));
       try {
         const options = await loadBiomassCollectionOptions();
-        setFarms(options.farms);
+        setFarmers(options.farmers);
       } catch {
-        setFarms([]);
+        setFarmers([]);
       }
     } finally {
       setLoading(false);
@@ -235,8 +249,9 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No biomass trips yet</Text>
               <Text style={styles.emptyText}>
-                Tap + when a tractor is loaded at a farm. Photograph the load, then the
-                unloading at the production site.
+                Tap + when a tractor is loaded at a farm. Select the farmer and the farm plot,
+                photograph the load within 1 km of that plot, then the unloading at the
+                production site.
               </Text>
             </View>
           }
@@ -244,7 +259,15 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
             <CollectionCard
               item={item}
               syncing={syncingIds.has(item.id) || isBiomassCollectionSyncing(item.id)}
-              distance={distanceLabel(item, farms)}
+              distance={distanceLabel(item, farmers)}
+              plotLabel={(() => {
+                const farmer = farmers.find((entry) => entry.id === item.farmId);
+                const plot = farmer?.fields.find((field) => field.id === item.farmFieldId) ?? null;
+                if (!plot && !item.fieldCode) return null;
+                const acres = plot ? formatApplicationAcres(plot.area_acres) : null;
+                const code = plot?.field_code ?? item.fieldCode;
+                return [acres ? `Farm ${acres}` : null, code].filter(Boolean).join(" · ");
+              })()}
               onPress={() =>
                 navigation.navigate("BiomassCollectionEntry", { collectionId: item.id })
               }

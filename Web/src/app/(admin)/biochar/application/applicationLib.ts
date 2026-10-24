@@ -4,6 +4,7 @@ import type {
   ApplicationPyrolysisLinkRecord,
 } from "@krishecarbon/shared";
 import {
+  APPLICATION_PHOTO_NEAR_APPLIED_M,
   applicationEntryReviewStatusLabel,
   applicationMediaTypeLabel,
   describeApplicationPhoto,
@@ -31,6 +32,8 @@ export interface ApplicationEntryTableRow extends DbRow {
   farm_acres: string;
   applied_acres: string;
   photo_place: string;
+  photo_detail: string;
+  photo_outside: boolean;
   media: string;
   operator_name: string;
   pyrolysis_links: ApplicationPyrolysisLinkRecord[];
@@ -76,6 +79,12 @@ export function formatLinkedBatchLabel(link: {
 
 export function formatMediaType(entry: Pick<ApplicationEntryRecord, "media_type">) {
   return applicationMediaTypeLabel(entry.media_type);
+}
+
+export function applicationPhotoOutside(entry: ApplicationEntryRecord) {
+  if (entry.photo_inside_farm === false) return true;
+  const distance = entry.photo_distance_from_applied_m;
+  return distance != null && Number.isFinite(distance) && distance > APPLICATION_PHOTO_NEAR_APPLIED_M;
 }
 
 export function applicationPlaceSummary(entry: ApplicationEntryRecord) {

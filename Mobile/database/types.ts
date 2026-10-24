@@ -1966,6 +1966,8 @@ export interface BiomassCollection {
   status: string;
   farmId: string | null;
   farmName: string | null;
+  farmFieldId: string | null;
+  fieldCode: string | null;
   producerId: string | null;
   producerName: string | null;
   tractorNumber: string | null;
@@ -1989,6 +1991,8 @@ interface BiomassCollectionRowRaw {
   status: string;
   farm_id: string | null;
   farm_name: string | null;
+  farm_field_id: string | null;
+  field_code: string | null;
   producer_id: string | null;
   producer_name: string | null;
   tractor_number: string | null;
@@ -2013,6 +2017,8 @@ export function rowToBiomassCollection(row: BiomassCollectionRowRaw): BiomassCol
     status: row.status,
     farmId: row.farm_id,
     farmName: row.farm_name,
+    farmFieldId: row.farm_field_id,
+    fieldCode: row.field_code,
     producerId: row.producer_id,
     producerName: row.producer_name,
     tractorNumber: row.tractor_number,

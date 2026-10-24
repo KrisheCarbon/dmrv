@@ -12,8 +12,10 @@ import {
   checkLoadedPhotoNearFarm,
   describeFarmPhotoDistance,
   nearestBoundaryDistanceMeters,
+  parseBoundaryGeojson,
+  polygonAreaAcres,
+  type ApplicationFarmerOption,
   type BiomassCollectionRecord,
-  type BiomassFarmOption,
   type CreateBiomassCollectionPayload,
   type FieldPhotoMetadata,
   type GeoPoint,
@@ -27,6 +29,8 @@ const COLLECTION_SELECT = `
   operator_id,
   farm_id,
   farm_name,
+  farm_field_id,
+  field_code,
   producer_id,
   producer_name,
   tractor_number,
@@ -52,9 +56,9 @@ export class BiomassCollectionsService {
     private readonly mobileNetwork: MobileNetworkService,
   ) {}
 
-  async listMappedFarms(user: AuthenticatedUser): Promise<BiomassFarmOption[]> {
+  async listMappedFarms(user: AuthenticatedUser): Promise<ApplicationFarmerOption[]> {
     this.assertMobileAccess(user);
-    return this.mobileNetwork.listMappedFarms(user);
+    return this.mobileNetwork.listApplicationFarms(user);
   }
 
   async listCollections(user: AuthenticatedUser): Promise<BiomassCollectionRecord[]> {
@@ -103,6 +107,8 @@ export class BiomassCollectionsService {
         operator_id: user.id,
         farm_id: payload.farm_id,
         farm_name: payload.farm_name ?? null,
+        farm_field_id: payload.farm_field_id,
+        field_code: payload.field_code?.trim() || null,
         producer_id: payload.producer_id,
         producer_name: payload.producer_name ?? null,
         tractor_number: payload.tractor_number?.trim() || null,
@@ -128,17 +134,16 @@ export class BiomassCollectionsService {
     user: AuthenticatedUser,
     payload: CreateBiomassCollectionPayload,
   ) {
-    const farms = await this.mobileNetwork.listMappedFarms(user);
-    const farm = farms.find((item) => item.id === payload.farm_id);
-    if (!farm) {
-      throw new BadRequestException(
-        'Select an onboarded farm whose boundary has been mapped.',
-      );
+    const farmers = await this.mobileNetwork.listApplicationFarms(user);
+    const farmer = farmers.find((item) => item.id === payload.farm_id);
+    const field = farmer?.fields.find((item) => item.id === payload.farm_field_id);
+    if (!farmer || !field) {
+      throw new BadRequestException('Select the farmer and the farm plot.');
     }
 
     const check = checkLoadedPhotoNearFarm({
-      farmName: payload.farm_name ?? farm.farmer_name,
-      boundaries: farm.boundaries,
+      farmName: `${payload.farm_name ?? farmer.farmer_name} (${field.field_code})`,
+      boundaries: [field.boundary],
       latitude: payload.loaded_photo_metadata?.latitude,
       longitude: payload.loaded_photo_metadata?.longitude,
     });
@@ -148,12 +153,37 @@ export class BiomassCollectionsService {
   private async withFarmDistances(
     records: BiomassCollectionRecord[],
   ): Promise<BiomassCollectionRecord[]> {
-    const boundaries = await this.mobileNetwork.boundariesForFarms(
-      records.map((record) => record.farm_id ?? ''),
-    );
+    const fieldIds = [
+      ...new Set(
+        records.map((record) => record.farm_field_id).filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const plots = new Map<string, { ring: GeoPoint[]; acres: number }>();
+
+    for (let offset = 0; offset < fieldIds.length; offset += 80) {
+      const chunk = fieldIds.slice(offset, offset + 80);
+      const { data, error } = await this.supabase
+        .from('farm_fields')
+        .select('id, boundary_geojson')
+        .in('id', chunk);
+      if (error) throw new BadRequestException(error.message);
+      for (const row of data ?? []) {
+        const ring = parseBoundaryGeojson(
+          row.boundary_geojson as string | Record<string, unknown> | null,
+        );
+        if (ring.length < 3) continue;
+        plots.set(String(row.id), { ring, acres: polygonAreaAcres(ring) });
+      }
+    }
+
+    const fallbackIds = records
+      .filter((record) => !record.farm_field_id && record.farm_id)
+      .map((record) => record.farm_id as string);
+    const fallback = await this.mobileNetwork.boundariesForFarms(fallbackIds);
 
     return records.map((record) => {
-      const rings = record.farm_id ? (boundaries.get(record.farm_id) ?? []) : [];
+      const plot = record.farm_field_id ? plots.get(record.farm_field_id) : undefined;
+      const rings = plot ? [plot.ring] : record.farm_id ? (fallback.get(record.farm_id) ?? []) : [];
       const point = this.photoPoint(record.loaded_photo_metadata);
       const distanceM = point ? nearestBoundaryDistanceMeters(point, rings) : null;
       const summary = describeFarmPhotoDistance(distanceM, {
@@ -163,6 +193,7 @@ export class BiomassCollectionsService {
       return {
         ...record,
         farm_has_mapped_boundary: rings.length > 0,
+        farm_area_acres: plot?.acres ?? null,
         loaded_distance_from_farm_m: summary.distanceM,
       };
     });
@@ -176,8 +207,8 @@ export class BiomassCollectionsService {
   }
 
   private validateCreatePayload(payload: CreateBiomassCollectionPayload) {
-    if (!payload.farm_id) {
-      throw new BadRequestException('Select the farm the biomass came from.');
+    if (!payload.farm_id || !payload.farm_field_id) {
+      throw new BadRequestException('Select the farmer and the farm plot.');
     }
     if (!payload.producer_id) {
       throw new BadRequestException('Select the production site where it was unloaded.');
@@ -199,6 +230,8 @@ export class BiomassCollectionsService {
       operator_name: operator?.full_name?.trim() || null,
       farm_id: (row.farm_id as string) ?? null,
       farm_name: (row.farm_name as string) ?? null,
+      farm_field_id: (row.farm_field_id as string) ?? null,
+      field_code: (row.field_code as string) ?? null,
       producer_id: (row.producer_id as string) ?? null,
       producer_name: (row.producer_name as string) ?? null,
       tractor_number: (row.tractor_number as string) ?? null,

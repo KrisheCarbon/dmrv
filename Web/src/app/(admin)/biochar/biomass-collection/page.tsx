@@ -13,7 +13,10 @@ import { listBiomassCollections } from "./actions";
 import {
   biomassCollectionSearchIndex,
   farmDistanceSummary,
+  formatApplicationAcres,
   formatDateTime,
+  transitDuration,
+  travelSummary,
   type BiomassCollectionTableRow,
 } from "./biomassCollectionLib";
 
@@ -42,18 +45,24 @@ export default function BiomassCollectionPage() {
       setRows(
         data.map((record) => {
           const distance = farmDistanceSummary(record);
+          const travel = travelSummary(record);
           return {
             id: record.id,
             loaded: formatDateTime(record.loaded_at),
             unloaded: formatDateTime(record.unloaded_at),
             farm_name: record.farm_name ?? "—",
             farm_id: record.farm_id,
+            field_code: record.field_code ?? "—",
+            farm_acres: formatApplicationAcres(record.farm_area_acres),
             producer_name: record.producer_name ?? "—",
             tractor_number: record.tractor_number?.trim() || "—",
             operator_name: record.operator_name ?? "Unknown",
             distance_label: distance.short,
             distance_detail: distance.detail,
             distance_outside: distance.outsideLimit,
+            travel_label: travel.short,
+            travel_detail: travel.detail,
+            transit: transitDuration(record) ?? "—",
             search_index: biomassCollectionSearchIndex(record),
           };
         }),
@@ -101,9 +110,10 @@ export default function BiomassCollectionPage() {
           Biomass collection
         </h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Tractor loads photographed at an onboarded farm, within 1 km of that farm&apos;s
-          boundary, and again when unloaded at the production site. The distance is measured
-          from the loaded photo&apos;s GPS to the nearest edge of the farm polygon.
+          Tractor loads photographed at a chosen farm plot, within 1 km of that plot&apos;s
+          boundary, and again when unloaded at the production site. Farm acres come from the
+          mapped plot. From farm is the loaded photo&apos;s GPS to the nearest edge of that plot.
+          Travelled is the straight line from the loaded photo to the unloaded photo.
         </p>
       </div>
 
@@ -120,7 +130,7 @@ export default function BiomassCollectionPage() {
         onAddSearchFilter={addSearchFilter}
         onRemoveSearchFilter={removeSearchFilter}
         onClearSearchFilters={clearSearchFilters}
-        searchPlaceholder="Search farm, site, tractor number, operator, address…"
+        searchPlaceholder="Search farmer, plot, site, tractor number, operator…"
         filteredCount={filteredRows.length}
         totalCount={rows.length}
         filters={[
@@ -145,7 +155,7 @@ export default function BiomassCollectionPage() {
           { key: "loaded", label: "Loaded" },
           {
             key: "farm_name",
-            label: "Farm",
+            label: "Farmer",
             render: (_value, row) =>
               row.farm_id && row.farm_name !== "—" ? (
                 <Link
@@ -159,6 +169,8 @@ export default function BiomassCollectionPage() {
                 row.farm_name
               ),
           },
+          { key: "field_code", label: "Plot" },
+          { key: "farm_acres", label: "Farm acres" },
           { key: "producer_name", label: "Production site" },
           { key: "tractor_number", label: "Tractor" },
           {
@@ -175,6 +187,16 @@ export default function BiomassCollectionPage() {
               </span>
             ),
           },
+          {
+            key: "travel_label",
+            label: "Travelled",
+            render: (_value, row) => (
+              <span className="text-neutral-950" title={String(row.travel_detail ?? "")}>
+                {row.travel_label}
+              </span>
+            ),
+          },
+          { key: "transit", label: "Transit" },
           { key: "unloaded", label: "Unloaded" },
           { key: "operator_name", label: "Operator" },
         ]}

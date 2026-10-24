@@ -722,6 +722,7 @@ export {
   BIOMASS_COLLECTION_STATUSES,
   BIOMASS_COLLECTION_MAX_DISTANCE_M,
   describeFarmPhotoDistance,
+  biomassTravelSummary,
   checkLoadedPhotoNearFarm,
 } from "./biomassCollection";
 export type {
@@ -730,5 +731,6 @@ export type {
   CreateBiomassCollectionPayload,
   BiomassFarmOption,
   FarmPhotoDistance,
+  BiomassTravelDistance,
   LoadedPhotoFarmCheck,
 } from "./biomassCollection";

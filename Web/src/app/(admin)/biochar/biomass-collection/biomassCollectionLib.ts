@@ -1,7 +1,13 @@
 import type { BiomassCollectionRecord, FieldPhotoMetadata } from "@krishecarbon/shared";
-import { describeFarmPhotoDistance } from "@krishecarbon/shared";
+import {
+  biomassTravelSummary,
+  describeFarmPhotoDistance,
+  formatApplicationAcres,
+} from "@krishecarbon/shared";
 import type { DbRow } from "@/types/entities";
 import { buildSearchIndex, photoMetadataSearchParts } from "@/lib/searchIndex";
+
+export { formatApplicationAcres };
 
 export interface BiomassCollectionTableRow extends DbRow {
   id: string;
@@ -9,12 +15,17 @@ export interface BiomassCollectionTableRow extends DbRow {
   unloaded: string;
   farm_name: string;
   farm_id?: string | null;
+  field_code: string;
+  farm_acres: string;
   producer_name: string;
   tractor_number: string;
   operator_name: string;
   distance_label: string;
   distance_detail: string;
   distance_outside: boolean;
+  travel_label: string;
+  travel_detail: string;
+  transit: string;
   search_index: string;
 }
 
@@ -39,6 +50,13 @@ export function mapsUrl(metadata: FieldPhotoMetadata) {
   return `https://www.google.com/maps?q=${metadata.latitude},${metadata.longitude}`;
 }
 
+export function travelSummary(record: BiomassCollectionRecord) {
+  return biomassTravelSummary({
+    loaded: record.loaded_photo_metadata,
+    unloaded: record.unloaded_photo_metadata,
+  });
+}
+
 export function farmDistanceSummary(record: BiomassCollectionRecord) {
   const latitude = record.loaded_photo_metadata?.latitude;
   const longitude = record.loaded_photo_metadata?.longitude;
@@ -52,6 +70,8 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
   return buildSearchIndex(
     record.id,
     record.farm_name,
+    record.field_code,
+    formatApplicationAcres(record.farm_area_acres),
     record.producer_name,
     record.tractor_number,
     record.operator_name,
@@ -63,5 +83,8 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
     photoMetadataSearchParts(record.unloaded_photo_metadata),
     farmDistanceSummary(record).short,
     farmDistanceSummary(record).detail,
+    travelSummary(record).short,
+    travelSummary(record).detail,
+    transitDuration(record),
   );
 }

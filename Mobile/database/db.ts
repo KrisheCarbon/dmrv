@@ -164,7 +164,8 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "application_entries", "location_address", "TEXT");
   await addColumnIfMissing(db, "application_entries", "farm_field_id", "TEXT");
   await addColumnIfMissing(db, "application_entries", "field_code", "TEXT");
-  await addColumnIfMissing(db, "application_entries", "application_boundary_json", "TEXT");
+  await addColumnIfMissing(db, "biomass_collections", "farm_field_id", "TEXT");
+  await addColumnIfMissing(db, "biomass_collections", "field_code", "TEXT");
 
   // Farmers Network profile fields (v3) — safe on devices that already have farmers.
   await addColumnIfMissing(db, "farmers", "farmer_code", "TEXT");

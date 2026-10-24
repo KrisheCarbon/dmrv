@@ -386,6 +386,8 @@ export const SCHEMA_STATEMENTS: string[] = [
     status TEXT NOT NULL,
     farm_id TEXT,
     farm_name TEXT,
+    farm_field_id TEXT,
+    field_code TEXT,
     producer_id TEXT,
     producer_name TEXT,
     tractor_number TEXT,

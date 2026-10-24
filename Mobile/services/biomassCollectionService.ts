@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
+  ApplicationFarmerOption,
   BiomassCollectionRecord,
-  BiomassFarmOption,
   CreateBiomassCollectionPayload,
   FieldPhotoMetadata,
 } from "@krishecarbon/shared";
@@ -19,7 +19,7 @@ import {
 } from "./backendApi";
 import { uploadBiomassCollectionPhoto } from "../utils/biomassCollectionPhotoUpload";
 
-const OPTIONS_CACHE_KEY = "dmrv_biomass_collection_options";
+const OPTIONS_CACHE_KEY = "dmrv_biomass_collection_options_v2";
 
 export type BiomassCollectionView = {
   id: string;
@@ -28,6 +28,8 @@ export type BiomassCollectionView = {
   status: "draft" | "loaded" | "submitted" | "synced" | string;
   farmId: string | null;
   farmName: string | null;
+  farmFieldId: string | null;
+  fieldCode: string | null;
   producerId: string | null;
   producerName: string | null;
   tractorNumber: string | null;
@@ -45,7 +47,7 @@ export type BiomassCollectionView = {
 };
 
 export type BiomassCollectionOptions = {
-  farms: BiomassFarmOption[];
+  farmers: ApplicationFarmerOption[];
   producers: NetworkProducer[];
 };
 
@@ -66,6 +68,8 @@ export function toBiomassCollectionView(row: BiomassCollection): BiomassCollecti
     status: row.status,
     farmId: row.farmId,
     farmName: row.farmName,
+    farmFieldId: row.farmFieldId,
+    fieldCode: row.fieldCode,
     producerId: row.producerId,
     producerName: row.producerName,
     tractorNumber: row.tractorNumber,
@@ -88,25 +92,27 @@ async function triggerBackgroundSync() {
   void processSyncQueue();
 }
 
-function normalizeFarm(farm: Partial<BiomassFarmOption> & { id?: string }): BiomassFarmOption {
+function normalizeFarmer(farmer: Partial<ApplicationFarmerOption> & { id?: string }): ApplicationFarmerOption {
   return {
-    id: farm.id ?? "",
-    farmer_name: farm.farmer_name ?? "Unnamed farm",
-    village: farm.village ?? null,
-    cluster_name: farm.cluster_name ?? null,
-    boundaries: Array.isArray(farm.boundaries) ? farm.boundaries : [],
+    id: farmer.id ?? "",
+    farmer_name: farmer.farmer_name ?? "Unnamed farmer",
+    village: farmer.village ?? null,
+    cluster_name: farmer.cluster_name ?? null,
+    fields: Array.isArray(farmer.fields)
+      ? farmer.fields.filter((field) => Array.isArray(field.boundary) && field.boundary.length >= 3)
+      : [],
   };
 }
 
-/** Farms with a mapped boundary, and production sites, cached so a trip can be recorded offline. */
+/** Farmers with a mapped plot, and production sites, cached so a trip can be recorded offline. */
 export async function loadBiomassCollectionOptions(): Promise<BiomassCollectionOptions> {
   try {
-    const [overview, farms] = await Promise.all([
+    const [overview, farmers] = await Promise.all([
       fetchMobileNetworkOverview(),
-      backendFetch<BiomassFarmOption[]>("/biomass-collections/farms"),
+      backendFetch<ApplicationFarmerOption[]>("/biomass-collections/farms"),
     ]);
     const options = {
-      farms: (farms ?? []).map(normalizeFarm).filter((farm) => farm.boundaries.length > 0),
+      farmers: (farmers ?? []).map(normalizeFarmer).filter((farmer) => farmer.fields.length > 0),
       producers: overview.producers ?? [],
     };
     await AsyncStorage.setItem(OPTIONS_CACHE_KEY, JSON.stringify(options));
@@ -116,7 +122,7 @@ export async function loadBiomassCollectionOptions(): Promise<BiomassCollectionO
     if (cached) {
       const parsed = JSON.parse(cached) as BiomassCollectionOptions;
       return {
-        farms: (parsed.farms ?? []).map(normalizeFarm).filter((farm) => farm.boundaries.length > 0),
+        farmers: (parsed.farmers ?? []).map(normalizeFarmer).filter((farmer) => farmer.fields.length > 0),
         producers: parsed.producers ?? [],
       };
     }
@@ -151,6 +157,8 @@ export async function createBiomassCollectionLocal(operatorId: string): Promise<
     status: "draft",
     farm_id: null,
     farm_name: null,
+    farm_field_id: null,
+    field_code: null,
     producer_id: null,
     producer_name: null,
     tractor_number: null,
@@ -173,6 +181,8 @@ export async function createBiomassCollectionLocal(operatorId: string): Promise<
 export type BiomassCollectionUpdate = {
   farmId?: string | null;
   farmName?: string | null;
+  farmFieldId?: string | null;
+  fieldCode?: string | null;
   producerId?: string | null;
   producerName?: string | null;
   tractorNumber?: string | null;
@@ -188,6 +198,8 @@ export async function updateBiomassCollectionLocal(id: string, patch: BiomassCol
 
   if (patch.farmId !== undefined) columns.farm_id = patch.farmId;
   if (patch.farmName !== undefined) columns.farm_name = patch.farmName;
+  if (patch.farmFieldId !== undefined) columns.farm_field_id = patch.farmFieldId;
+  if (patch.fieldCode !== undefined) columns.field_code = patch.fieldCode;
   if (patch.producerId !== undefined) columns.producer_id = patch.producerId;
   if (patch.producerName !== undefined) columns.producer_name = patch.producerName;
   if (patch.tractorNumber !== undefined) columns.tractor_number = patch.tractorNumber;
@@ -217,7 +229,8 @@ export async function updateBiomassCollectionLocal(id: string, patch: BiomassCol
 
 export function validateLoadedStep(view: BiomassCollectionView): string[] {
   const errors: string[] = [];
-  if (!view.farmId) errors.push("Select the farm the biomass is coming from.");
+  if (!view.farmId) errors.push("Select the farmer.");
+  if (!view.farmFieldId) errors.push("Select the farm plot.");
   if (!view.loadedPhotoLocalUri && !view.loadedPhotoUrl) {
     errors.push("Take the photo of the loaded tractor.");
   }
@@ -290,8 +303,8 @@ export async function syncBiomassCollection(row: BiomassCollection) {
   const db = await getDb();
   const view = toBiomassCollectionView(row);
 
-  if (!view.farmId || !view.producerId) {
-    throw new Error("Farm and production site are required before sync.");
+  if (!view.farmId || !view.farmFieldId || !view.producerId) {
+    throw new Error("Farmer, farm plot, and production site are required before sync.");
   }
   if (!view.loadedPhotoMetadata || !view.unloadedPhotoMetadata) {
     throw new Error("Both photos need their time and GPS before sync.");
@@ -322,6 +335,8 @@ export async function syncBiomassCollection(row: BiomassCollection) {
   const payload: CreateBiomassCollectionPayload = {
     farm_id: view.farmId,
     farm_name: view.farmName,
+    farm_field_id: view.farmFieldId,
+    field_code: view.fieldCode,
     producer_id: view.producerId,
     producer_name: view.producerName,
     tractor_number: view.tractorNumber,

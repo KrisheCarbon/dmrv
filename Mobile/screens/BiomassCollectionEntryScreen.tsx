@@ -4,6 +4,7 @@ import {
   BIOMASS_COLLECTION_TRACTOR_NOTICE,
   checkLoadedPhotoNearFarm,
   describeFarmPhotoDistance,
+  formatApplicationAcres,
   nearestBoundaryDistanceMeters,
 } from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
@@ -48,20 +49,20 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState<"loaded" | "unloaded" | null>(null);
   const [collection, setCollection] = useState<BiomassCollectionView | null>(null);
-  const [options, setOptions] = useState<BiomassCollectionOptions>({ farms: [], producers: [] });
+  const [options, setOptions] = useState<BiomassCollectionOptions>({ farmers: [], producers: [] });
   const [tractorNumber, setTractorNumber] = useState("");
 
   const loadingEditable = collection?.status === "draft";
   const unloadingEditable = collection?.status === "loaded";
 
-  const farmOptions = useMemo(
+  const farmerOptions = useMemo(
     () =>
-      options.farms.map((farm) => ({
-        value: farm.id,
-        label: farm.farmer_name,
-        hint: [farm.village, farm.cluster_name].filter(Boolean).join(" · "),
+      options.farmers.map((farmer) => ({
+        value: farmer.id,
+        label: farmer.farmer_name,
+        hint: [farmer.village, farmer.cluster_name].filter(Boolean).join(" · "),
       })),
-    [options.farms],
+    [options.farmers],
   );
 
   const producerOptions = useMemo(
@@ -130,10 +131,10 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   async function capture(kind: "loaded" | "unloaded") {
-    if (kind === "loaded" && !collection?.farmId) {
+    if (kind === "loaded" && (!collection?.farmId || !collection?.farmFieldId)) {
       Alert.alert(
         "Select a farm",
-        "Choose the onboarded farm before taking the loaded photo.",
+        "Choose the farmer and the farm plot before taking the loaded photo.",
       );
       return;
     }
@@ -144,10 +145,13 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
       if (!photo) return;
 
       if (kind === "loaded") {
-        const farm = options.farms.find((item) => item.id === collection?.farmId);
+        const farmer = options.farmers.find((item) => item.id === collection?.farmId);
+        const field = farmer?.fields.find((item) => item.id === collection?.farmFieldId);
         const check = checkLoadedPhotoNearFarm({
-          farmName: farm?.farmer_name ?? collection?.farmName,
-          boundaries: farm?.boundaries ?? [],
+          farmName: field
+            ? `${farmer?.farmer_name ?? collection?.farmName} (${field.field_code})`
+            : collection?.farmName,
+          boundaries: field ? [field.boundary] : [],
           latitude: photo.metadata.latitude,
           longitude: photo.metadata.longitude,
         });
@@ -174,10 +178,13 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   async function handleSaveLoaded() {
-    const farm = options.farms.find((item) => item.id === collection?.farmId);
+    const farmer = options.farmers.find((item) => item.id === collection?.farmId);
+    const field = farmer?.fields.find((item) => item.id === collection?.farmFieldId);
     const check = checkLoadedPhotoNearFarm({
-      farmName: farm?.farmer_name ?? collection?.farmName,
-      boundaries: farm?.boundaries ?? [],
+      farmName: field
+        ? `${farmer?.farmer_name ?? collection?.farmName} (${field.field_code})`
+        : collection?.farmName,
+      boundaries: field ? [field.boundary] : [],
       latitude: collection?.loadedPhotoMetadata?.latitude,
       longitude: collection?.loadedPhotoMetadata?.longitude,
     });
@@ -235,24 +242,31 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   const submitted = collection.status === "submitted" || collection.status === "synced";
-  const selectedFarm = options.farms.find((farm) => farm.id === collection.farmId);
+  const selectedFarmer = options.farmers.find((farmer) => farmer.id === collection.farmId) ?? null;
+  const selectedField =
+    selectedFarmer?.fields.find((field) => field.id === collection.farmFieldId) ?? null;
   const loadedDistance = collection.loadedPhotoMetadata
     ? describeFarmPhotoDistance(
-        selectedFarm
+        selectedField
           ? nearestBoundaryDistanceMeters(
               {
                 latitude: collection.loadedPhotoMetadata.latitude,
                 longitude: collection.loadedPhotoMetadata.longitude,
               },
-              selectedFarm.boundaries,
+              [selectedField.boundary],
             )
           : null,
         {
           hasGps: Number.isFinite(collection.loadedPhotoMetadata.latitude),
-          hasBoundary: (selectedFarm?.boundaries.length ?? 0) > 0,
+          hasBoundary: (selectedField?.boundary.length ?? 0) >= 3,
         },
       )
     : null;
+  const fieldOptions = (selectedFarmer?.fields ?? []).map((field) => ({
+    value: field.id,
+    label: field.field_code,
+    hint: formatApplicationAcres(field.area_acres),
+  }));
 
   return (
     <ScreenShell>
@@ -267,19 +281,41 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
           </View>
 
           <FormPicker
-            label="Onboarded farm *"
+            label="Farmer *"
             value={collection.farmId ?? ""}
-            options={farmOptions}
+            options={farmerOptions}
             searchable
             searchPlaceholder="Search farmer or village"
             enabled={loadingEditable}
-            onValueChange={(farmId) => {
-              const farm = options.farms.find((item) => item.id === farmId);
-              const next = { farmId: farmId || null, farmName: farm?.farmer_name ?? null };
-              if (collection.loadedPhotoMetadata && farm) {
+            onValueChange={(farmerId) => {
+              const farmer = options.farmers.find((item) => item.id === farmerId);
+              void save({
+                farmId: farmerId || null,
+                farmName: farmer?.farmer_name ?? null,
+                farmFieldId: null,
+                fieldCode: null,
+                loadedPhotoLocalUri: null,
+                loadedPhotoMetadata: null,
+              });
+            }}
+          />
+          <FormPicker
+            label="Farm plot *"
+            value={collection.farmFieldId ?? ""}
+            options={fieldOptions}
+            searchable
+            searchPlaceholder="Search farm plot"
+            enabled={loadingEditable && Boolean(selectedFarmer)}
+            onValueChange={(fieldId) => {
+              const field = selectedFarmer?.fields.find((item) => item.id === fieldId);
+              const next = {
+                farmFieldId: fieldId || null,
+                fieldCode: field?.field_code ?? null,
+              };
+              if (collection.loadedPhotoMetadata && field) {
                 const check = checkLoadedPhotoNearFarm({
-                  farmName: farm.farmer_name,
-                  boundaries: farm.boundaries,
+                  farmName: `${selectedFarmer?.farmer_name ?? collection.farmName} (${field.field_code})`,
+                  boundaries: [field.boundary],
                   latitude: collection.loadedPhotoMetadata.latitude,
                   longitude: collection.loadedPhotoMetadata.longitude,
                 });
@@ -300,9 +336,11 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
             }}
           />
           <Text style={styles.metaLine}>
-            {farmOptions.length === 0
+            {farmerOptions.length === 0
               ? "No onboarded farm with a mapped boundary is on this phone. Draw the farm plot, then connect once so it can be selected."
-              : "The loaded photo must be taken within 1 km of this farm's boundary."}
+              : selectedField
+                ? `This farm is ${formatApplicationAcres(selectedField.area_acres)}. The loaded photo must be within 1 km of its boundary.`
+                : "Select the farmer, then the farm plot."}
           </Text>
 
           <FormInput
