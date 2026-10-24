@@ -49,6 +49,7 @@ import {
 } from "@krishecarbon/shared";
 import { unwrapQuery } from "@/lib/queryResult";
 import { createSignedStorageUrl } from "@/lib/privateStorage";
+import CircularLoader from "@/components/CircularLoader";
 
 const TABS = [
   { key: "info", label: "Farmer info" },
@@ -205,6 +206,9 @@ export default function FarmerDetailPage() {
   const [soilTests, setSoilTests] = useState<SoilTestRecord[]>([]);
   const [consents, setConsents] = useState<FarmerConsentRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fieldsLoaded, setFieldsLoaded] = useState(false);
+  const [soilLoaded, setSoilLoaded] = useState(false);
+  const [consentsLoaded, setConsentsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [selected, setSelected] = useState<SoilTestRecord | null>(null);
@@ -227,37 +231,73 @@ export default function FarmerDetailPage() {
     points?: GeoPoint[];
   } | null>(null);
 
-  const loadFarmer = useCallback(async () => {
+  const loadProfile = useCallback(async (initial = false) => {
     if (!id) return;
-    setLoading(true);
-    setError(null);
+    if (initial) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const farm = unwrapQuery(await getFarm(id), "Failed to load farmer");
       setData(farm);
-      const [fieldResult, soilResult, consentResult] = await Promise.all([
-        listFarmFields(id),
-        listSoilTests(id),
-        listFarmerConsents(id),
-      ]);
-      setFields(fieldResult.data ?? []);
-      setSoilTests(soilResult.data ?? []);
-      setConsents(consentResult.data ?? []);
-      const extraErrors = [fieldResult, soilResult, consentResult]
-        .map((result) => result.error)
-        .filter((message): message is string => Boolean(message));
-      if (extraErrors.length) {
-        setError(extraErrors.join(" · "));
-      }
     } catch (err) {
       setError(errorMessage(err, "Failed to load farmer"));
       setData(null);
+    } finally {
+      if (initial) setLoading(false);
     }
-    setLoading(false);
   }, [id]);
 
+  const loadFields = useCallback(async () => {
+    if (!id) return;
+    const result = await listFarmFields(id);
+    setFields(result.data ?? []);
+    setFieldsLoaded(true);
+    if (result.error) setError(result.error);
+  }, [id]);
+
+  const loadSoil = useCallback(async () => {
+    if (!id) return;
+    const result = await listSoilTests(id);
+    setSoilTests(result.data ?? []);
+    setSoilLoaded(true);
+    if (result.error) setError(result.error);
+  }, [id]);
+
+  const loadConsents = useCallback(async () => {
+    if (!id) return;
+    const result = await listFarmerConsents(id);
+    setConsents(result.data ?? []);
+    setConsentsLoaded(true);
+    if (result.error) setError(result.error);
+  }, [id]);
+
+  /** Reloads the farmer, plus any section already opened, after a save. */
+  const loadFarmer = useCallback(async () => {
+    await loadProfile(false);
+    const jobs: Promise<void>[] = [];
+    if (fieldsLoaded) jobs.push(loadFields());
+    if (soilLoaded) jobs.push(loadSoil());
+    if (consentsLoaded) jobs.push(loadConsents());
+    await Promise.all(jobs);
+  }, [loadProfile, loadFields, loadSoil, loadConsents, fieldsLoaded, soilLoaded, consentsLoaded]);
+
   useEffect(() => {
-    loadFarmer();
-  }, [loadFarmer]);
+    setData(null);
+    setFields([]);
+    setSoilTests([]);
+    setConsents([]);
+    setFieldsLoaded(false);
+    setSoilLoaded(false);
+    setConsentsLoaded(false);
+    void loadProfile(true);
+  }, [id, loadProfile]);
+
+  useEffect(() => {
+    if ((tab === "farms" || tab === "samples") && !fieldsLoaded) void loadFields();
+    if ((tab === "samples" || tab === "reports") && !soilLoaded) void loadSoil();
+    if (tab === "consent" && !consentsLoaded) void loadConsents();
+  }, [tab, fieldsLoaded, soilLoaded, consentsLoaded, loadFields, loadSoil, loadConsents]);
 
   async function handleDelete() {
     if (!data?.id) return;
@@ -341,8 +381,8 @@ export default function FarmerDetailPage() {
     }
   }
 
-  if (loading) {
-    return <p className="text-sm text-neutral-500">Loading...</p>;
+  if (loading && !data) {
+    return <CircularLoader label="Loading farmer" />;
   }
 
   if (error && !data) {
@@ -438,7 +478,7 @@ export default function FarmerDetailPage() {
               {[data.village, data.mandal, data.district, data.state]
                 .filter(Boolean)
                 .join(", ") || data.address || "No location recorded"}
-              {readOnly ? null : (
+              {readOnly || !consentsLoaded ? null : (
                 <>
                   {" · "}
                   {consentExpiryLabel(latestConsent)}
@@ -447,7 +487,8 @@ export default function FarmerDetailPage() {
             </p>
           </div>
         </div>
-        <div className={readOnly ? "hidden" : "mt-3"}>
+        {readOnly || !(fieldsLoaded && soilLoaded && consentsLoaded) ? null : (
+        <div className="mt-3">
           <FarmerChecklist
             hasCompleteProfile={checklist.hasCompleteProfile}
             hasFarms={checklist.hasFarms}
@@ -456,6 +497,7 @@ export default function FarmerDetailPage() {
             hasConsent={checklist.hasConsent}
           />
         </div>
+        )}
       </div>
 
       {error ? (
@@ -617,6 +659,10 @@ export default function FarmerDetailPage() {
             </button>
             )}
           </div>
+          {!fieldsLoaded ? (
+            <CircularLoader label="Loading farms" />
+          ) : (
+          <>
           {gpsPoint(data.latitude, data.longitude) ? (
             <div className="border-b border-neutral-100 px-6 py-4">
               <p className="text-sm font-medium text-neutral-900">Meeting location</p>
@@ -764,6 +810,8 @@ export default function FarmerDetailPage() {
               })
             )}
           </div>
+          </>
+          )}
         </section>
       ) : null}
 
@@ -787,6 +835,10 @@ export default function FarmerDetailPage() {
             </button>
             )}
           </div>
+          {!soilLoaded || !fieldsLoaded ? (
+            <CircularLoader label="Loading soil samples" />
+          ) : (
+          <>
           <div className="space-y-3 border-b border-neutral-100 px-6 py-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
@@ -1033,6 +1085,8 @@ export default function FarmerDetailPage() {
               </div>
             )}
           </div>
+          </>
+          )}
         </section>
       ) : null}
 
@@ -1044,6 +1098,10 @@ export default function FarmerDetailPage() {
               Lab PDFs uploaded after a sample is accepted.
             </p>
           </div>
+          {!soilLoaded ? (
+            <CircularLoader label="Loading reports" />
+          ) : (
+          <>
           <div className="px-6 py-4">
             {reports.length === 0 ? (
               <p className="text-sm text-neutral-500">No lab reports uploaded yet.</p>
@@ -1076,6 +1134,8 @@ export default function FarmerDetailPage() {
               </div>
             )}
           </div>
+          </>
+          )}
         </section>
       ) : null}
 
@@ -1095,6 +1155,10 @@ export default function FarmerDetailPage() {
             </button>
             )}
           </div>
+          {!consentsLoaded ? (
+            <CircularLoader label="Loading consent" />
+          ) : (
+          <>
           <div className="px-6 py-4">
             {consents.length === 0 ? (
               <p className="text-sm text-neutral-500">No farmer consent recorded.</p>
@@ -1128,6 +1192,8 @@ export default function FarmerDetailPage() {
               </div>
             )}
           </div>
+          </>
+          )}
         </section>
       ) : null}
 

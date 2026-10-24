@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PAGE_SIZE_OPTIONS } from "@krishecarbon/shared";
 import type { DataTableColumn } from "@/types";
 import type { DbRow } from "@/types/entities";
+import CircularLoader from "@/components/CircularLoader";
 import RowsPerPageMenu, { Chevron } from "./RowsPerPageMenu";
 import ColumnHeader from "./ColumnHeader";
 
@@ -258,8 +259,8 @@ export default function DataTable<T extends DbRow = DbRow>({
             <tbody className="divide-y divide-neutral-100">
               {loading ? (
                 <tr>
-                  <td colSpan={colSpan} className="px-4 py-10 text-center text-sm text-text-secondary">
-                    Loading…
+                  <td colSpan={colSpan}>
+                    <CircularLoader />
                   </td>
                 </tr>
               ) : visibleRows.length === 0 ? (

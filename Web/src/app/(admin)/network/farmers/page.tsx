@@ -8,42 +8,20 @@ import DataTable, {
   type DataTableQuery,
 } from "@/components/table/DataTable";
 import { listFarmsPage } from "../farms/actions";
-import { listFarmFieldsForFarmers } from "../fields/actions";
-import { listSoilTestsForFarmers } from "../soil-tests/actions";
-import FarmerChecklist from "./FarmerChecklist";
-import { buildFarmerChecklist, sampleToneClass } from "./farmerLib";
-import FarmerPortrait from "@/components/FarmerPortrait";
 import { useIsDmrvViewer } from "@/components/DmrvViewerGate";
 import type { FarmDetail } from "@/types";
-import type {
-  FarmFieldRecord,
-  SoilSampleTone,
-  SoilTestRecord,
-} from "@krishecarbon/shared";
 
 interface FarmerRow {
   id: string;
   name: string;
-  photo: string;
   mobile: string;
   village: string;
   cluster: string;
   state: string;
   farmerOnboarded: string;
   farmerOnboardedAt: number;
-  farmOnboarded: string;
-  farmOnboardedAt: number;
   totalAcres: string;
   totalAcresValue: number;
-  farmAcres: string;
-  farmAcresValue: number;
-  farms: string;
-  farmCount: number;
-  sample: string;
-  hasFarms: boolean;
-  sampleTone: SoilSampleTone;
-  hasReport: boolean;
-  hasCompleteProfile: boolean;
   [key: string]: unknown;
 }
 
@@ -82,24 +60,16 @@ function formatAcres(value: number | null) {
   return value.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }
 
-function positiveAcres(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : 0;
-}
-
 export default function FarmersPage() {
   const router = useRouter();
   const readOnly = useIsDmrvViewer();
   const [farms, setFarms] = useState<FarmDetail[]>([]);
-  const [fields, setFields] = useState<FarmFieldRecord[]>([]);
-  const [tests, setTests] = useState<SoilTestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState<DataTableQuery>(DEFAULT_TABLE_QUERY);
   const [total, setTotal] = useState(0);
   const requestRef = useRef(0);
 
-  // Only the current page of farmers is fetched, then their farms and samples.
   const loadData = useCallback(async (current: DataTableQuery) => {
     const requestId = ++requestRef.current;
     setLoading(true);
@@ -116,28 +86,12 @@ export default function FarmersPage() {
         dir: current.sortDir,
         filters,
       });
+      if (requestId !== requestRef.current) return;
       if (farmResult.error || farmResult.data == null) {
         throw new Error(farmResult.error || "Failed to load farmers");
       }
-      const ids = farmResult.data.rows.map((farm) => farm.id);
-      const [fieldResult, testResult] = await Promise.all([
-        listFarmFieldsForFarmers(ids),
-        listSoilTestsForFarmers(ids),
-      ]);
-      // A newer page request has started; drop this stale answer.
-      if (requestId !== requestRef.current) return;
-
       setFarms(farmResult.data.rows);
       setTotal(farmResult.data.total);
-      setFields(fieldResult.data ?? []);
-      setTests(testResult.data ?? []);
-
-      const extraErrors = [fieldResult, testResult]
-        .map((result) => result.error)
-        .filter((message): message is string => Boolean(message));
-      if (extraErrors.length) {
-        setError(`Some farmer network data could not load: ${extraErrors.join(" · ")}`);
-      }
     } catch (err) {
       if (requestId !== requestRef.current) return;
       setError(errorMessage(err));
@@ -152,66 +106,27 @@ export default function FarmersPage() {
   }, [loadData, query]);
 
   const rows = useMemo(() => {
-    const fieldsByFarm = new Map<string, FarmFieldRecord[]>();
-    for (const field of fields) {
-      const list = fieldsByFarm.get(field.farm_id) ?? [];
-      list.push(field);
-      fieldsByFarm.set(field.farm_id, list);
-    }
-    const testsByFarm = new Map<string, SoilTestRecord[]>();
-    for (const test of tests) {
-      const list = testsByFarm.get(test.farm_id) ?? [];
-      list.push(test);
-      testsByFarm.set(test.farm_id, list);
-    }
     return farms.map((farm): FarmerRow => {
-      const farmFields = fieldsByFarm.get(farm.id) ?? [];
-      const activeFields = farmFields.filter((field) => field.status !== "inactive");
-      const farmTests = testsByFarm.get(farm.id) ?? [];
-      const checklist = buildFarmerChecklist(farmFields, farmTests, [], farm);
       const village = [farm.village, farm.mandal, farm.district]
         .filter(Boolean)
         .join(", ");
-      const farmOnboardedAt = activeFields.reduce((earliest, field) => {
-        const time = dateSortValue(field.created_at);
-        if (time <= 0) return earliest;
-        return earliest === 0 || time < earliest ? time : earliest;
-      }, 0);
-      const farmAcresValue = activeFields.reduce(
-        (sum, field) => sum + positiveAcres(field.calculated_area),
-        0,
-      );
       const totalAcresValue = Number(farm.total_land_size);
       return {
         id: farm.id,
         name: farm.farmer_name,
-        photo: farm.farmer_photo_url || "",
         mobile: farm.mobile_number ?? "—",
         village: village || farm.address || "—",
         cluster: farm.cluster?.name?.trim() || "—",
         state: farm.state?.trim() || "—",
         farmerOnboarded: formatOnboardedDate(farm.created_at),
         farmerOnboardedAt: dateSortValue(farm.created_at),
-        farmOnboarded: farmOnboardedAt
-          ? formatOnboardedDate(new Date(farmOnboardedAt).toISOString())
-          : "—",
-        farmOnboardedAt,
         totalAcres: formatAcres(
           Number.isFinite(totalAcresValue) ? totalAcresValue : null,
         ),
         totalAcresValue: Number.isFinite(totalAcresValue) ? totalAcresValue : 0,
-        farmAcres: activeFields.length > 0 ? formatAcres(farmAcresValue) : "—",
-        farmAcresValue,
-        farms: checklist.hasFarms ? String(checklist.farmCount) : "None",
-        farmCount: checklist.farmCount,
-        sample: checklist.sampleLabel,
-        hasFarms: checklist.hasFarms,
-        sampleTone: checklist.sampleTone,
-        hasReport: checklist.hasReport,
-        hasCompleteProfile: checklist.hasCompleteProfile,
       };
     });
-  }, [farms, fields, tests]);
+  }, [farms]);
 
   return (
     <div className="space-y-4">
@@ -222,8 +137,8 @@ export default function FarmersPage() {
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
             {readOnly
-              ? "Farmer names, locations, and acreage. View only."
-              : "Farmer info, farms, soil samples, and reports."}
+              ? "Farmer names, locations, and acreage. Open a farmer to see their farms."
+              : "Names, locations, and acreage. Open a farmer to load farms, samples, and reports."}
           </p>
         </div>
         {readOnly ? null : (
@@ -254,33 +169,14 @@ export default function FarmersPage() {
             sortable: true,
             filterPlaceholder: "Search name",
             render: (_value, row) => (
-              <div className="min-w-[12rem]">
-                <span className="flex items-center gap-2">
-                  {row.photo ? (
-                    <FarmerPortrait
-                      src={row.photo}
-                      alt={row.name}
-                      className="h-8 w-8 rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-xs font-medium text-neutral-500">
-                      {row.name.slice(0, 1).toUpperCase()}
-                    </span>
-                  )}
-                  <span>{row.name}</span>
+              <span className="flex items-center gap-2">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-sm font-medium text-neutral-500">
+                  {String(row.name).slice(0, 1).toUpperCase()}
                 </span>
-                <div className="mt-1.5 pl-10">
-                  <FarmerChecklist
-                    hasCompleteProfile={row.hasCompleteProfile}
-                    hasFarms={row.hasFarms}
-                    sampleTone={row.sampleTone}
-                    hasReport={row.hasReport}
-                  />
-                </div>
-              </div>
+                <span>{row.name}</span>
+              </span>
             ),
           },
-          // dMRV viewers never receive mobile numbers.
           ...(readOnly
             ? []
             : [
@@ -318,40 +214,11 @@ export default function FarmersPage() {
             sortValue: (row) => row.farmerOnboardedAt,
           },
           {
-            key: "farmOnboarded",
-            label: "Farm onboarded",
-            sortable: false,
-          },
-          {
             key: "totalAcres",
             label: "Total acres",
             sortable: true,
             sortValue: (row) => row.totalAcresValue,
           },
-          {
-            key: "farms",
-            label: "Farms",
-            sortable: false,
-          },
-          {
-            key: "farmAcres",
-            label: "Farm acres",
-            sortable: false,
-          },
-          ...(readOnly
-            ? []
-            : [
-                {
-                  key: "sample",
-                  label: "Soil sample",
-                  sortable: false,
-                  render: (_value: unknown, row: FarmerRow) => (
-                    <span className={`text-sm font-medium ${sampleToneClass(row.sampleTone)}`}>
-                      {row.sample}
-                    </span>
-                  ),
-                },
-              ]),
         ]}
         rows={rows}
         onRowClick={(row) => router.push(`/network/farmers/${row.id}`)}

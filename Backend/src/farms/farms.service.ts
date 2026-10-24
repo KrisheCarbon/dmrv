@@ -24,6 +24,22 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 
 const FARM_SELECT = '*, cluster:clusters(id, name)';
 
+/** Columns the farmers list shows. Detail screens still use FARM_SELECT. */
+const FARM_LIST_SELECT = `
+  id,
+  farmer_name,
+  farmer_code,
+  mobile_number,
+  address,
+  village,
+  mandal,
+  district,
+  state,
+  total_land_size,
+  created_at,
+  cluster:clusters(id, name)
+`;
+
 const PAGE_SIZES = [10, 25, 50, 100];
 
 /** Portal column → farms column it sorts on. */
@@ -108,7 +124,7 @@ export class FarmsService {
 
     let request = this.supabase
       .from('farms')
-      .select(FARM_SELECT, { count: 'exact' })
+      .select(FARM_LIST_SELECT, { count: 'exact' })
       .order(sortColumn, { ascending, nullsFirst: false })
       .order('id', { ascending: true })
       .range((page - 1) * pageSize, page * pageSize - 1);
