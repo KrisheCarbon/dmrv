@@ -2,54 +2,58 @@
 
 import type { FarmUpsertPayload, PagedResult } from "@krishecarbon/shared";
 import { backendFetch, backendQuery } from "@/lib/backendApi";
+import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import type { FarmDetail } from "@/types";
 
 export async function listFarms() {
   return backendQuery<FarmDetail[]>("/farms");
 }
 
-/** One page of farmers, searched and sorted on the server. */
+/**
+ * One page of farmers, read straight from the database.
+ * Skips the backend so a sleeping server cannot hold the table.
+ */
 export async function listFarmsPage(params: {
   page: number;
   pageSize: number;
   sort?: string | null;
   dir?: "asc" | "desc";
   filters?: Record<string, string>;
-}) {
-  const search = new URLSearchParams({
-    page: String(params.page),
-    pageSize: String(params.pageSize),
-  });
-  if (params.sort) search.set("sort", params.sort);
-  if (params.dir) search.set("dir", params.dir);
-  for (const [key, value] of Object.entries(params.filters ?? {})) {
-    if (value.trim()) search.set(key, value.trim());
-  }
-  const result = await backendQuery<PagedResult<FarmDetail> | FarmDetail[]>(`/farms?${search}`);
-  if (!Array.isArray(result.data)) {
-    return result as { data: PagedResult<FarmDetail> | null; error: string | null };
-  }
-  // An older backend ignores `page` and returns every farmer: page it here.
+}): Promise<{ data: PagedResult<FarmDetail> | null; error: string | null }> {
   const filters = params.filters ?? {};
-  const has = (value: unknown, term?: string) =>
-    !term?.trim() || String(value ?? "").toLowerCase().includes(term.trim().toLowerCase());
-  const matching = result.data.filter(
-    (farm) =>
-      has(farm.farmer_name, filters.name) &&
-      has(farm.mobile_number, filters.mobile) &&
-      has([farm.village, farm.mandal, farm.district, farm.address].join(" "), filters.location) &&
-      has(farm.state, filters.state),
-  );
-  const start = (params.page - 1) * params.pageSize;
-  return {
-    data: {
-      rows: matching.slice(start, start + params.pageSize),
-      total: matching.length,
-      page: params.page,
-      pageSize: params.pageSize,
-    },
-    error: null,
+  const term = (value?: string) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
   };
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      return { data: null, error: "You must be signed in." };
+    }
+
+    const { data, error } = await supabase.rpc("list_farmers_page", {
+      p_page: params.page,
+      p_page_size: params.pageSize,
+      p_sort: params.sort ?? null,
+      p_dir: params.dir ?? null,
+      p_name: term(filters.name),
+      p_mobile: term(filters.mobile),
+      p_location: term(filters.location),
+      p_state: term(filters.state),
+    });
+
+    if (error) return { data: null, error: error.message };
+    return { data: data as PagedResult<FarmDetail>, error: null };
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : "Failed to load farmers",
+    };
+  }
 }
 
 export async function getFarm(id: string) {
