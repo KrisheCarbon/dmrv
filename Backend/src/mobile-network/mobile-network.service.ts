@@ -115,6 +115,9 @@ const KONTIKKI_SELECT = `
   )
 `;
 
+const FARM_LIST_SELECT =
+  'id, farmer_name, address, mobile_number, village, cluster_id, cluster:clusters(id, name)';
+
 @Injectable()
 export class MobileNetworkService {
   constructor(
@@ -145,7 +148,7 @@ export class MobileNetworkService {
     });
   }
 
-  /** Onboarded farmers and each mapped plot, for choosing where biochar was applied. */
+  /** Onboarded farmers and each mapped plot, for biomass collection and biochar application. */
   async listApplicationFarms(user: AuthenticatedUser): Promise<ApplicationFarmerOption[]> {
     if (!canAccessMobileApp(user.role)) {
       throw new ForbiddenException('Not allowed to view network assignments');
@@ -481,11 +484,32 @@ export class MobileNetworkService {
     }));
   }
 
+  /**
+   * Farmers a supervisor or climapreneur can pick in biomass collection.
+   * Producer links alone hide people who are only assigned to a cluster, which
+   * is why the same farmer list showed up for some accounts and not others.
+   */
   private async farmsForUser(user: AuthenticatedUser): Promise<MobileNetworkFarm[]> {
     if (canAccessNetwork(user.role)) {
       return this.fetchAllFarms();
     }
 
+    if (user.role !== 'supervisor' && user.role !== 'climapreneur') {
+      throw new ForbiddenException('Not allowed to view network assignments');
+    }
+
+    const [throughProducers, assignedClusterIds, ownFarms] = await Promise.all([
+      this.farmsThroughProducers(user),
+      this.fetchAssignedClusterIds(user),
+      this.fetchFarmsOwnedBy(user.id),
+    ]);
+    const clusterFarms = await this.fetchFarms(assignedClusterIds);
+    return this.uniqueFarms([...throughProducers, ...clusterFarms, ...ownFarms]);
+  }
+
+  private async farmsThroughProducers(
+    user: AuthenticatedUser,
+  ): Promise<MobileNetworkFarm[]> {
     if (user.role === 'supervisor') {
       const producerIds = this.uniqueIds([
         ...(await this.fetchProducerIdsForSupervisor(user.id)),
@@ -494,16 +518,34 @@ export class MobileNetworkService {
       return this.fetchFarmsForProducers(producerIds);
     }
 
-    if (user.role === 'climapreneur') {
-      const kontikkiIds = await this.fetchKontikkiIdsForOperator(user.id);
-      const kontikkis = await this.fetchKontikkis(undefined, kontikkiIds);
-      const producerIds = this.uniqueIds(
-        kontikkis.map((kontikki) => kontikki.biochar_producer_id),
-      );
-      return this.fetchFarmsForProducers(producerIds);
-    }
+    const kontikkiIds = await this.fetchKontikkiIdsForOperator(user.id);
+    const kontikkis = await this.fetchKontikkis(undefined, kontikkiIds);
+    const producerIds = this.uniqueIds(
+      kontikkis.map((kontikki) => kontikki.biochar_producer_id),
+    );
+    return this.fetchFarmsForProducers(producerIds);
+  }
 
-    throw new ForbiddenException('Not allowed to view network assignments');
+  /** Clusters this person is assigned to, the same link used when onboarding a farmer. */
+  private async fetchAssignedClusterIds(user: AuthenticatedUser): Promise<string[]> {
+    const table =
+      user.role === 'supervisor' ? 'cluster_supervisors' : 'cluster_climapreneurs';
+    const column = user.role === 'supervisor' ? 'supervisor_id' : 'climapreneur_id';
+    const { data, error } = await this.supabase
+      .from(table)
+      .select('cluster_id')
+      .eq(column, user.id);
+
+    if (error) throw new BadRequestException(error.message);
+    return this.uniqueIds((data ?? []).map((row) => row.cluster_id as string | null));
+  }
+
+  private uniqueFarms(farms: MobileNetworkFarm[]): MobileNetworkFarm[] {
+    const byId = new Map<string, MobileNetworkFarm>();
+    for (const farm of farms) byId.set(farm.id, farm);
+    return [...byId.values()].sort((a, b) =>
+      a.farmer_name.localeCompare(b.farmer_name),
+    );
   }
 
   async boundariesForFarms(farmIds: string[]): Promise<Map<string, GeoPoint[][]>> {
@@ -603,15 +645,25 @@ export class MobileNetworkService {
     return this.fetchFarms();
   }
 
+  private async fetchFarmsOwnedBy(userId: string): Promise<MobileNetworkFarm[]> {
+    const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
+      this.supabase
+        .from('farms')
+        .select(FARM_LIST_SELECT)
+        .or(`created_by.eq.${userId},assigned_to.eq.${userId}`)
+        .order('farmer_name', { ascending: true })
+        .range(from, to),
+    );
+    return rows.map((row) => this.mapFarm(row));
+  }
+
   private async fetchFarms(clusterIds?: string[]): Promise<MobileNetworkFarm[]> {
     if (clusterIds && clusterIds.length === 0) return [];
 
     const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
       let query = this.supabase
         .from('farms')
-        .select(
-          'id, farmer_name, address, mobile_number, village, cluster_id, cluster:clusters(id, name)',
-        )
+        .select(FARM_LIST_SELECT)
         .order('farmer_name', { ascending: true })
         .range(from, to);
 
@@ -622,22 +674,24 @@ export class MobileNetworkService {
       return query;
     });
 
-    return rows.map((row) => {
-      const clusterRaw = row.cluster as
-        | { id?: string; name?: string | null }
-        | Array<{ id?: string; name?: string | null }>
-        | null
-        | undefined;
-      const cluster = Array.isArray(clusterRaw) ? clusterRaw[0] : clusterRaw;
-      return {
-        id: row.id as string,
-        farmer_name: (row.farmer_name as string | null)?.trim() || 'Unnamed farm',
-        address: (row.address as string | null) ?? null,
-        mobile_number: (row.mobile_number as string | null) ?? null,
-        village: (row.village as string | null) ?? null,
-        cluster_name: cluster?.name?.trim() || null,
-      };
-    });
+    return rows.map((row) => this.mapFarm(row));
+  }
+
+  private mapFarm(row: Record<string, unknown>): MobileNetworkFarm {
+    const clusterRaw = row.cluster as
+      | { id?: string; name?: string | null }
+      | Array<{ id?: string; name?: string | null }>
+      | null
+      | undefined;
+    const cluster = Array.isArray(clusterRaw) ? clusterRaw[0] : clusterRaw;
+    return {
+      id: row.id as string,
+      farmer_name: (row.farmer_name as string | null)?.trim() || 'Unnamed farm',
+      address: (row.address as string | null) ?? null,
+      mobile_number: (row.mobile_number as string | null) ?? null,
+      village: (row.village as string | null) ?? null,
+      cluster_name: cluster?.name?.trim() || null,
+    };
   }
 
   private async fetchFeedstock(

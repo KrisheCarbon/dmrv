@@ -1,10 +1,22 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Text, View, StyleSheet, ActivityIndicator } from "react-native";
+import { Text, View, StyleSheet, ActivityIndicator, Pressable } from "react-native";
 import FormPicker, { type FormPickerOption } from "./FormPicker";
 import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
 import { listFarmerIdsWithMappedFields } from "../services/farmersNetworkService";
 import { getUserProfile } from "../services/userProfile";
-import { colors, fonts, spacing } from "../constants/theme";
+import { colors, fonts, radius, spacing } from "../constants/theme";
+
+function farmerLoadError(err: unknown): string {
+  const raw = err instanceof Error ? `${err.message} ${String(err.cause ?? "")}` : String(err);
+  if (/database is locked|SQLITE_BUSY|NativeDatabase/i.test(raw)) {
+    return "The phone's records are busy. Wait a moment and try again.";
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type FarmerPickerProps = {
   label?: string;
@@ -30,38 +42,49 @@ export default function FarmerPicker({
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const profile = await getUserProfile();
-      if (!profile) {
-        setOptions([]);
-        setError("Sign in to load farmers.");
+    setLoading(true);
+    setError(null);
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const profile = await getUserProfile();
+        if (!profile) {
+          setOptions([]);
+          setError("Sign in to load farmers.");
+          setLoading(false);
+          return;
+        }
+        const farmers = await getAllFarmersLocal(profile.id, profile.role);
+        const withFields = requireFields
+          ? await listFarmerIdsWithMappedFields()
+          : null;
+        const mapped = farmers
+          .filter((f) => (withFields ? withFields.has(f.id) : true))
+          .map((f) => {
+            const form = farmerToFormData(f);
+            const code = form.farmer_code ? ` · ${form.farmer_code}` : "";
+            const village = form.village ? ` · ${form.village}` : "";
+            const mobile = form.mobile_number ? ` · ${form.mobile_number}` : "";
+            return {
+              value: form.id!,
+              label: `${form.farmer_name}${code}${village}${mobile}`,
+            };
+          });
+        setOptions(mapped);
+        setLoading(false);
         return;
+      } catch (err) {
+        lastError = err;
+        const raw = err instanceof Error ? `${err.message} ${String(err.cause ?? "")}` : String(err);
+        if (!/database is locked|SQLITE_BUSY|NativeDatabase/i.test(raw) || attempt === 3) {
+          break;
+        }
+        await sleep(400 * (attempt + 1));
       }
-      const farmers = await getAllFarmersLocal(profile.id, profile.role);
-      const withFields = requireFields
-        ? await listFarmerIdsWithMappedFields()
-        : null;
-      const mapped = farmers
-        .filter((f) => (withFields ? withFields.has(f.id) : true))
-        .map((f) => {
-          const form = farmerToFormData(f);
-          const code = form.farmer_code ? ` · ${form.farmer_code}` : "";
-          const village = form.village ? ` · ${form.village}` : "";
-          const mobile = form.mobile_number ? ` · ${form.mobile_number}` : "";
-          return {
-            value: form.id!,
-            label: `${form.farmer_name}${code}${village}${mobile}`,
-          };
-        });
-      setOptions(mapped);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setOptions([]);
-    } finally {
-      setLoading(false);
     }
+    setError(farmerLoadError(lastError));
+    setOptions([]);
+    setLoading(false);
   }, [requireFields]);
 
   useEffect(() => {
@@ -92,9 +115,11 @@ export default function FarmerPicker({
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyTitle}>
-          {requireFields
-            ? "No farmers with mapped farms yet"
-            : "No farmers onboarded yet"}
+          {error
+            ? "Could not load farmers"
+            : requireFields
+              ? "No farmers with mapped farms yet"
+              : "No farmers onboarded yet"}
         </Text>
         <Text style={styles.hint}>
           {error ||
@@ -102,6 +127,11 @@ export default function FarmerPicker({
               ? "Register the farmer, then add the farm and draw its boundary under Farms onboarding. A soil sample can only be taken inside a mapped farm."
               : "Add a farmer under New Farmer first, then come back to link farms, soil, or consent.")}
         </Text>
+        {error ? (
+          <Pressable onPress={() => void load()} style={styles.retry}>
+            <Text style={styles.retryText}>Try again</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
@@ -140,14 +170,29 @@ const styles = StyleSheet.create({
   },
   hint: {
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
     fontSize: 13,
     lineHeight: 18,
   },
   error: {
     fontFamily: fonts.regular,
     color: colors.error,
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 4,
+  },
+  retry: {
+    marginTop: spacing.sm,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.borderDark,
+    paddingHorizontal: spacing.md,
+  },
+  retryText: {
+    fontFamily: fonts.medium,
+    color: colors.brunswick,
+    fontSize: 16,
   },
 });

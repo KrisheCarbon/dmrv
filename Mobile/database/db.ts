@@ -5,29 +5,27 @@ const DB_NAME = "dmrv.db";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
-// expo-sqlite exposes a single native connection. Firing multiple
-// statements at it concurrently (e.g. an auto-save triggered while a photo
-// capture is also writing, or a delete firing while a section auto-saves)
-// makes the native layer reject in-flight statements with "database is
-// locked" when it tries to finalize them. Every statement-executing method
-// is routed through this queue so calls from anywhere in the app run one
-// at a time, in the order they were called.
-let writeQueue: Promise<unknown> = Promise.resolve();
+// expo-sqlite runs async calls on a pool of threads, against one connection.
+// A write transaction (BEGIN IMMEDIATE) plus any other statement on a second
+// thread is rejected as "database is locked". One queue holds the connection
+// for a whole transaction, so a screen reading farmers waits instead of failing.
+let chain: Promise<void> = Promise.resolve();
 
-const MAX_LOCK_RETRIES = 8;
-const LOCK_RETRY_DELAY_MS = 200;
+const MAX_LOCK_RETRIES = 12;
+const LOCK_RETRY_DELAY_MS = 250;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isDatabaseLockedError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  const cause =
-    err instanceof Error && "cause" in err && err.cause != null
-      ? String(err.cause)
-      : "";
-  return /database is locked|SQLITE_BUSY|finalizeAsync/i.test(`${message}\n${cause}`);
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; depth < 6 && current != null; depth += 1) {
+    parts.push(current instanceof Error ? current.message : String(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return /database is locked|SQLITE_BUSY|finalizeAsync/i.test(parts.join("\n"));
 }
 
 /**
@@ -52,14 +50,11 @@ async function withLockRetry<T>(task: () => Promise<T>): Promise<T> {
   }
 }
 
-function runSerialized<T>(task: () => Promise<T>): Promise<T> {
-  const run = writeQueue.then(
-    () => withLockRetry(task),
-    () => withLockRetry(task),
-  );
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = chain.then(task, task);
   // Keep the queue moving even if a task rejects — don't let one failed
   // call jam every call after it.
-  writeQueue = run.then(
+  chain = run.then(
     () => undefined,
     () => undefined,
   );
@@ -78,50 +73,59 @@ function serializeDbMethods(db: SQLite.SQLiteDatabase): SQLite.SQLiteDatabase {
   type AnyDb = Record<string, (...args: unknown[]) => Promise<unknown>>;
   const anyDb = db as unknown as AnyDb;
 
-  // Unwrapped driver methods. Every public call goes through `runSerialized`
-  // so two screens cannot use the connection at the same time.
+  // Unwrapped driver methods. Public calls go through the queue below.
   const original: AnyDb = {};
   for (const method of [...NON_TRANSACTION_METHODS, "withTransactionAsync"]) {
     const fn = anyDb[method];
     if (typeof fn === "function") original[method] = fn.bind(db);
   }
 
-  // One native call at a time. A global "in a transaction" bypass let Save
-  // farm run a statement while sync still held the connection, and SQLite
-  // then rejected finalizeAsync with "database is locked".
+  // txnDepth > 0 while this connection is inside BEGIN/COMMIT.
+  // `inline` is true only for the transaction's own next statement, so a
+  // farmer-list read from another screen waits until COMMIT.
   let txnDepth = 0;
-  let txnIdle: Promise<void> = Promise.resolve();
+  let inline = false;
+
+  const runStatement = <T>(task: () => Promise<T>): Promise<T> => {
+    if (txnDepth > 0 && inline) {
+      inline = false;
+      return withLockRetry(task).finally(() => {
+        inline = true;
+      });
+    }
+    return enqueue(() => withLockRetry(task));
+  };
 
   for (const method of NON_TRANSACTION_METHODS) {
     if (!original[method]) continue;
     anyDb[method] = (...args: unknown[]) =>
-      runSerialized(() => original[method](...args));
+      runStatement(() => original[method](...args) as Promise<unknown>);
   }
 
   if (original.withTransactionAsync) {
     anyDb.withTransactionAsync = (callback: () => Promise<void>) => {
       if (txnDepth > 0) return callback();
 
-      const previous = txnIdle;
-      let releaseIdle: () => void = () => undefined;
-      txnIdle = new Promise<void>((resolve) => {
-        releaseIdle = resolve;
-      });
-
-      return previous.then(async () => {
+      return enqueue(async () => {
         txnDepth += 1;
+        inline = false;
         try {
-          await runSerialized(() => original.execAsync("BEGIN IMMEDIATE"));
+          await withLockRetry(() => original.execAsync("BEGIN IMMEDIATE"));
+          inline = true;
           try {
-            await callback();
-            await runSerialized(() => original.execAsync("COMMIT"));
+            // callback() runs until its first await and starts that statement
+            // while `inline` is still true. Then other screens queue behind us.
+            const pending = callback();
+            inline = false;
+            await pending;
+            await withLockRetry(() => original.execAsync("COMMIT"));
           } catch (err) {
-            await runSerialized(() => original.execAsync("ROLLBACK")).catch(() => undefined);
+            await withLockRetry(() => original.execAsync("ROLLBACK")).catch(() => undefined);
             throw err;
           }
         } finally {
           txnDepth -= 1;
-          releaseIdle();
+          inline = false;
         }
       });
     };
@@ -132,26 +136,29 @@ function serializeDbMethods(db: SQLite.SQLiteDatabase): SQLite.SQLiteDatabase {
 
 async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   const db = await SQLite.openDatabaseAsync(DB_NAME);
-  await db.execAsync("PRAGMA journal_mode = WAL;");
-  await db.execAsync("PRAGMA foreign_keys = ON;");
-  // Have SQLite itself wait/retry for up to 5s when it can't immediately
-  // get a lock, instead of failing the call the instant another statement
-  // is mid-flight. Combined with the JS-side queue below, this is a second
-  // safety net against "database is locked" errors.
-  await db.execAsync("PRAGMA busy_timeout = 5000;");
+  // Set the wait before any other statement. Migration runs before the
+  // queue above exists, so a lock here used to fail the open forever.
+  await withLockRetry(() => db.execAsync("PRAGMA busy_timeout = 10000;"));
+  await withLockRetry(() => db.execAsync("PRAGMA journal_mode = WAL;"));
+  await withLockRetry(() => db.execAsync("PRAGMA foreign_keys = ON;"));
 
-  const versionRow = await db.getFirstAsync<{ user_version: number }>(
-    "PRAGMA user_version",
+  const versionRow = await withLockRetry(() =>
+    db.getFirstAsync<{ user_version: number }>("PRAGMA user_version"),
   );
   const currentVersion = versionRow?.user_version ?? 0;
 
   if (currentVersion < SCHEMA_VERSION) {
-    await db.withTransactionAsync(async () => {
+    await withLockRetry(() => db.execAsync("BEGIN IMMEDIATE"));
+    try {
       for (const statement of SCHEMA_STATEMENTS) {
-        await db.execAsync(statement);
+        await withLockRetry(() => db.execAsync(statement));
       }
-    });
-    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      await withLockRetry(() => db.execAsync("COMMIT"));
+    } catch (err) {
+      await withLockRetry(() => db.execAsync("ROLLBACK")).catch(() => undefined);
+      throw err;
+    }
+    await withLockRetry(() => db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`));
   }
 
   // `CREATE TABLE IF NOT EXISTS` above is a no-op for tables that already
@@ -269,15 +276,22 @@ async function addColumnIfMissing(
   column: string,
   definition: string,
 ) {
-  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+  const columns = await withLockRetry(() =>
+    db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`),
+  );
   if (columns.some((row) => row.name === column)) return;
-  await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  await withLockRetry(() =>
+    db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`),
+  );
 }
 
 /** Singleton db handle. Every service calls this before touching SQLite. */
 export function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise) {
-    dbPromise = openAndMigrate();
+    dbPromise = openAndMigrate().catch((err) => {
+      dbPromise = null;
+      throw err;
+    });
   }
   return dbPromise;
 }

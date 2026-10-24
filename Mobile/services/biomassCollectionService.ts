@@ -5,6 +5,7 @@ import type {
   CreateBiomassCollectionPayload,
   FieldPhotoMetadata,
 } from "@krishecarbon/shared";
+import { getStoredAuthUser } from "./auth";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import {
@@ -19,7 +20,12 @@ import {
 } from "./backendApi";
 import { uploadBiomassCollectionPhoto } from "../utils/biomassCollectionPhotoUpload";
 
-const OPTIONS_CACHE_KEY = "dmrv_biomass_collection_options_v2";
+const OPTIONS_CACHE_PREFIX = "dmrv_biomass_collection_options_v3";
+
+async function optionsCacheKey(): Promise<string> {
+  const user = await getStoredAuthUser();
+  return user?.id ? `${OPTIONS_CACHE_PREFIX}:${user.id}` : OPTIONS_CACHE_PREFIX;
+}
 
 export type BiomassCollectionView = {
   id: string;
@@ -115,10 +121,10 @@ export async function loadBiomassCollectionOptions(): Promise<BiomassCollectionO
       farmers: (farmers ?? []).map(normalizeFarmer).filter((farmer) => farmer.fields.length > 0),
       producers: overview.producers ?? [],
     };
-    await AsyncStorage.setItem(OPTIONS_CACHE_KEY, JSON.stringify(options));
+    await AsyncStorage.setItem(await optionsCacheKey(), JSON.stringify(options));
     return options;
   } catch (err) {
-    const cached = await AsyncStorage.getItem(OPTIONS_CACHE_KEY);
+    const cached = await AsyncStorage.getItem(await optionsCacheKey());
     if (cached) {
       const parsed = JSON.parse(cached) as BiomassCollectionOptions;
       return {
