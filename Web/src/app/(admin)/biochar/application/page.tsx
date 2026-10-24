@@ -147,7 +147,9 @@ export default function ApplicationPage() {
           Application
         </h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Biochar application records from the field. Select a row to review inline.
+          Biochar applied on an onboarded farm. Farm acres are the mapped plot.
+          Applied acres are the polygon drawn where the biochar went. The photo must be
+          inside the farm and within 100 m of that applied area.
         </p>
       </div>
 

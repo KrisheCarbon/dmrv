@@ -8,12 +8,13 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { applicationAreaAcres, applicationMediaTypeLabel, formatApplicationAcres } from "@krishecarbon/shared";
+import { applicationAreaAcres, applicationMediaTypeLabel, formatApplicationAcres, type ApplicationFarmerOption } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
 import {
   listApplicationEntries,
+  loadApplicationFarmers,
   refreshApplicationReviewStatuses,
   toApplicationEntryView,
   type ApplicationEntryView,
@@ -26,12 +27,23 @@ import {
 } from "../services/syncService";
 import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 
+function farmAcresFor(entry: ApplicationEntryView, farmers: ApplicationFarmerOption[]) {
+  if (!entry.farmFieldId) return null;
+  for (const farmer of farmers) {
+    const field = farmer.fields.find((item) => item.id === entry.farmFieldId);
+    if (field) return field.area_acres;
+  }
+  return null;
+}
+
 function EntryCard({
   entry,
+  farmAcres,
   syncing,
   onPress,
 }: {
   entry: ApplicationEntryView;
+  farmAcres: number | null;
   syncing: boolean;
   onPress: () => void;
 }) {
@@ -73,9 +85,12 @@ function EntryCard({
         )}
       </View>
       <Text style={styles.cardMeta}>{entry.farmName || "Farm not set"}</Text>
-      {entry.applicationBoundary.length >= 3 ? (
+      {entry.applicationBoundary.length >= 3 || farmAcres ? (
         <Text style={styles.cardAcres}>
-          Applied on {formatApplicationAcres(applicationAreaAcres(entry.applicationBoundary))}
+          {farmAcres ? `Farm ${formatApplicationAcres(farmAcres)}` : "Farm area not on this phone"}
+          {entry.applicationBoundary.length >= 3
+            ? ` · Applied ${formatApplicationAcres(applicationAreaAcres(entry.applicationBoundary))}`
+            : ""}
           {entry.fieldCode ? ` · ${entry.fieldCode}` : ""}
         </Text>
       ) : null}
@@ -114,6 +129,7 @@ function EntryCard({
 
 export default function ApplicationDashboardScreen({ navigation }) {
   const [entries, setEntries] = useState<ApplicationEntryView[]>([]);
+  const [farmers, setFarmers] = useState<ApplicationFarmerOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingEntryIds, setSyncingEntryIds] = useState<Set<string>>(new Set());
@@ -130,6 +146,11 @@ export default function ApplicationDashboardScreen({ navigation }) {
       const rows = await listApplicationEntries(user.id);
       const views = await Promise.all(rows.map((row) => toApplicationEntryView(row)));
       setEntries(views);
+      try {
+        setFarmers(await loadApplicationFarmers());
+      } catch {
+        setFarmers([]);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -225,6 +246,7 @@ export default function ApplicationDashboardScreen({ navigation }) {
           renderItem={({ item }) => (
             <EntryCard
               entry={item}
+              farmAcres={farmAcresFor(item, farmers)}
               syncing={syncingEntryIds.has(item.id) || isApplicationEntrySyncing(item.id)}
               onPress={() => navigation.navigate("ApplicationEntry", { entryId: item.id })}
             />
@@ -290,12 +312,12 @@ const styles = StyleSheet.create({
   cardTitle: {
     flex: 1,
     fontFamily: fonts.bold,
-    fontSize: 16,
+    fontSize: typeScale.body,
     color: colors.brunswick,
   },
   cardBadge: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: typeScale.label,
     color: colors.textSecondary,
     textTransform: "capitalize",
   },
@@ -317,7 +339,7 @@ const styles = StyleSheet.create({
   },
   cardSync: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: typeScale.label,
     color: colors.textSecondary,
   },
   cardSyncActive: {
@@ -331,14 +353,14 @@ const styles = StyleSheet.create({
   },
   syncError: {
     fontFamily: fonts.regular,
-    fontSize: 12,
+    fontSize: typeScale.label,
     color: colors.error,
   },
   reviewNotes: {
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
-    lineHeight: 16,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   empty: {
     paddingTop: spacing.xl,
@@ -347,12 +369,12 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontFamily: fonts.bold,
-    fontSize: 18,
+    fontSize: typeScale.heading,
     color: colors.brunswick,
   },
   emptyText: {
     fontFamily: fonts.regular,
-    fontSize: 14,
+    fontSize: typeScale.bodySmall,
     color: colors.textSecondary,
     textAlign: "center",
     paddingHorizontal: spacing.lg,
