@@ -21,7 +21,7 @@ import {
 } from "../database/types";
 import { getAllFarmersLocal } from "../services/farmerService";
 import { getUserProfile } from "../services/userProfile";
-import { processSyncQueue } from "../services/syncService";
+import { processSyncQueue, subscribeSyncEvents } from "../services/syncService";
 import {
   NETWORK_FORM_DRAFTS,
   clearFormDraft,
@@ -285,8 +285,16 @@ export default function NetworkEntriesScreen({ route, navigation }) {
     const unsubscribe = navigation.addListener("focus", () => {
       load().catch(() => setLoaded(true));
     });
+    const unsubscribeSync = subscribeSyncEvents((event) => {
+      if (event.type === "reconcileComplete") {
+        load().catch(() => setLoaded(true));
+      }
+    });
     load().catch(() => setLoaded(true));
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      unsubscribeSync();
+    };
   }, [navigation, load]);
 
   async function onRefresh() {

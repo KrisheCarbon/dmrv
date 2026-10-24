@@ -348,6 +348,56 @@ function boundaryText(value: FarmFieldRecord["boundary_geojson"]): string | null
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+async function upsertRemoteFarmField(
+  farmerId: string,
+  field: FarmFieldRecord,
+): Promise<void> {
+  const db = await getDb();
+  const existing = await db.getFirstAsync<{ id: string; sync_status: string | null }>(
+    "SELECT id, sync_status FROM farm_fields WHERE server_id = ? OR id = ?",
+    [field.id, field.id],
+  );
+  if (existing && existing.sync_status && existing.sync_status !== "synced") return;
+
+  const now = Date.now();
+  const row = farmFieldToRow({
+    farmerId,
+    fieldCode: field.field_code,
+    ownershipType: field.ownership_type as never,
+    landReference: field.land_reference ?? null,
+    leaseStart: field.lease_start ?? null,
+    leaseEnd: field.lease_end ?? null,
+    status: field.status as never,
+    latitude: field.latitude ?? null,
+    longitude: field.longitude ?? null,
+    boundaryGeojson: boundaryText(field.boundary_geojson),
+    calculatedArea: field.calculated_area ?? null,
+    waterSource: field.water_source ?? null,
+    photos: field.photos ?? [],
+    notes: field.notes ?? null,
+    cropName: field.crop_name ?? null,
+    season: field.season ?? null,
+    sowingDate: field.sowing_date ?? null,
+    harvestDate: field.harvest_date ?? null,
+    cropPhotos: field.crop_photos ?? [],
+    serverId: field.id,
+    uploadStatus: "synced",
+    syncError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  if (existing) {
+    const { created_at: _created, ...patch } = row;
+    const { sql, args } = buildUpdate("farm_fields", patch, "id = ?", [existing.id]);
+    await db.runAsync(sql, args);
+    return;
+  }
+
+  const { sql, args } = buildInsert("farm_fields", { id: generateId(), ...row });
+  await db.runAsync(sql, args);
+}
+
 /**
  * Bring down one farmer's farms and their mapped boundaries. Without this a
  * phone only knows farms drawn on it, so a farm mapped on another phone or in
@@ -365,54 +415,39 @@ export async function pullFarmFieldsForFarmer(farmerId: string): Promise<boolean
   const remote = await backendFetch<FarmFieldRecord[]>(
     `/farm-fields?farmId=${encodeURIComponent(farmerRow.server_id)}`,
   );
-  const farmer = { id: farmerId };
   for (const field of remote) {
     if (field.farm_id !== farmerRow.server_id) continue;
-
-    const existing = await db.getFirstAsync<{ id: string; sync_status: string | null }>(
-      "SELECT id, sync_status FROM farm_fields WHERE server_id = ? OR id = ?",
-      [field.id, field.id],
-    );
-    if (existing && existing.sync_status && existing.sync_status !== "synced") continue;
-
-    const now = Date.now();
-    const row = farmFieldToRow({
-      farmerId: farmer.id,
-      fieldCode: field.field_code,
-      ownershipType: field.ownership_type as never,
-      landReference: field.land_reference ?? null,
-      leaseStart: field.lease_start ?? null,
-      leaseEnd: field.lease_end ?? null,
-      status: field.status as never,
-      latitude: field.latitude ?? null,
-      longitude: field.longitude ?? null,
-      boundaryGeojson: boundaryText(field.boundary_geojson),
-      calculatedArea: field.calculated_area ?? null,
-      waterSource: field.water_source ?? null,
-      photos: field.photos ?? [],
-      notes: field.notes ?? null,
-      cropName: field.crop_name ?? null,
-      season: field.season ?? null,
-      sowingDate: field.sowing_date ?? null,
-      harvestDate: field.harvest_date ?? null,
-      cropPhotos: field.crop_photos ?? [],
-      serverId: field.id,
-      uploadStatus: "synced",
-      syncError: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    if (existing) {
-      const { created_at: _created, ...patch } = row;
-      const { sql, args } = buildUpdate("farm_fields", patch, "id = ?", [existing.id]);
-      await db.runAsync(sql, args);
-    } else {
-      const { sql, args } = buildInsert("farm_fields", { id: generateId(), ...row });
-      await db.runAsync(sql, args);
-    }
+    await upsertRemoteFarmField(farmerId, field);
   }
   return true;
+}
+
+/**
+ * Download farm plots saved in the portal so the phone's Farms tick and farm
+ * list match the dashboard. Local plots with unsynced edits are left alone.
+ */
+export async function pullVisibleFarmFields(): Promise<void> {
+  let remote: FarmFieldRecord[] = [];
+  try {
+    remote = await backendFetch<FarmFieldRecord[]>("/farm-fields");
+  } catch (err) {
+    console.warn("[sync] farm fields pull failed:", err);
+    return;
+  }
+
+  const db = await getDb();
+  const farmers = await db.getAllAsync<{ id: string; server_id: string | null }>(
+    "SELECT id, server_id FROM farmers WHERE server_id IS NOT NULL",
+  );
+  const localFarmerId = new Map(
+    farmers.flatMap((row) => (row.server_id ? [[row.server_id, row.id] as const] : [])),
+  );
+
+  for (const field of remote) {
+    const farmerId = localFarmerId.get(field.farm_id);
+    if (!farmerId) continue;
+    await upsertRemoteFarmField(farmerId, field);
+  }
 }
 
 export async function pullSoilNetworkFromServer(): Promise<void> {
