@@ -479,7 +479,9 @@ export default function FieldActivityScreen({ navigation }) {
         {loading && !stats ? (
           <View style={styles.loading}>
             <ActivityIndicator color={colors.brunswick} />
-            <Text style={styles.loadingText}>Loading entries…</Text>
+            <Text style={styles.loadingText}>
+              Loading entries. This can take a minute if the server was asleep.
+            </Text>
           </View>
         ) : null}
 
@@ -675,7 +677,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
   },
   filterCard: {
     backgroundColor: colors.white,
@@ -766,7 +768,7 @@ const styles = StyleSheet.create({
   pendingHint: {
     marginTop: spacing.sm,
     fontFamily: fonts.regular,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
     textAlign: "center",
   },
@@ -796,7 +798,9 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: "center",
   },
   statList: {
     backgroundColor: colors.white,
@@ -856,8 +860,8 @@ const styles = StyleSheet.create({
   },
   sectionHint: {
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+    fontSize: 13,
+    color: colors.textSecondary,
     marginTop: -4,
     marginBottom: spacing.sm,
   },
@@ -881,8 +885,8 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     fontFamily: fonts.medium,
-    fontSize: 11,
-    color: colors.smoke,
+    fontSize: 13,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.4,
     marginBottom: 2,
@@ -890,7 +894,7 @@ const styles = StyleSheet.create({
   statLabel: {
     marginTop: spacing.sm,
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
   },
   personName: {
@@ -907,14 +911,14 @@ const styles = StyleSheet.create({
   countSub: {
     marginTop: 2,
     fontFamily: fonts.regular,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
   },
   lastEntered: {
     marginTop: 4,
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   chevron: {
     fontSize: 22,
@@ -962,7 +966,7 @@ const styles = StyleSheet.create({
   },
   entryKind: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.brunswick,
   },
   entryName: {
@@ -974,12 +978,12 @@ const styles = StyleSheet.create({
   entryMeta: {
     marginTop: 2,
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   entryDate: {
     fontFamily: fonts.medium,
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
     textAlign: "right",
     maxWidth: 96,
@@ -987,7 +991,7 @@ const styles = StyleSheet.create({
   emptyInline: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    color: colors.smoke,
+    color: colors.textSecondary,
     marginBottom: spacing.sm,
   },
 });

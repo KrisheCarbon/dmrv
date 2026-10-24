@@ -1,3 +1,4 @@
+import NetInfo from "@react-native-community/netinfo";
 import Constants from "expo-constants";
 import { supabase } from "./supabase";
 
@@ -76,9 +77,22 @@ export function getBackendUrl(): string {
   );
 }
 
-async function probeBackendUrl(url: string): Promise<boolean> {
+/** Render's free instance sleeps, and the first request can take the better part of a minute. */
+const COLD_START_BUDGET_MS = 75_000;
+const PROBE_ATTEMPT_MS = 20_000;
+
+async function deviceIsOnline(): Promise<boolean> {
+  try {
+    const state = await NetInfo.fetch();
+    return state.isConnected !== false && state.isInternetReachable !== false;
+  } catch {
+    return true;
+  }
+}
+
+async function probeOnce(url: string, timeoutMs: number): Promise<boolean> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 4000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(`${url}/health`, {
@@ -93,8 +107,26 @@ async function probeBackendUrl(url: string): Promise<boolean> {
   }
 }
 
+async function probeBackendUrl(url: string): Promise<boolean> {
+  const deadline = Date.now() + COLD_START_BUDGET_MS;
+
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    const ok = await probeOnce(url, Math.min(PROBE_ATTEMPT_MS, remaining));
+    if (ok) return true;
+    if (Date.now() + 2000 >= deadline) break;
+    await wait(2000);
+  }
+
+  return false;
+}
+
 async function resolveBackendUrl(): Promise<string> {
   if (cachedBackendUrl) return cachedBackendUrl;
+
+  if (!(await deviceIsOnline())) {
+    throw new Error("No internet connection. Connect and pull down to try again.");
+  }
 
   const candidates = getCandidateBackendUrls();
   const errors: string[] = [];
@@ -110,9 +142,8 @@ async function resolveBackendUrl(): Promise<string> {
     console.warn("[backend] probe failed:", url);
   }
 
-  throw new Error(
-    `Cannot reach the backend. Tried ${candidates.join(", ")}. ${errors.join(" | ")}`,
-  );
+  console.warn("[backend] still unreachable:", errors.join(" | "));
+  throw new Error("The server is still waking up. Pull down to try again in a moment.");
 }
 
 function parseApiError(body: unknown, status: number): string {
