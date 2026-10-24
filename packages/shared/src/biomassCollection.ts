@@ -9,7 +9,10 @@ import type { FieldPhotoMetadata } from "./pyrolysis";
 export const BIOMASS_COLLECTION_TRACTOR_NOTICE =
   "The tractor number must be clearly visible in this photo.";
 
-/** Loaded photos must be taken inside the farm or within this distance of its boundary. */
+/**
+ * Ideal distance from the loaded-photo GPS to the farm polygon.
+ * Farther than this is flagged on the admin dashboard. It does not block collection.
+ */
 export const BIOMASS_COLLECTION_MAX_DISTANCE_M = 1000;
 
 /** Onboarded farm the biomass module can select. Only farms with a mapped plot. */
@@ -119,7 +122,7 @@ export function describeFarmPhotoDistance(
   if (distanceM === 0) {
     return {
       short: "Inside farm",
-      detail: "The photo was taken inside the farm boundary.",
+      detail: "Collected inside the farm polygon.",
       outsideLimit: false,
       distanceM: 0,
     };
@@ -128,9 +131,7 @@ export function describeFarmPhotoDistance(
   const outsideLimit = distanceM > BIOMASS_COLLECTION_MAX_DISTANCE_M;
   return {
     short: outsideLimit ? `${place} · outside 1 km` : place,
-    detail: outsideLimit
-      ? `The photo was taken ${place} from the nearest edge of the farm. That is outside the 1 km limit.`
-      : `The photo was taken ${place} from the nearest edge of the farm, within the 1 km limit.`,
+    detail: `Collected ${place} from the farm polygon.`,
     outsideLimit,
     distanceM,
   };
@@ -174,7 +175,10 @@ export type LoadedPhotoFarmCheck =
   | { ok: true; distanceM: number }
   | { ok: false; title: string; message: string };
 
-/** Whether a loaded photo may be kept for this farm. Uses the photo GPS and the farm polygon. */
+/**
+ * Whether a loaded photo has a GPS fix and a mapped farm polygon.
+ * Distance beyond 1 km is allowed; the admin dashboard flags it.
+ */
 export function checkLoadedPhotoNearFarm(input: {
   farmName?: string | null;
   boundaries: GeoPoint[][];
@@ -205,15 +209,6 @@ export function checkLoadedPhotoNearFarm(input: {
       title: "Farm boundary missing",
       message:
         "This farm has no mapped boundary. Select an onboarded farm whose plot has been drawn.",
-    };
-  }
-  if (distanceM > BIOMASS_COLLECTION_MAX_DISTANCE_M) {
-    const name = input.farmName?.trim() || "the selected farm";
-    const place = formatMetres(distanceM);
-    return {
-      ok: false,
-      title: "Too far from the farm",
-      message: `This photo is ${place} from the edge of ${name}. It must be within 1 km of the farm boundary. Move closer and take the photo again.`,
     };
   }
   return { ok: true, distanceM };

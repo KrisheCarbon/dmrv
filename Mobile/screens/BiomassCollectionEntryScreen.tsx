@@ -339,7 +339,7 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
             {farmerOptions.length === 0
               ? "No onboarded farm with a mapped boundary is on this phone. Draw the farm plot, then connect once so it can be selected."
               : selectedField
-                ? `This farm is ${formatApplicationAcres(selectedField.area_acres)}. The loaded photo must be within 1 km of its boundary.`
+                ? `This farm is ${formatApplicationAcres(selectedField.area_acres)}.`
                 : "Select the farmer, then the farm plot."}
           </Text>
 
@@ -565,7 +565,7 @@ const styles = StyleSheet.create({
   distanceOutside: {
     fontFamily: fonts.medium,
     fontSize: typeScale.body,
-    color: colors.error,
+    color: colors.warning,
   },
   errorText: {
     fontFamily: fonts.regular,

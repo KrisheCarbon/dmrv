@@ -10,6 +10,7 @@ import {
 import ApplicationMediaThumb from "../application/ApplicationMediaThumb";
 import { getBiomassCollection } from "./actions";
 import {
+  farmDistanceFlagText,
   farmDistanceSummary,
   formatApplicationAcres,
   formatDateTime,
@@ -57,8 +58,14 @@ function PhotoMetadata({
       <DetailRow label="Address">{metadata.address?.trim() || "—"}</DetailRow>
       {distanceDetail ? (
         <DetailRow label="From farm">
-          <span className={distanceOutside ? "font-medium text-status-error" : undefined}>
-            {distanceDetail}
+          <span
+            className={
+              distanceOutside
+                ? "inline-flex rounded-xl bg-status-warning-bg px-2.5 py-1 text-xs font-medium text-status-warning"
+                : "inline-flex rounded-xl bg-status-success-bg px-2.5 py-1 text-xs font-medium text-status-success"
+            }
+          >
+            {distanceOutside ? `Outside 1 km. ${distanceDetail.replace(/\.$/, "")}` : distanceDetail.replace(/\.$/, "")}
           </span>
         </DetailRow>
       ) : null}
@@ -238,9 +245,20 @@ export default function BiomassCollectionPanel({
             <DetailRow label="Production site">{data.producer_name ?? "—"}</DetailRow>
             <DetailRow label="Tractor number">{data.tractor_number?.trim() || "—"}</DetailRow>
             <DetailRow label="From farm">
-              <span className={distance.outsideLimit ? "font-medium text-status-error" : undefined}>
-                {distance.detail}
-              </span>
+              {distance.distanceM == null ? (
+                <span title={distance.detail}>{distance.short}</span>
+              ) : (
+                <span
+                  title={distance.detail}
+                  className={
+                    distance.outsideLimit
+                      ? "inline-flex rounded-xl bg-status-warning-bg px-2.5 py-1 text-xs font-medium text-status-warning"
+                      : "inline-flex rounded-xl bg-status-success-bg px-2.5 py-1 text-xs font-medium text-status-success"
+                  }
+                >
+                  {farmDistanceFlagText(distance)}
+                </span>
+              )}
             </DetailRow>
             <DetailRow label="Travelled">
               <span title={travel.detail}>{travel.detail}</span>
@@ -262,7 +280,7 @@ export default function BiomassCollectionPanel({
           title="Loaded at the farm"
           url={data.loaded_photo_url}
           metadata={data.loaded_photo_metadata}
-          distanceDetail={distance.detail}
+          distanceDetail={distance.distanceM != null ? distance.detail : null}
           distanceOutside={distance.outsideLimit}
           layout={layout}
         />

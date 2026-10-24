@@ -250,8 +250,7 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
               <Text style={styles.emptyTitle}>No biomass trips yet</Text>
               <Text style={styles.emptyText}>
                 Tap + when a tractor is loaded at a farm. Select the farmer and the farm plot,
-                photograph the load within 1 km of that plot, then the unloading at the
-                production site.
+                photograph the load, then the unloading at the production site.
               </Text>
             </View>
           }
@@ -360,7 +359,7 @@ const styles = StyleSheet.create({
   cardDistanceFar: {
     fontFamily: fonts.medium,
     fontSize: typeScale.body,
-    color: colors.error,
+    color: colors.warning,
   },
   syncRow: {
     flexDirection: "row",

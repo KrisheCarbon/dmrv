@@ -22,6 +22,8 @@ export interface BiomassCollectionTableRow extends DbRow {
   operator_name: string;
   distance_label: string;
   distance_detail: string;
+  distance_flag: string;
+  distance_known: boolean;
   distance_outside: boolean;
   travel_label: string;
   travel_detail: string;
@@ -57,6 +59,18 @@ export function travelSummary(record: BiomassCollectionRecord) {
   });
 }
 
+/** Sentence shown on the biomass dashboard flag. */
+export function farmDistanceFlagText(summary: {
+  short: string;
+  detail: string;
+  outsideLimit: boolean;
+  distanceM: number | null;
+}): string {
+  if (summary.distanceM == null) return summary.short;
+  const sentence = summary.detail.replace(/\.$/, "");
+  return summary.outsideLimit ? `Outside 1 km. ${sentence}` : sentence;
+}
+
 export function farmDistanceSummary(record: BiomassCollectionRecord) {
   const latitude = record.loaded_photo_metadata?.latitude;
   const longitude = record.loaded_photo_metadata?.longitude;
@@ -83,6 +97,7 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
     photoMetadataSearchParts(record.unloaded_photo_metadata),
     farmDistanceSummary(record).short,
     farmDistanceSummary(record).detail,
+    farmDistanceFlagText(farmDistanceSummary(record)),
     travelSummary(record).short,
     travelSummary(record).detail,
     transitDuration(record),

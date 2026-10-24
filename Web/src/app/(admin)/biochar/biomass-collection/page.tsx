@@ -12,6 +12,7 @@ import BiomassCollectionPanel from "./BiomassCollectionPanel";
 import { listBiomassCollections } from "./actions";
 import {
   biomassCollectionSearchIndex,
+  farmDistanceFlagText,
   farmDistanceSummary,
   formatApplicationAcres,
   formatDateTime,
@@ -59,6 +60,8 @@ export default function BiomassCollectionPage() {
             operator_name: record.operator_name ?? "Unknown",
             distance_label: distance.short,
             distance_detail: distance.detail,
+            distance_flag: farmDistanceFlagText(distance),
+            distance_known: distance.distanceM != null,
             distance_outside: distance.outsideLimit,
             travel_label: travel.short,
             travel_detail: travel.detail,
@@ -110,10 +113,9 @@ export default function BiomassCollectionPage() {
           Biomass collection
         </h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Tractor loads photographed at a chosen farm plot, within 1 km of that plot&apos;s
-          boundary, and again when unloaded at the production site. Farm acres come from the
-          mapped plot. From farm is the loaded photo&apos;s GPS to the nearest edge of that plot.
-          Travelled is the straight line from the loaded photo to the unloaded photo.
+          Tractor loads photographed at a chosen farm plot, and again when unloaded at the
+          production site. A load more than 1 km from the farm polygon is flagged in yellow.
+          Within 1 km is shown in green. Farm acres come from the mapped plot.
         </p>
       </div>
 
@@ -176,16 +178,23 @@ export default function BiomassCollectionPage() {
           {
             key: "distance_label",
             label: "From farm",
-            render: (_value, row) => (
-              <span
-                className={
-                  row.distance_outside ? "font-medium text-status-error" : "text-neutral-950"
-                }
-                title={String(row.distance_detail ?? "")}
-              >
-                {row.distance_label}
-              </span>
-            ),
+            render: (_value, row) =>
+              row.distance_known ? (
+                <span
+                  title={String(row.distance_detail ?? "")}
+                  className={
+                    row.distance_outside
+                      ? "inline-flex rounded-xl bg-status-warning-bg px-2.5 py-1 text-xs font-medium text-status-warning"
+                      : "inline-flex rounded-xl bg-status-success-bg px-2.5 py-1 text-xs font-medium text-status-success"
+                  }
+                >
+                  {row.distance_flag}
+                </span>
+              ) : (
+                <span className="text-sm text-neutral-950" title={String(row.distance_detail ?? "")}>
+                  {row.distance_label}
+                </span>
+              ),
           },
           {
             key: "travel_label",
