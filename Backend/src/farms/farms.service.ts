@@ -24,11 +24,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 
 const FARM_SELECT = '*, cluster:clusters(id, name)';
 
-/** Columns the farmers list shows. Detail screens still use FARM_SELECT. */
+/** Portal list. Reads farmer_list_rows, not every plot and sample. */
 const FARM_LIST_SELECT = `
   id,
   farmer_name,
-  farmer_code,
   mobile_number,
   address,
   village,
@@ -36,8 +35,18 @@ const FARM_LIST_SELECT = `
   district,
   state,
   total_land_size,
+  farmer_photo_url,
   created_at,
-  cluster:clusters(id, name)
+  cluster_id,
+  cluster_name,
+  profile_complete,
+  farm_count,
+  active_farm_count,
+  farm_onboarded_at,
+  farm_acres,
+  sample_tone,
+  latest_sample_status,
+  has_report
 `;
 
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -53,6 +62,19 @@ const FARM_SORT_COLUMNS: Record<string, string> = {
 };
 
 export type FarmFilterKey = 'name' | 'mobile' | 'location' | 'state';
+
+type FarmerListRow = Farmer & {
+  cluster_id?: string | null;
+  cluster_name?: string | null;
+  profile_complete?: boolean;
+  farm_count?: number;
+  active_farm_count?: number;
+  farm_onboarded_at?: string | null;
+  farm_acres?: number | string | null;
+  sample_tone?: string;
+  latest_sample_status?: string | null;
+  has_report?: boolean;
+};
 
 const FARM_FILTER_COLUMNS: Record<FarmFilterKey, string> = {
   name: 'farmer_name',
@@ -123,7 +145,7 @@ export class FarmsService {
     const ascending = query.dir === 'asc';
 
     let request = this.supabase
-      .from('farms')
+      .from('farmer_list_rows')
       .select(FARM_LIST_SELECT, { count: 'exact' })
       .order(sortColumn, { ascending, nullsFirst: false })
       .order('id', { ascending: true })
@@ -152,8 +174,8 @@ export class FarmsService {
     const { data, error, count } = await request;
     if (error) throw new BadRequestException(error.message);
     return {
-      rows: ((data ?? []) as Farmer[]).map((row) =>
-        viewer ? toDmrvViewerFarm(this.withCluster(row)) : this.withCluster(row),
+      rows: ((data ?? []) as FarmerListRow[]).map((row) =>
+        this.toListRow(row, viewer),
       ),
       total: count ?? 0,
       page,
@@ -352,6 +374,23 @@ export class FarmsService {
     }
 
     return farm.created_by === user.id || farm.assigned_to === user.id;
+  }
+
+  /** List row: cluster name from the view, and no mobile or photo for viewers. */
+  private toListRow(row: FarmerListRow, viewer: boolean): Farmer {
+    const clusterName = row.cluster_name?.trim();
+    const listed: FarmerListRow = {
+      ...row,
+      cluster: row.cluster_id
+        ? { id: row.cluster_id, name: clusterName || 'Unnamed cluster' }
+        : null,
+    };
+    delete listed.cluster_name;
+    if (viewer) {
+      delete listed.mobile_number;
+      delete listed.farmer_photo_url;
+    }
+    return listed;
   }
 
   private withCluster(row: Farmer): Farmer {
