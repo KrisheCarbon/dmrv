@@ -725,6 +725,7 @@ export {
   biomassTravelSummary,
   checkLoadedPhotoNearFarm,
 } from "./biomassCollection";
+export { toPostgresJson } from "./postgresJson";
 export type {
   BiomassCollectionStatus,
   BiomassCollectionRecord,

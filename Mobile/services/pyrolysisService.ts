@@ -1,4 +1,5 @@
 import {
+  toPostgresJson,
   kontikkiWorkflowProgress,
   pyrolysisProtocolForRegistry,
   rainbowKontikkiWorkflowProgress,
@@ -766,7 +767,7 @@ function sanitizeApiBatchPayload(
 ): Record<string, unknown> {
   const next = { ...payload };
   if (next.feedstock_id === "") next.feedstock_id = null;
-  return next;
+  return toPostgresJson(next);
 }
 
 async function resolveServerPyrolysisSession(

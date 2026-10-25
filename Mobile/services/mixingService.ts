@@ -1,8 +1,9 @@
-import type {
-  AvailableMixingPyrolysisBatch,
-  FieldPhotoMetadata,
-  MixingEntryRecord,
-  MixingMaterialType,
+import {
+  toPostgresJson,
+  type AvailableMixingPyrolysisBatch,
+  type FieldPhotoMetadata,
+  type MixingEntryRecord,
+  type MixingMaterialType,
 } from "@krishecarbon/shared";
 import type { CreateMixingEntryPayload } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
@@ -489,7 +490,7 @@ export async function syncMixingEntry(entry: MixingEntry) {
 
   const created = await backendFetch<MixingEntryRecord>("/mixing-entries", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toPostgresJson(payload)),
   });
 
   const fresh = await findEntryOrThrow(entry.id);

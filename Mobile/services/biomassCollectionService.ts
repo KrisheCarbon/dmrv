@@ -1,9 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type {
-  ApplicationFarmerOption,
-  BiomassCollectionRecord,
-  CreateBiomassCollectionPayload,
-  FieldPhotoMetadata,
+import {
+  toPostgresJson,
+  type ApplicationFarmerOption,
+  type BiomassCollectionRecord,
+  type CreateBiomassCollectionPayload,
+  type FieldPhotoMetadata,
 } from "@krishecarbon/shared";
 import { getStoredAuthUser } from "./auth";
 import { getDb } from "../database/db";
@@ -356,7 +357,7 @@ export async function syncBiomassCollection(row: BiomassCollection) {
 
   const created = await backendFetch<BiomassCollectionRecord>("/biomass-collections", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toPostgresJson(payload)),
   });
 
   await db.runAsync(

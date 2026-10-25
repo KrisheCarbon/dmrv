@@ -1,7 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import type { FieldPhotoMetadata, LocationValue } from "@krishecarbon/shared";
+import { toPostgresJson, type FieldPhotoMetadata, type LocationValue } from "@krishecarbon/shared";
 import {
   getLocationForPhotoCapture,
   startLocationCache,
@@ -197,7 +197,7 @@ export async function captureFieldPhotoFromCamera(options?: {
     longitude: location.lng,
     address: location.address ?? null,
     device_time_iso: new Date().toISOString(),
-    exif: (asset.exif as Record<string, unknown> | undefined) ?? null,
+    exif: asset.exif ? toPostgresJson(asset.exif as Record<string, unknown>) : null,
     accuracy_m: precise?.accuracy ?? null,
   };
 

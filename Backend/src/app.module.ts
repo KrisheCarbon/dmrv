@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { PostgresJsonInterceptor } from './postgres-json.interceptor';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -56,6 +58,6 @@ import { FieldOperationsModule } from './field-operations/field-operations.modul
     FieldOperationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_INTERCEPTOR, useClass: PostgresJsonInterceptor }],
 })
 export class AppModule {}

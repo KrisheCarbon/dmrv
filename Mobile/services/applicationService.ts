@@ -1,11 +1,12 @@
-import type {
-  ApplicationEntryRecord,
-  ApplicationFarmerOption,
-  ApplicationMediaType,
-  AvailableApplicationPyrolysisBatch,
-  CreateApplicationEntryPayload,
-  FieldPhotoMetadata,
-  GeoPoint,
+import {
+  toPostgresJson,
+  type ApplicationEntryRecord,
+  type ApplicationFarmerOption,
+  type ApplicationMediaType,
+  type AvailableApplicationPyrolysisBatch,
+  type CreateApplicationEntryPayload,
+  type FieldPhotoMetadata,
+  type GeoPoint,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
@@ -484,7 +485,7 @@ export async function syncApplicationEntry(entry: ApplicationEntry) {
 
   const created = await backendFetch<ApplicationEntryRecord>("/application-entries", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toPostgresJson(payload)),
   });
 
   const fresh = await findEntryOrThrow(entry.id);
