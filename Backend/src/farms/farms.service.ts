@@ -63,6 +63,23 @@ const FARM_SORT_COLUMNS: Record<string, string> = {
 
 export type FarmFilterKey = 'name' | 'mobile' | 'location' | 'state';
 
+/** Which records a farmer must have. `farmer` means the person only, with no farm. */
+const RECORD_FILTERS = ['farmer', 'farms', 'samples', 'reports'] as const;
+export type FarmerRecordFilter = (typeof RECORD_FILTERS)[number];
+
+export function parseFarmerRecordFilter(raw: string | undefined): FarmerRecordFilter[] {
+  const selected = new Set<FarmerRecordFilter>();
+  for (const part of (raw ?? '').split(',')) {
+    const key = part.trim();
+    if ((RECORD_FILTERS as readonly string[]).includes(key)) {
+      selected.add(key as FarmerRecordFilter);
+    }
+  }
+  // "Farmers only" cannot be combined with having a farm, sample, or report.
+  if (selected.has('farmer')) return ['farmer'];
+  return [...selected];
+}
+
 type FarmerListRow = Farmer & {
   cluster_id?: string | null;
   cluster_name?: string | null;
@@ -134,6 +151,7 @@ export class FarmsService {
       sort?: string;
       dir?: string;
       filters: Partial<Record<FarmFilterKey, string>>;
+      record?: string;
     },
   ): Promise<PagedResult<Farmer>> {
     const pageSize = PAGE_SIZES.includes(query.pageSize) ? query.pageSize : 10;
@@ -154,6 +172,8 @@ export class FarmsService {
     if (!viewer && !canAccessWebPortal(user.role)) {
       request = request.or(`created_by.eq.${user.id},assigned_to.eq.${user.id}`);
     }
+
+    request = this.applyRecordFilter(request, query.record);
 
     for (const [key, raw] of Object.entries(query.filters)) {
       // Keep only characters that are safe inside a PostgREST filter.
@@ -181,6 +201,26 @@ export class FarmsService {
       page,
       pageSize,
     };
+  }
+
+  /**
+   * `farmer` keeps people with no farm. The others combine: farms and samples
+   * means the farmer has both.
+   */
+  private applyRecordFilter<
+    T extends {
+      eq: (column: string, value: unknown) => T;
+      gt: (column: string, value: unknown) => T;
+      neq: (column: string, value: unknown) => T;
+    },
+  >(request: T, raw: string | undefined): T {
+    const selected = parseFarmerRecordFilter(raw);
+    if (selected.includes('farmer')) return request.eq('farm_count', 0);
+    let next = request;
+    if (selected.includes('farms')) next = next.gt('farm_count', 0);
+    if (selected.includes('samples')) next = next.neq('sample_tone', 'none');
+    if (selected.includes('reports')) next = next.eq('has_report', true);
+    return next;
   }
 
   async findById(user: AuthenticatedUser, id: string): Promise<Farmer> {

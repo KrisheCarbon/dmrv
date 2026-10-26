@@ -97,6 +97,34 @@ function asTone(value: string | null | undefined): SoilSampleTone {
   return "none";
 }
 
+const RECORD_OPTIONS = [
+  { key: "farmer", label: "Farmers only" },
+  { key: "farms", label: "Has farms" },
+  { key: "samples", label: "Has soil samples" },
+  { key: "reports", label: "Has reports" },
+] as const;
+
+type RecordKey = (typeof RECORD_OPTIONS)[number]["key"];
+
+function recordChipClass(selected: boolean) {
+  return `inline-flex min-h-12 items-center rounded-xl px-4 text-sm font-medium ${
+    selected
+      ? "bg-brand-dark text-white"
+      : "border border-neutral-300 bg-white text-brand-dark"
+  }`;
+}
+
+function recordSummary(selected: RecordKey[]) {
+  if (selected.length === 0) return "All farmers.";
+  if (selected.includes("farmer")) return "Farmers with no farm yet.";
+  const labels = RECORD_OPTIONS.filter((option) => selected.includes(option.key)).map(
+    (option) => option.label.replace(/^Has /, ""),
+  );
+  if (labels.length === 1) return `Farmers who have ${labels[0]}.`;
+  const last = labels[labels.length - 1];
+  return `Farmers who have ${labels.slice(0, -1).join(", ")} and ${last}.`;
+}
+
 export default function FarmersPage() {
   const router = useRouter();
   const readOnly = useIsDmrvViewer();
@@ -104,10 +132,11 @@ export default function FarmersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState<DataTableQuery>(DEFAULT_TABLE_QUERY);
+  const [record, setRecord] = useState<RecordKey[]>([]);
   const [total, setTotal] = useState(0);
   const requestRef = useRef(0);
 
-  const loadData = useCallback(async (current: DataTableQuery) => {
+  const loadData = useCallback(async (current: DataTableQuery, selected: RecordKey[]) => {
     const requestId = ++requestRef.current;
     setLoading(true);
     setError(null);
@@ -122,6 +151,7 @@ export default function FarmersPage() {
         sort: current.sortKey,
         dir: current.sortDir,
         filters,
+        record: selected.length > 0 ? selected.join(",") : undefined,
       });
       if (requestId !== requestRef.current) return;
       if (farmResult.error || farmResult.data == null) {
@@ -139,8 +169,17 @@ export default function FarmersPage() {
   }, []);
 
   useEffect(() => {
-    loadData(query);
-  }, [loadData, query]);
+    loadData(query, record);
+  }, [loadData, query, record]);
+
+  function toggleRecord(key: RecordKey) {
+    setRecord((current) => {
+      if (key === "farmer") return current.includes("farmer") ? [] : ["farmer"];
+      const next = current.filter((item) => item !== "farmer");
+      return next.includes(key) ? next.filter((item) => item !== key) : [...next, key];
+    });
+    setQuery((current) => ({ ...current, page: 1 }));
+  }
 
   const rows = useMemo(() => {
     return farms.map((farm): FarmerRow => {
@@ -214,10 +253,42 @@ export default function FarmersPage() {
         </div>
       ) : null}
 
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2.5" role="group" aria-label="Filter farmers">
+          <button
+            type="button"
+            aria-pressed={record.length === 0}
+            onClick={() => {
+              setRecord([]);
+              setQuery((current) => ({ ...current, page: 1 }));
+            }}
+            className={recordChipClass(record.length === 0)}
+          >
+            {record.length === 0 ? "✓ " : ""}All
+          </button>
+          {RECORD_OPTIONS.map((option) => {
+            const selected = record.includes(option.key);
+            return (
+              <button
+                key={option.key}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => toggleRecord(option.key)}
+                className={recordChipClass(selected)}
+              >
+                {selected ? "✓ " : ""}
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-sm text-text-secondary">{recordSummary(record)}</p>
+      </div>
+
       <DataTable
         loading={loading}
         server={{ total, query, onQueryChange: setQuery }}
-        emptyText="No farmers found."
+        emptyText={record.length > 0 ? "No farmers match this filter." : "No farmers found."}
         columns={[
           {
             key: "name",

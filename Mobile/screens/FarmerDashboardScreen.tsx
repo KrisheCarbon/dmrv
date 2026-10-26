@@ -9,6 +9,7 @@ import {
   Pressable,
   Modal,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import FarmerCard from "../components/FarmerCard";
 import SearchField from "../components/SearchField";
@@ -23,12 +24,34 @@ import {
   subscribeSyncEvents,
   getAllSyncProgress
 } from "../services/syncService";
-import { colors, fonts, spacing, radius } from "../constants/theme";
+import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 import {
   fetchFieldActivity,
   type FieldActivityPerson,
   type FieldActivityStats,
 } from "../services/fieldActivity";
+
+const RECORD_FILTERS = [
+  { key: "farmer", label: "Farmers only" },
+  { key: "farms", label: "Has farms" },
+  { key: "samples", label: "Has soil samples" },
+  { key: "reports", label: "Has reports" },
+];
+
+function matchesRecordFilter(checklist, farmerId, selected) {
+  if (!selected.length) return true;
+  const item = checklist?.[farmerId];
+  const hasFields = Boolean(item?.hasFields);
+  const hasSample = Boolean(item?.hasSoilSample);
+  const hasReport = Boolean(item?.hasSoilReport);
+  if (selected.includes("farmer")) {
+    return !hasFields && !hasSample && !hasReport;
+  }
+  if (selected.includes("farms") && !hasFields) return false;
+  if (selected.includes("samples") && !hasSample) return false;
+  if (selected.includes("reports") && !hasReport) return false;
+  return true;
+}
 
 const FILTERS = {
   all: { key: "all", label: "All entries", heading: "All farmers" },
@@ -126,6 +149,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
   const [farmers, setFarmers] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
+  const [recordFilter, setRecordFilter] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const keyboardOverlap = useKeyboardOverlap();
@@ -193,11 +217,21 @@ export default function FarmerDashboardScreen({ navigation, route }) {
 
   const filteredFarmers = useMemo(
     () =>
-      filterFarmers(scopedFarmers, activeFilter).filter((farmer) =>
-        matchesFarmerSearch(farmer, searchQuery),
+      filterFarmers(scopedFarmers, activeFilter).filter(
+        (farmer) =>
+          matchesFarmerSearch(farmer, searchQuery) &&
+          matchesRecordFilter(checklist, farmer.id, recordFilter),
       ),
-    [scopedFarmers, activeFilter, searchQuery]
+    [scopedFarmers, activeFilter, searchQuery, checklist, recordFilter]
   );
+
+  function toggleRecord(key) {
+    setRecordFilter((current) => {
+      if (key === "farmer") return current.includes("farmer") ? [] : ["farmer"];
+      const next = current.filter((item) => item !== "farmer");
+      return next.includes(key) ? next.filter((item) => item !== key) : [...next, key];
+    });
+  }
 
   async function openEnteredByPicker() {
     setPickerOpen(true);
@@ -290,6 +324,39 @@ export default function FarmerDashboardScreen({ navigation, route }) {
         style={styles.search}
       />
 
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.recordRow}
+      >
+        <Pressable
+          style={[styles.recordChip, recordFilter.length === 0 && styles.recordChipOn]}
+          onPress={() => setRecordFilter([])}
+          accessibilityRole="button"
+          accessibilityState={{ selected: recordFilter.length === 0 }}
+        >
+          <Text style={[styles.recordChipText, recordFilter.length === 0 && styles.recordChipTextOn]}>
+            {recordFilter.length === 0 ? "✓ All" : "All"}
+          </Text>
+        </Pressable>
+        {RECORD_FILTERS.map((option) => {
+          const selected = recordFilter.includes(option.key);
+          return (
+            <Pressable
+              key={option.key}
+              style={[styles.recordChip, selected && styles.recordChipOn]}
+              onPress={() => toggleRecord(option.key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+            >
+              <Text style={[styles.recordChipText, selected && styles.recordChipTextOn]}>
+                {selected ? `✓ ${option.label}` : option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       <View style={styles.enteredBy}>
         <Pressable style={styles.enteredByMain} onPress={openEnteredByPicker}>
           <Text style={styles.enteredByLabel}>Entered by</Text>
@@ -335,7 +402,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
             <Text style={styles.emptyTitle}>
               {enteredByName
                 ? `No farmers from ${enteredByName}`
-                : searchQuery.trim()
+                : searchQuery.trim() || recordFilter.length
                 ? "No matching farmers"
                 : activeFilter === "all"
                   ? "No farmers yet"
@@ -344,8 +411,8 @@ export default function FarmerDashboardScreen({ navigation, route }) {
             <Text style={styles.emptyText}>
               {enteredByName
                 ? "No farmers on this phone were entered by this person."
-                : searchQuery.trim()
-                ? `No farmer matches “${searchQuery.trim()}”.`
+                : searchQuery.trim() || recordFilter.length
+                ? "No farmer matches this search or filter."
                 : activeFilter === "all"
                   ? listMode === "repeat"
                     ? "No farmers yet. Onboard under New Farmer, then return here to update them."
@@ -421,24 +488,24 @@ const styles = StyleSheet.create({
     flex: 1
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: typeScale.title,
     fontFamily: fonts.bold,
     color: colors.brunswick,
     letterSpacing: -0.4,
     paddingLeft: 10
   },
   addBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#1A3C2A",
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.brunswick,
     alignItems: "center",
     justifyContent: "center"
   },
   addBtnText: {
-    fontSize: 26,
+    fontSize: typeScale.display,
     lineHeight: 28,
-    color: "#8CC63E",
+    color: colors.white,
     fontFamily: fonts.medium,
     marginTop: -1
   },
@@ -451,6 +518,32 @@ const styles = StyleSheet.create({
   search: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
+  },
+  recordRow: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  recordChip: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.smoke,
+    backgroundColor: colors.white,
+  },
+  recordChipOn: {
+    backgroundColor: colors.brunswick,
+    borderColor: colors.brunswick,
+  },
+  recordChipText: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.label,
+    color: colors.brunswick,
+  },
+  recordChipTextOn: {
+    color: colors.white,
   },
   enteredBy: {
     flexDirection: "row",
@@ -473,23 +566,23 @@ const styles = StyleSheet.create({
   },
   enteredByLabel: {
     fontFamily: fonts.medium,
-    fontSize: 13,
-    color: colors.smoke,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
   },
   enteredByValue: {
     flex: 1,
     fontFamily: fonts.medium,
-    fontSize: 14,
+    fontSize: typeScale.body,
     color: colors.brunswick,
   },
   enteredByClear: {
     fontFamily: fonts.medium,
-    fontSize: 13,
+    fontSize: typeScale.label,
     color: colors.error,
   },
   enteredByChevron: {
-    fontSize: 20,
-    color: colors.smoke,
+    fontSize: typeScale.heading,
+    color: colors.textSecondary,
   },
   pickerOverlay: {
     flex: 1,
@@ -509,7 +602,7 @@ const styles = StyleSheet.create({
   },
   pickerTitle: {
     fontFamily: fonts.bold,
-    fontSize: 18,
+    fontSize: typeScale.heading,
     color: colors.brunswick,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
@@ -522,14 +615,14 @@ const styles = StyleSheet.create({
   },
   pickerName: {
     fontFamily: fonts.medium,
-    fontSize: 16,
+    fontSize: typeScale.body,
     color: colors.text,
   },
   pickerRole: {
     marginTop: 2,
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
     textTransform: "capitalize",
   },
   pickerLoading: {
@@ -538,7 +631,7 @@ const styles = StyleSheet.create({
   pickerEmpty: {
     padding: spacing.lg,
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
   },
   statTile: {
     flex: 1,
@@ -557,7 +650,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.chartreuse
   },
   statValue: {
-    fontSize: 22,
+    fontSize: typeScale.title,
     fontFamily: fonts.bold,
     color: colors.brunswick,
     marginBottom: 2
@@ -566,9 +659,9 @@ const styles = StyleSheet.create({
     color: colors.brunswick
   },
   statLabel: {
-    fontSize: 10,
+    fontSize: typeScale.label,
     fontFamily: fonts.medium,
-    color: colors.smoke,
+    color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 13
   },
@@ -583,9 +676,9 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl
   },
   listHeading: {
-    fontSize: 14,
+    fontSize: typeScale.bodySmall,
     fontFamily: fonts.medium,
-    color: colors.smoke,
+    color: colors.textSecondary,
     marginBottom: spacing.sm,
     paddingLeft: 10
   },
@@ -595,15 +688,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: typeScale.heading,
     fontFamily: fonts.medium,
     color: colors.brunswick,
     marginBottom: 8
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: typeScale.bodySmall,
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 20
   }

@@ -43,6 +43,7 @@ export class FarmsController {
         location: query.location,
         state: query.state,
       },
+      record: query.record,
     });
   }
 
