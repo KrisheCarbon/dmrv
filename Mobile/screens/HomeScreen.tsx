@@ -21,7 +21,8 @@ import { ScreenShell } from "../components/ScreenHeader";
 import { getEntitySyncSummary, getSyncStatusSummary } from "../services/syncService";
 import { listPyrolysisSessions } from "../services/pyrolysisService";
 import { resetOfflineAppData } from "../utils/appDataReset";
-import { colors, fonts, spacing, radius, logos } from "../constants/theme";
+import { colors, fonts, spacing, radius, logos, typeScale } from "../constants/theme";
+import { listUpdateInbox } from "../services/updatesService";
 
 const BASE_MODULES = [
   {
@@ -129,7 +130,7 @@ const TONE = {
   neutral: {
     dot: colors.smoke,
     bg: colors.chalk,
-    text: colors.smoke
+    text: colors.textSecondary
   }
 };
 
@@ -235,6 +236,8 @@ export default function HomeScreen({ navigation }) {
   const [showHeroCard, setShowHeroCard] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
   const [inProgressPyrolysis, setInProgressPyrolysis] = useState([]);
+  const [unreadUpdates, setUnreadUpdates] = useState(0);
+  const [latestUpdateTitle, setLatestUpdateTitle] = useState<string | null>(null);
 
   useEffect(() => {
     loadSummary();
@@ -284,6 +287,16 @@ export default function HomeScreen({ navigation }) {
       }
     } catch {
       // Sync status can fill in on the next focus refresh.
+    }
+
+    try {
+      const inbox = await listUpdateInbox();
+      setUnreadUpdates(inbox.unread_count);
+      setLatestUpdateTitle(
+        inbox.messages.find((message) => !message.read)?.title ?? null
+      );
+    } catch {
+      // Updates need a connection. The home screen still works offline.
     }
   }
 
@@ -409,17 +422,62 @@ export default function HomeScreen({ navigation }) {
               Hello{userName ? `, ${userName}` : ""}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileBtn}
-            onPress={() => setMenuVisible(true)}
-            activeOpacity={0.85}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.profileRole} numberOfLines={1}>
-              {userRole?.role_label || "···"}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.topActions}>
+            <TouchableOpacity
+              style={styles.bellBtn}
+              onPress={() => navigation.navigate("Updates")}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={
+                unreadUpdates > 0
+                  ? `Updates, ${unreadUpdates} unread`
+                  : "Updates, no unread messages"
+              }
+            >
+              <View style={styles.bellBody} />
+              <View style={styles.bellBase} />
+              {unreadUpdates > 0 ? <View style={styles.bellDot} /> : null}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.profileBtn}
+              onPress={() => setMenuVisible(true)}
+              activeOpacity={0.85}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.profileRole} numberOfLines={1}>
+                {userRole?.role_label || "···"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {unreadUpdates > 0 ? (
+          <Pressable
+            style={styles.updateCard}
+            onPress={() => navigation.navigate("Updates")}
+            accessibilityRole="button"
+            accessibilityLabel={
+              unreadUpdates === 1
+                ? "1 new update"
+                : `${unreadUpdates} new updates`
+            }
+          >
+            <View style={styles.updateDot} />
+            <View style={styles.updateCopy}>
+              <Text style={styles.updateTitle}>
+                {unreadUpdates === 1
+                  ? "New update"
+                  : `${unreadUpdates} new updates`}
+              </Text>
+              {latestUpdateTitle ? (
+                <Text style={styles.updatePreview} numberOfLines={2}>
+                  {latestUpdateTitle}
+                </Text>
+              ) : null}
+            </View>
+            <Text style={styles.updateChevron}>›</Text>
+          </Pressable>
+        ) : null}
 
         {showHeroCard && heroCard ? (
           <View style={styles.heroCard}>
@@ -600,8 +658,8 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: spacing.md,
     fontFamily: fonts.regular,
-    fontSize: 14,
-    color: colors.smoke,
+    fontSize: typeScale.bodySmall,
+    color: colors.textSecondary,
     textAlign: "center"
   },
   content: {
@@ -628,33 +686,112 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: colors.white
   },
+  topActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm
+  },
+  bellBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.sm,
+    borderWidth: 1.5,
+    borderColor: colors.brunswick,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  bellBody: {
+    width: 14,
+    height: 12,
+    borderWidth: 2,
+    borderColor: colors.brunswick,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2
+  },
+  bellBase: {
+    width: 18,
+    height: 2,
+    marginTop: 2,
+    borderRadius: 1,
+    backgroundColor: colors.brunswick
+  },
+  bellDot: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: radius.pill,
+    backgroundColor: colors.success,
+    borderWidth: 2,
+    borderColor: colors.white
+  },
+  updateCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.successBg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    minHeight: 48
+  },
+  updateDot: {
+    width: 10,
+    height: 10,
+    borderRadius: radius.pill,
+    backgroundColor: colors.success
+  },
+  updateCopy: {
+    flex: 1
+  },
+  updateTitle: {
+    fontFamily: fonts.bold,
+    fontSize: typeScale.body,
+    color: colors.success
+  },
+  updatePreview: {
+    marginTop: 2,
+    fontFamily: fonts.regular,
+    fontSize: typeScale.label,
+    color: colors.text
+  },
+  updateChevron: {
+    fontSize: typeScale.title,
+    color: colors.textSecondary
+  },
   profileBtn: {
-    minWidth: 40,
-    maxWidth: 108,
-    height: 40,
-    borderRadius: 20,
+    minWidth: 48,
+    maxWidth: 140,
+    height: 48,
+    borderRadius: radius.pill,
     backgroundColor: colors.chartreuse,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 10
+    paddingHorizontal: spacing.sm
   },
   profileRole: {
     fontFamily: fonts.bold,
-    fontSize: 11,
+    fontSize: typeScale.label,
     color: colors.brunswick,
     textTransform: "uppercase",
     letterSpacing: 0.3
   },
   greeting: {
     flex: 1,
-    fontSize: 20,
+    fontSize: typeScale.title,
     fontFamily: fonts.bold,
     color: colors.brunswick,
     letterSpacing: -0.5,
-    lineHeight: 26
+    lineHeight: 28
   },
   heroCard: {
-    backgroundColor: "#1A3C2A",
+    backgroundColor: colors.brunswick,
     borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
@@ -674,47 +811,46 @@ const styles = StyleSheet.create({
   heroDismissText: {
     fontSize: 24,
     lineHeight: 26,
-    color: "#FFFFFF",
-    opacity: 0.85,
+    color: colors.white,
     fontWeight: "300"
   },
   heroEyebrow: {
-    fontSize: 11,
+    fontSize: typeScale.label,
     fontFamily: fonts.medium,
-    color: "#8CC63E",
+    color: colors.chartreuse,
     marginBottom: 4,
     textTransform: "uppercase",
     letterSpacing: 0.6
   },
   heroTitle: {
-    fontSize: 18,
+    fontSize: typeScale.heading,
     fontFamily: fonts.bold,
     fontWeight: "700",
-    color: "#FFFFFF",
+    color: colors.white,
     marginBottom: 4,
     paddingRight: spacing.lg,
     letterSpacing: -0.3
   },
   heroMessage: {
-    fontSize: 13,
+    fontSize: typeScale.label,
     fontFamily: fonts.regular,
-    color: "#FFFFFF",
-    opacity: 0.82,
+    color: colors.white,
     lineHeight: 18,
     marginBottom: spacing.md
   },
   heroBtn: {
     alignSelf: "flex-start",
-    backgroundColor: "#8CC63E",
+    backgroundColor: colors.chartreuse,
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    minHeight: 48,
+    justifyContent: "center",
     borderRadius: radius.sm
   },
   heroBtnText: {
     fontFamily: fonts.bold,
     fontWeight: "700",
-    fontSize: 14,
-    color: "#1A3C2A"
+    fontSize: typeScale.body,
+    color: colors.brunswick
   },
   syncNoticeCard: {
     backgroundColor: colors.white,
@@ -738,20 +874,20 @@ const styles = StyleSheet.create({
   syncDismissText: {
     fontSize: 24,
     lineHeight: 26,
-    color: colors.smoke,
+    color: colors.textSecondary,
     fontFamily: fonts.regular
   },
   syncNoticeTitle: {
-    fontSize: 16,
+    fontSize: typeScale.body,
     fontFamily: fonts.bold,
     color: colors.brunswick,
     marginBottom: 4,
     paddingRight: spacing.lg
   },
   syncNoticeMessage: {
-    fontSize: 13,
+    fontSize: typeScale.label,
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
     lineHeight: 18,
     marginBottom: spacing.sm
   },
@@ -783,13 +919,13 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   moduleTitle: {
-    fontSize: 16,
+    fontSize: typeScale.body,
     fontFamily: fonts.medium,
     color: colors.brunswick,
     flexShrink: 1
   },
   moduleTitleDisabled: {
-    color: colors.smoke
+    color: colors.textSecondary
   },
   soonBadge: {
     backgroundColor: colors.chalk,
@@ -798,16 +934,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill
   },
   soonText: {
-    fontSize: 10,
+    fontSize: typeScale.label,
     fontFamily: fonts.medium,
-    color: colors.smoke,
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: 0.5
   },
   moduleDesc: {
-    fontSize: 13,
+    fontSize: typeScale.label,
     fontFamily: fonts.regular,
-    color: colors.smoke,
+    color: colors.textSecondary,
     lineHeight: 18,
     paddingRight: spacing.sm
   },
@@ -819,7 +955,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     gap: 5,
     marginLeft: spacing.sm,
-    maxWidth: 118
+    maxWidth: 148
   },
   statusDot: {
     width: 7,
@@ -827,13 +963,13 @@ const styles = StyleSheet.create({
     borderRadius: 4
   },
   statusText: {
-    fontSize: 10,
+    fontSize: typeScale.label,
     fontFamily: fonts.medium,
     flexShrink: 1
   },
   chevron: {
     fontSize: 24,
-    color: colors.smokeLight,
+    color: colors.textSecondary,
     marginLeft: spacing.sm
   },
   menuOverlay: {
@@ -863,18 +999,19 @@ const styles = StyleSheet.create({
   },
   menuName: {
     fontFamily: fonts.bold,
-    fontSize: 15,
+    fontSize: typeScale.bodySmall,
     color: colors.brunswick
   },
   menuHint: {
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
     marginTop: 2
   },
   menuItem: {
     paddingHorizontal: spacing.md,
-    paddingVertical: 14
+    minHeight: 48,
+    justifyContent: "center"
   },
   menuItemDangerSection: {
     borderTopWidth: 1,
@@ -883,12 +1020,12 @@ const styles = StyleSheet.create({
   menuItemLast: {},
   menuItemText: {
     fontFamily: fonts.medium,
-    fontSize: 15,
+    fontSize: typeScale.bodySmall,
     color: colors.brunswick
   },
   menuItemDanger: {
     fontFamily: fonts.medium,
-    fontSize: 15,
+    fontSize: typeScale.bodySmall,
     color: colors.error
   }
 });

@@ -38,7 +38,7 @@ export default async function AdminLayout({
 
   return (
     <div className="flex h-svh min-h-0 flex-col overflow-hidden bg-gray-50 text-gray-900">
-      <header className="h-16 flex-shrink-0 border-b border-gray-200 bg-white">
+      <header className="relative z-20 h-16 flex-shrink-0 border-b border-gray-200 bg-white">
         <Navbar initials={initials.toUpperCase()} displayName={displayName} />
       </header>
 

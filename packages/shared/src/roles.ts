@@ -165,6 +165,17 @@ export function canManageUsers(role: string): boolean {
   return isUserRole(role) && USER_MANAGEMENT_ROLES.includes(role);
 }
 
+/** Roles that can write an operational update and choose who receives it. */
+export const UPDATE_SEND_ROLES: readonly UserRole[] = [
+  "admin",
+  "manager",
+  "supervisor",
+];
+
+export function canSendUpdates(role: string): boolean {
+  return isUserRole(role) && UPDATE_SEND_ROLES.includes(role);
+}
+
 /** Roles allowed to open Network (producers, kontikkis, clusters, partners, etc.). */
 export const NETWORK_ACCESS_ROLES: readonly UserRole[] = ["admin", "manager"];
 

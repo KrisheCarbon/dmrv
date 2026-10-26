@@ -42,6 +42,8 @@ export {
   toDmrvViewerField,
   withoutPeopleForDmrvViewer,
   canManageUsers,
+  UPDATE_SEND_ROLES,
+  canSendUpdates,
   canAccessNetwork,
   NETWORK_ACCESS_ROLES,
   canAccessFarmersNetworkPortal,

@@ -29,6 +29,7 @@ import { FieldActivityModule } from './field-activity/field-activity.module';
 import { PaymentsModule } from './payments/payments.module';
 import { FieldOperationsModule } from './field-operations/field-operations.module';
 import { ObjectStorageModule } from './object-storage/object-storage.module';
+import { UpdatesModule } from './updates/updates.module';
 import { DataProxyController } from './data-proxy/data-proxy.controller';
 import { DashboardController } from './dashboard/dashboard.controller';
 
@@ -60,6 +61,7 @@ import { DashboardController } from './dashboard/dashboard.controller';
     PaymentsModule,
     FieldOperationsModule,
     ObjectStorageModule,
+    UpdatesModule,
   ],
   controllers: [AppController, DataProxyController, DashboardController],
   providers: [AppService, { provide: APP_INTERCEPTOR, useClass: PostgresJsonInterceptor }],

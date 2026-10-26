@@ -33,6 +33,7 @@ import DashboardHubScreen from "./screens/DashboardHubScreen";
 import PaymentsScreen from "./screens/PaymentsScreen";
 import TrainingsScreen from "./screens/TrainingsScreen";
 import InspectionsScreen from "./screens/InspectionsScreen";
+import UpdatesScreen from "./screens/UpdatesScreen";
 import DashboardModuleScreen from "./screens/DashboardModuleScreen";
 import FieldActivityScreen from "./screens/FieldActivityScreen";
 import AddFarmerScreen from "./screens/AddFarmerScreen";
@@ -113,6 +114,7 @@ function MainStack() {
       <Stack.Screen name="Payments" component={screen(PaymentsScreen)} />
       <Stack.Screen name="Trainings" component={screen(TrainingsScreen)} />
       <Stack.Screen name="Inspections" component={screen(InspectionsScreen)} />
+      <Stack.Screen name="Updates" component={screen(UpdatesScreen)} />
       <Stack.Screen
         name="DashboardModule"
         component={screen(DashboardModuleScreen)}

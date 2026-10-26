@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: radius.sm,
     alignItems: "center",
-    minHeight: 52,
+    minHeight: 56,
     justifyContent: "center"
   },
   outline: {
