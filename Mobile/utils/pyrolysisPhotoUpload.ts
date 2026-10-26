@@ -23,8 +23,6 @@ async function uploadLocalPhoto(
     );
   }
 
-  const response = await fetch(localUri);
-  const arrayBuffer = await response.arrayBuffer();
   const ext = localUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
   const contentType =
     ext === "png"
@@ -34,7 +32,7 @@ async function uploadLocalPhoto(
         : "image/jpeg";
 
   try {
-    await uploadStorageObject(PYROLYSIS_BUCKET, storagePath, arrayBuffer, contentType);
+    await uploadStorageObject(PYROLYSIS_BUCKET, storagePath, localUri, contentType);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Photo upload failed.";
     const hint = /not found/i.test(message)

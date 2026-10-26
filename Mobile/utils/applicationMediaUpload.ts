@@ -41,13 +41,11 @@ async function uploadLocalMedia(
     );
   }
 
-  const response = await fetch(localUri);
-  const arrayBuffer = await response.arrayBuffer();
   const ext = mediaExt(localUri, mediaType);
   const contentType = contentTypeForExt(ext, mediaType);
 
   try {
-    await uploadStorageObject(APPLICATION_BUCKET, storagePath, arrayBuffer, contentType);
+    await uploadStorageObject(APPLICATION_BUCKET, storagePath, localUri, contentType);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Media upload failed.";
     const hint = /not found/i.test(message)

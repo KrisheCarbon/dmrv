@@ -45,15 +45,13 @@ export async function uploadFarmerNetworkPhoto(
     );
   }
 
-  const response = await fetch(localUri);
-  const arrayBuffer = await response.arrayBuffer();
   const ext = photoExt(localUri);
   const contentType = contentTypeForExt(ext);
 
   await uploadStorageObject(
     FARMER_NETWORK_PHOTOS_BUCKET,
     storagePath,
-    arrayBuffer,
+    localUri,
     contentType,
   );
   return publicObjectUrl(FARMER_NETWORK_PHOTOS_BUCKET, storagePath);
@@ -75,9 +73,7 @@ export async function uploadSoilReportFile(
     );
   }
 
-  const response = await fetch(localUri);
-  const arrayBuffer = await response.arrayBuffer();
-  await uploadStorageObject(SOIL_REPORTS_BUCKET, storagePath, arrayBuffer, contentType);
+  await uploadStorageObject(SOIL_REPORTS_BUCKET, storagePath, localUri, contentType);
 
   // The bucket is private: store the path, as the admin portal does, and
   // sign it when someone opens the report.

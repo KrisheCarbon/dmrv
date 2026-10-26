@@ -29,14 +29,12 @@ export async function uploadBiomassCollectionPhoto(
     );
   }
 
-  const response = await fetch(localUri);
-  const arrayBuffer = await response.arrayBuffer();
   const ext = localUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
   const contentType = ext === "png" ? "image/png" : "image/jpeg";
   const storagePath = `collections/${collectionId}/${kind}.${ext}`;
 
   try {
-    await uploadStorageObject(BIOMASS_COLLECTION_BUCKET, storagePath, arrayBuffer, contentType);
+    await uploadStorageObject(BIOMASS_COLLECTION_BUCKET, storagePath, localUri, contentType);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Photo upload failed.";
     const hint = /not found/i.test(message)

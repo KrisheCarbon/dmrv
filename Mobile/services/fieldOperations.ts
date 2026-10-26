@@ -1,4 +1,5 @@
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { backendFetch } from "./backendApi";
 import { uploadStorageObject } from "./objectStorage";
@@ -124,15 +125,15 @@ export async function uploadPicked(
     if (!allowed.includes(file.contentType)) {
       throw new Error(`${file.name} is not an allowed file type.`);
     }
-    const response = await fetch(file.uri);
-    const body = await response.arrayBuffer();
+    const info = await FileSystem.getInfoAsync(file.uri);
+    const size = info.exists && "size" in info ? info.size : 0;
     const limit = VIDEO_TYPES.includes(file.contentType) ? 80 * 1024 * 1024 : 20 * 1024 * 1024;
-    if (body.byteLength > limit) {
+    if (size > limit) {
       throw new Error(`${file.name} is too large.`);
     }
     const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
     const path = `${user.id}/${randomId()}/${kind}/${clean}`;
-    await uploadStorageObject(bucket, path, body, file.contentType);
+    await uploadStorageObject(bucket, path, file.uri, file.contentType);
     uploaded.push({
       kind,
       path,

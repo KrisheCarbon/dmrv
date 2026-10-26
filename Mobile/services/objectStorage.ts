@@ -1,23 +1,39 @@
 import { useEffect, useState } from "react";
+import * as FileSystem from "expo-file-system/legacy";
 import { storageRefFromValue, storedObjectUrl } from "@krishecarbon/shared";
 import { backendFetch } from "./backendApi";
+
+/** React Native cannot build a Blob from raw bytes, so the file is uploaded from disk. */
+function fileUriForUpload(uri: string): string {
+  if (
+    uri.startsWith("file://") ||
+    uri.startsWith("content://") ||
+    uri.startsWith("ph://") ||
+    uri.startsWith("assets-library://")
+  ) {
+    return uri;
+  }
+  if (uri.startsWith("/")) return `file://${uri}`;
+  return uri;
+}
 
 export async function uploadStorageObject(
   bucket: string,
   path: string,
-  body: ArrayBuffer,
+  fileUri: string,
   contentType: string,
 ): Promise<void> {
   const { uploadUrl } = await backendFetch<{ uploadUrl: string }>("/storage/upload-url", {
     method: "POST",
     body: JSON.stringify({ bucket, path, contentType }),
   });
-  const saved = await fetch(uploadUrl, {
-    method: "PUT",
+  const saved = await FileSystem.uploadAsync(uploadUrl, fileUriForUpload(fileUri), {
+    httpMethod: "PUT",
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
     headers: { "Content-Type": contentType },
-    body: new Blob([body], { type: contentType }),
   });
-  if (!saved.ok) {
+  if (saved.status < 200 || saved.status >= 300) {
     throw new Error("The file could not be saved.");
   }
 }
