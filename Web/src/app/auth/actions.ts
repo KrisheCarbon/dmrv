@@ -1,34 +1,21 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
-import { toLocalIndianMobile } from "@krishecarbon/shared";
-import { getServiceRoleKey, supabaseUrl } from "@/lib/env";
-
-const admin = createClient(supabaseUrl, getServiceRoleKey());
+import { getBackendUrl } from "@/lib/env";
 
 export async function lookupLoginEmailByPhone(
   phone: string,
 ): Promise<string | null> {
-  const local = toLocalIndianMobile(phone);
-  if (!/^[6-9]\d{9}$/.test(local)) return null;
-
-  const { data, error } = await admin
-    .from("users")
-    .select("email, phone, status");
-
-  if (error) {
-    console.error("lookupLoginEmailByPhone:", error.message);
+  try {
+    const response = await fetch(`${getBackendUrl()}/auth/login-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { email?: string | null };
+    return body.email ?? null;
+  } catch {
     return null;
   }
-
-  const matches = (data ?? []).filter(
-    (user) =>
-      user.status !== "disabled" &&
-      user.phone &&
-      user.email &&
-      toLocalIndianMobile(user.phone) === local,
-  );
-
-  if (matches.length !== 1) return null;
-  return matches[0].email ?? null;
 }

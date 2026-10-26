@@ -28,6 +28,9 @@ import { MapStatsModule } from './map-stats/map-stats.module';
 import { FieldActivityModule } from './field-activity/field-activity.module';
 import { PaymentsModule } from './payments/payments.module';
 import { FieldOperationsModule } from './field-operations/field-operations.module';
+import { ObjectStorageModule } from './object-storage/object-storage.module';
+import { DataProxyController } from './data-proxy/data-proxy.controller';
+import { DashboardController } from './dashboard/dashboard.controller';
 
 @Module({
   imports: [
@@ -56,8 +59,9 @@ import { FieldOperationsModule } from './field-operations/field-operations.modul
     FieldActivityModule,
     PaymentsModule,
     FieldOperationsModule,
+    ObjectStorageModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, DataProxyController, DashboardController],
   providers: [AppService, { provide: APP_INTERCEPTOR, useClass: PostgresJsonInterceptor }],
 })
 export class AppModule {}

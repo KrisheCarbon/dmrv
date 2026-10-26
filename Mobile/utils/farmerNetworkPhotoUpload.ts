@@ -4,7 +4,7 @@ import {
   FARMER_NETWORK_PHOTOS_BUCKET,
   SOIL_REPORTS_BUCKET,
 } from "@krishecarbon/shared";
-import { supabase } from "../services/supabase";
+import { publicObjectUrl, signStoredFile, uploadStorageObject } from "../services/objectStorage";
 
 function photoExt(uri: string): string {
   return uri.split(".").pop()?.split("?")[0] || "jpg";
@@ -50,18 +50,13 @@ export async function uploadFarmerNetworkPhoto(
   const ext = photoExt(localUri);
   const contentType = contentTypeForExt(ext);
 
-  const { error } = await supabase.storage
-    .from(FARMER_NETWORK_PHOTOS_BUCKET)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
-
-  if (error) {
-    throw new Error(error.message || "Photo upload failed.");
-  }
-
-  const { data } = supabase.storage
-    .from(FARMER_NETWORK_PHOTOS_BUCKET)
-    .getPublicUrl(storagePath);
-  return data.publicUrl;
+  await uploadStorageObject(
+    FARMER_NETWORK_PHOTOS_BUCKET,
+    storagePath,
+    arrayBuffer,
+    contentType,
+  );
+  return publicObjectUrl(FARMER_NETWORK_PHOTOS_BUCKET, storagePath);
 }
 
 export async function uploadSoilReportFile(
@@ -82,13 +77,7 @@ export async function uploadSoilReportFile(
 
   const response = await fetch(localUri);
   const arrayBuffer = await response.arrayBuffer();
-  const { error } = await supabase.storage
-    .from(SOIL_REPORTS_BUCKET)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
-
-  if (error) {
-    throw new Error(error.message || "Soil report upload failed.");
-  }
+  await uploadStorageObject(SOIL_REPORTS_BUCKET, storagePath, arrayBuffer, contentType);
 
   // The bucket is private: store the path, as the admin portal does, and
   // sign it when someone opens the report.
@@ -112,13 +101,11 @@ export async function openSoilReport(documentUrlOrPath: string): Promise<void> {
     await Linking.openURL(documentUrlOrPath);
     return;
   }
-  const { data, error } = await supabase.storage
-    .from(SOIL_REPORTS_BUCKET)
-    .createSignedUrl(path, 600);
-  if (error || !data?.signedUrl) {
-    throw new Error(error?.message || "Could not open the report. Check your internet.");
+  const signedUrl = await signStoredFile(SOIL_REPORTS_BUCKET, path, 600);
+  if (!signedUrl) {
+    throw new Error("Could not open the report. Check your internet.");
   }
-  await Linking.openURL(data.signedUrl);
+  await Linking.openURL(signedUrl);
 }
 
 export async function uploadFarmerNetworkPhotos(

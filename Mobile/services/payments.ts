@@ -38,6 +38,7 @@ export interface PaymentPerson {
 
 export interface PaymentDisbursement {
   id: string;
+  payee_id: string;
   payee_name: string;
   amount_inr: number;
   paid_on: string;

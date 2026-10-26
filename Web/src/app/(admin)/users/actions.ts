@@ -14,6 +14,7 @@ import {
 import { getSignupRedirect, getSiteUrl } from "@/lib/siteUrl";
 import { getServiceRoleKey, supabaseUrl } from "@/lib/env";
 import { sendPasswordResetEmail } from "@/lib/passwordReset";
+import { serverData } from "@/lib/awsData";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import type { CreateUserResult, UserFormData } from "@/types";
 import { contactEmail, isPhoneLoginEmail, phoneLoginEmail } from "./contact";
@@ -28,9 +29,13 @@ let adminClient: ReturnType<typeof createAdminClient> | null = null;
  * Created on first use, not when the file loads: a missing SUPABASE_SERVICE_ROLE_KEY
  * would otherwise fail every action here before asResult can report it.
  */
-function admin() {
+function authAdmin() {
   adminClient ??= createAdminClient();
   return adminClient;
+}
+
+async function rows() {
+  return serverData();
 }
 
 async function getActorRole(): Promise<UserRole> {
@@ -44,7 +49,7 @@ async function getActorRole(): Promise<UserRole> {
     throw new Error("You must be signed in.");
   }
 
-  const { data: profile } = await admin()
+  const { data: profile } = await (await rows())
     .from("users")
     .select("role")
     .eq("id", user.id)
@@ -95,7 +100,7 @@ function requireContact(email: string | null, phone: string | null): void {
 
 async function assertPhoneAvailable(phone: string | null, excludeId?: string) {
   if (!phone) return;
-  const { data, error } = await admin().from("users").select("id, phone");
+  const { data, error } = await (await rows()).from("users").select("id, phone");
   if (error) throw new Error(error.message);
 
   const taken = (data ?? []).some(
@@ -182,7 +187,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
     if (method === "password") {
       const password = requirePassword(form.password);
       const { data: authData, error: authError } =
-        await admin().auth.admin.createUser({
+        await authAdmin().auth.admin.createUser({
           email: loginEmail,
           password,
           email_confirm: true,
@@ -193,7 +198,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
       authUserId = authData.user.id;
     } else {
       const { data: authData, error: authError } =
-        await admin().auth.admin.inviteUserByEmail(loginEmail, {
+        await authAdmin().auth.admin.inviteUserByEmail(loginEmail, {
           data: { role: form.role },
           redirectTo: getSignupRedirect(),
         });
@@ -202,7 +207,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
       authUserId = authData.user.id;
     }
 
-    const { error: dbError } = await admin().from("users").insert({
+    const { error: dbError } = await (await rows()).from("users").insert({
       id: authUserId,
       email: loginEmail,
       phone,
@@ -216,7 +221,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
     if (dbError) throw new Error(dbError.message);
   } catch (err) {
     if (authUserId) {
-      await admin().auth.admin.deleteUser(authUserId);
+      await authAdmin().auth.admin.deleteUser(authUserId);
     }
     throw err;
   }
@@ -234,7 +239,7 @@ async function createUserOrThrow(form: UserFormData): Promise<CreateUserResult> 
 async function resendSignupEmailOrThrow(id: string, _email: string) {
   const actorRole = await getActorRole();
 
-  const { data: target } = await admin()
+  const { data: target } = await (await rows())
     .from("users")
     .select("role, email")
     .eq("id", id)
@@ -246,13 +251,13 @@ async function resendSignupEmailOrThrow(id: string, _email: string) {
   const inbox = contactEmail(target.email);
   if (!inbox) throw new Error("This user has no email address.");
 
-  const { error } = await admin().auth.admin.inviteUserByEmail(inbox, {
+  const { error } = await authAdmin().auth.admin.inviteUserByEmail(inbox, {
     redirectTo: getSignupRedirect(),
   });
 
   if (error) throw new Error(error.message);
 
-  await admin().from("users").update({ status: "pending_auth" }).eq("id", id);
+  await (await rows()).from("users").update({ status: "pending_auth" }).eq("id", id);
 
   return { emailSent: true };
 }
@@ -261,7 +266,7 @@ async function resendSignupEmailOrThrow(id: string, _email: string) {
 async function sendPasswordResetOrThrow(id: string) {
   const actorRole = await getActorRole();
 
-  const { data: target } = await admin()
+  const { data: target } = await (await rows())
     .from("users")
     .select("role, email, status")
     .eq("id", id)
@@ -336,7 +341,7 @@ async function getUserRoleChangeImpactOrThrow(
 ): Promise<RoleChangeImpact> {
   const actorRole = await getActorRole();
 
-  const { data: target } = await admin()
+  const { data: target } = await (await rows())
     .from("users")
     .select("id, role")
     .eq("id", id)
@@ -353,29 +358,29 @@ async function getUserRoleChangeImpactOrThrow(
     producers,
     supervisors,
   ] = await Promise.all([
-    admin()
+    (await rows())
       .from("kontikki_operators")
       .select("kontikki_id")
       .eq("operator_id", id),
-    admin()
+    (await rows())
       .from("biochar_producer_supervisors")
       .select("biochar_producer_id")
       .eq("supervisor_id", id),
-    admin()
+    (await rows())
       .from("soil_tests")
       .select("id", { count: "exact", head: true })
       .eq("submitted_to_supervisor_id", id)
       .in("status", ["submitted", "stored"]),
-    admin()
+    (await rows())
       .from("climapreneur_bank_accounts")
       .select("id")
       .eq("user_id", id)
       .maybeSingle(),
-    admin()
+    (await rows())
       .from("biochar_producers")
       .select("id, name")
       .order("name"),
-    admin()
+    (await rows())
       .from("users")
       .select("id, full_name")
       .eq("role", "supervisor")
@@ -396,7 +401,7 @@ async function getUserRoleChangeImpactOrThrow(
   let operatorKontikkis: RoleChangeKontikkiItem[] = [];
 
   if (kontikkiIds.length > 0) {
-    const { data: kontikkis, error: kontikkiError } = await admin()
+    const { data: kontikkis, error: kontikkiError } = await (await rows())
       .from("kontikkis")
       .select(
         "id, kontikki_code, biochar_producer_id, biochar_producer:biochar_producers ( id, name )",
@@ -465,13 +470,13 @@ async function applyRoleChangePlan(
       );
     }
 
-    const { error: deleteError } = await admin()
+    const { error: deleteError } = await (await rows())
       .from("biochar_producer_supervisors")
       .delete()
       .eq("supervisor_id", userId);
     if (deleteError) throw new Error(deleteError.message);
 
-    const { error: insertError } = await admin()
+    const { error: insertError } = await (await rows())
       .from("biochar_producer_supervisors")
       .insert(
         producerIds.map((biochar_producer_id) => ({
@@ -496,7 +501,7 @@ async function applyRoleChangePlan(
         throw new Error("Choose a different supervisor for the waiting samples.");
       }
 
-      const { error: soilError } = await admin()
+      const { error: soilError } = await (await rows())
         .from("soil_tests")
         .update({ submitted_to_supervisor_id: nextSupervisorId })
         .eq("submitted_to_supervisor_id", userId)
@@ -504,7 +509,7 @@ async function applyRoleChangePlan(
       if (soilError) throw new Error(soilError.message);
     }
 
-    const { error: unlinkError } = await admin()
+    const { error: unlinkError } = await (await rows())
       .from("biochar_producer_supervisors")
       .delete()
       .eq("supervisor_id", userId);
@@ -512,7 +517,7 @@ async function applyRoleChangePlan(
   }
 
   if (!keepOperators) {
-    const { error: operatorError } = await admin()
+    const { error: operatorError } = await (await rows())
       .from("kontikki_operators")
       .delete()
       .eq("operator_id", userId);
@@ -521,7 +526,7 @@ async function applyRoleChangePlan(
 }
 
 async function getPendingSoilAndSupervisorState(userId: string) {
-  const { count, error } = await admin()
+  const { count, error } = await (await rows())
     .from("soil_tests")
     .select("id", { count: "exact", head: true })
     .eq("submitted_to_supervisor_id", userId)
@@ -537,7 +542,7 @@ async function updateUserOrThrow(
 ) {
   const actorRole = await getActorRole();
 
-  const { data: target } = await admin()
+  const { data: target } = await (await rows())
     .from("users")
     .select("role, email")
     .eq("id", id)
@@ -560,7 +565,7 @@ async function updateUserOrThrow(
     await applyRoleChangePlan(id, target.role, form.role, roleChange);
   }
 
-  const { error } = await admin()
+  const { error } = await (await rows())
     .from("users")
     .update({
       phone,
@@ -589,7 +594,7 @@ async function updateUserOrThrow(
     authUpdate.email_confirm = true;
   }
 
-  const { error: authError } = await admin().auth.admin.updateUserById(
+  const { error: authError } = await authAdmin().auth.admin.updateUserById(
     id,
     authUpdate,
   );
@@ -601,7 +606,7 @@ async function updateUserOrThrow(
 export async function disableUser(id: string) {
   const actorRole = await getActorRole();
 
-  const { data: target } = await admin()
+  const { data: target } = await (await rows())
     .from("users")
     .select("role")
     .eq("id", id)
@@ -610,12 +615,12 @@ export async function disableUser(id: string) {
   if (!target) throw new Error("User not found.");
   assertCanEditUser(actorRole, target.role);
 
-  const { error: authError } = await admin().auth.admin.updateUserById(id, {
+  const { error: authError } = await authAdmin().auth.admin.updateUserById(id, {
     ban_duration: "87600h",
   });
   if (authError) throw new Error(authError.message);
 
-  const { error: dbError } = await admin()
+  const { error: dbError } = await (await rows())
     .from("users")
     .update({ status: "disabled" })
     .eq("id", id);

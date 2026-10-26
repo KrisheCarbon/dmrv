@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { backendFetch } from "@/lib/backendApi";
 
 export interface DashboardCounts {
   producers: number;
@@ -11,60 +11,8 @@ export interface DashboardCounts {
   partners: number;
 }
 
-async function countRows(
-  supabase: SupabaseClient,
-  table: string,
-  filters?: Array<{ column: string; value: string }>,
-): Promise<number> {
-  let query = supabase.from(table).select("*", { count: "exact", head: true });
-
-  for (const filter of filters ?? []) {
-    query = query.eq(filter.column, filter.value);
-  }
-
-  const { count, error } = await query;
-
-  if (error) {
-    console.error(`dashboardStats: failed to count ${table}`, error.message);
-    return 0;
-  }
-
-  return count ?? 0;
-}
-
-export async function fetchDashboardCounts(
-  supabase: SupabaseClient,
-): Promise<DashboardCounts> {
-  const [
-    producers,
-    kontikkis,
-    farms,
-    supervisors,
-    climapreneurs,
-    pendingIntents,
-    clusters,
-    partners,
-  ] = await Promise.all([
-    countRows(supabase, "biochar_producers"),
-    countRows(supabase, "kontikkis"),
-    countRows(supabase, "farms"),
-    countRows(supabase, "users", [{ column: "role", value: "supervisor" }]),
-    countRows(supabase, "users", [{ column: "role", value: "climapreneur" }]),
-    countRows(supabase, "roi_intents", [{ column: "status", value: "pending" }]),
-    countRows(supabase, "clusters"),
-    countRows(supabase, "partner_organizations"),
-  ]);
-
-  return {
-    producers,
-    kontikkis,
-    farms,
-    supervisors,
-    climapreneurs,
-    pendingIntents,
-    clusters,
-    partners,
-  };
+export async function fetchDashboardCounts(): Promise<DashboardCounts> {
+  return backendFetch<DashboardCounts>("/dashboard/counts");
 }
 
 export function networkOverviewStats(

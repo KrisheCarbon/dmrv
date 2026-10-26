@@ -1,15 +1,12 @@
-import { supabaseUrl } from "@/lib/env";
 import {
   deleteStorageObject,
   extensionFromFile,
   fileNameFromStoragePath,
+  uploadStorageObject,
 } from "@/lib/privateStorage";
-import { isStorageBucketMissingError } from "@/lib/errors";
-import { supabase } from "@/lib/supabase";
+import { browserData } from "@/lib/awsDataBrowser";
 
 export const KONTIKKI_ASSETS_BUCKET = "kontikkis";
-const LEGACY_PHOTO_BUCKET = "kontikki-assets-photos";
-const LEGACY_PLAN_BUCKET = "kontikki-assets-plan";
 
 export type KontikkiPhotoType = "top" | "bottom";
 
@@ -36,19 +33,6 @@ export function normalizeKontikkiPhotoPaths(
   return [];
 }
 
-async function uploadLegacyPublicFile(
-  bucket: string,
-  file: File,
-  folder: string,
-): Promise<string> {
-  const path = `${folder}/${crypto.randomUUID()}.${extensionFromFile(file)}`;
-  const { error } = await supabase.storage.from(bucket).upload(path, file);
-
-  if (error) throw error;
-
-  return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
-}
-
 export async function uploadKontikkiPhoto({
   kontikkiId,
   type,
@@ -60,17 +44,13 @@ export async function uploadKontikkiPhoto({
 }): Promise<string> {
   const path = buildKontikkiPhotoPath(kontikkiId, type, file);
 
-  try {
-    const { error } = await supabase.storage
-      .from(KONTIKKI_ASSETS_BUCKET)
-      .upload(path, file, { upsert: false });
-
-    if (error) throw error;
-    return path;
-  } catch (err) {
-    if (!isStorageBucketMissingError(err)) throw err;
-    return uploadLegacyPublicFile(LEGACY_PHOTO_BUCKET, file, type);
-  }
+  await uploadStorageObject(
+    KONTIKKI_ASSETS_BUCKET,
+    path,
+    file,
+    file.type || "image/jpeg",
+  );
+  return path;
 }
 
 export async function uploadKontikkiDesignDoc({
@@ -82,17 +62,13 @@ export async function uploadKontikkiDesignDoc({
 }): Promise<string> {
   const path = buildKontikkiDesignDocPath(kontikkiId, file);
 
-  try {
-    const { error } = await supabase.storage
-      .from(KONTIKKI_ASSETS_BUCKET)
-      .upload(path, file, { upsert: false });
-
-    if (error) throw error;
-    return path;
-  } catch (err) {
-    if (!isStorageBucketMissingError(err)) throw err;
-    return uploadLegacyPublicFile(LEGACY_PLAN_BUCKET, file, "plan");
-  }
+  await uploadStorageObject(
+    KONTIKKI_ASSETS_BUCKET,
+    path,
+    file,
+    file.type || "application/octet-stream",
+  );
+  return path;
 }
 
 export async function deleteKontikkiAsset({ path }: { path: string }): Promise<void> {
@@ -115,7 +91,8 @@ export async function updateKontikkiPhotoFields(
     bottom_photo_urls: bottomPhotoUrls,
   };
 
-  const { error } = await supabase
+  const dataClient = await browserData();
+  const { error } = await dataClient
     .from("kontikkis")
     .update(fullPayload)
     .eq("id", kontikkiId);
@@ -128,7 +105,7 @@ export async function updateKontikkiPhotoFields(
     message.includes("bottom_photo_urls") ||
     message.includes("schema cache")
   ) {
-    const { error: legacyError } = await supabase
+    const { error: legacyError } = await dataClient
       .from("kontikkis")
       .update(legacyPayload)
       .eq("id", kontikkiId);

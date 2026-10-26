@@ -2,17 +2,12 @@
 
 import type { FarmUpsertPayload, PagedResult } from "@krishecarbon/shared";
 import { backendFetch, backendQuery } from "@/lib/backendApi";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import type { FarmDetail } from "@/types";
 
 export async function listFarms() {
   return backendQuery<FarmDetail[]>("/farms");
 }
 
-/**
- * One page of farmers, read straight from the database.
- * Skips the backend so a sleeping server cannot hold the table.
- */
 export async function listFarmsPage(params: {
   page: number;
   pageSize: number;
@@ -20,40 +15,17 @@ export async function listFarmsPage(params: {
   dir?: "asc" | "desc";
   filters?: Record<string, string>;
 }): Promise<{ data: PagedResult<FarmDetail> | null; error: string | null }> {
-  const filters = params.filters ?? {};
-  const term = (value?: string) => {
+  const search = new URLSearchParams({
+    page: String(params.page),
+    pageSize: String(params.pageSize),
+  });
+  if (params.sort) search.set("sort", params.sort);
+  if (params.dir) search.set("dir", params.dir);
+  for (const [key, value] of Object.entries(params.filters ?? {})) {
     const trimmed = value?.trim();
-    return trimmed ? trimmed : null;
-  };
-
-  try {
-    const supabase = await createServerSupabaseClient();
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) {
-      return { data: null, error: "You must be signed in." };
-    }
-
-    const { data, error } = await supabase.rpc("list_farmers_page", {
-      p_page: params.page,
-      p_page_size: params.pageSize,
-      p_sort: params.sort ?? null,
-      p_dir: params.dir ?? null,
-      p_name: term(filters.name),
-      p_mobile: term(filters.mobile),
-      p_location: term(filters.location),
-      p_state: term(filters.state),
-    });
-
-    if (error) return { data: null, error: error.message };
-    return { data: data as PagedResult<FarmDetail>, error: null };
-  } catch (err) {
-    return {
-      data: null,
-      error: err instanceof Error ? err.message : "Failed to load farmers",
-    };
+    if (trimmed) search.set(key, trimmed);
   }
+  return backendQuery<PagedResult<FarmDetail>>(`/farms?${search.toString()}`);
 }
 
 export async function getFarm(id: string) {

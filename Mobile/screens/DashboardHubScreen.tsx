@@ -6,8 +6,8 @@ import { colors, fonts, spacing, radius } from "../constants/theme";
 const MODULES = [
   {
     key: "payments",
-    title: "Payments",
-    subtitle: "What is owed, and what has been paid",
+    title: "Payment stats",
+    subtitle: "What each person is owed, and what they have received",
     screen: "Payments",
     params: undefined,
   },
@@ -48,7 +48,7 @@ export default function DashboardHubScreen({ navigation }) {
           <View style={styles.headerText}>
             <Text style={styles.title}>Dashboard</Text>
             <Text style={styles.subtitle}>
-              Farmers, pyrolysis, mixing, and payments.
+              Farmers, pyrolysis, mixing, and payment stats.
             </Text>
           </View>
         </View>

@@ -1,25 +1,13 @@
 "use server";
 
 import { backendFetch } from "@/lib/backendApi";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import { canReviewPyrolysisBatches } from "@krishecarbon/shared";
 import type { SubmitPyrolysisBatchStatusPayload } from "@krishecarbon/shared";
 import type { PyrolysisBatchDetail, PyrolysisBatchListItem } from "./productionLib";
 
 export async function canCurrentUserReviewPyrolysisBatches() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return false;
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
+  const profile = await fetchPortalProfile();
   return profile ? canReviewPyrolysisBatches(profile.role) : false;
 }
 

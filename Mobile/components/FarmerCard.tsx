@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import { isFarmerProfileComplete } from "@krishecarbon/shared";
+import { useResolvedFileUri } from "../services/objectStorage";
 import ChecklistItem from "./ChecklistItem";
 
 function getSyncMeta(status) {
@@ -22,6 +23,7 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklis
   const isSyncing = farmer.sync_status === "syncing";
   const progress = Math.min(100, Math.max(0, syncProgress));
   const profileComplete = isFarmerProfileComplete(farmer);
+  const photoUri = useResolvedFileUri(farmer.farmer_photo_uri || farmer.farmer_photo_url);
 
   return (
     <TouchableOpacity
@@ -31,9 +33,9 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklis
     >
       <View style={styles.body}>
         <View style={styles.titleRow}>
-          {farmer.farmer_photo_uri || farmer.farmer_photo_url ? (
+          {photoUri ? (
             <Image
-              source={{ uri: farmer.farmer_photo_uri || farmer.farmer_photo_url }}
+              source={{ uri: photoUri }}
               style={styles.avatar}
             />
           ) : null}

@@ -168,6 +168,33 @@ export async function toApplicationEntryView(
   };
 }
 
+/** True once the operator has entered something, ignoring the automatic GPS fix. */
+export function applicationDraftHasContent(entry: ApplicationEntryView): boolean {
+  return Boolean(
+    entry.farmId ||
+      entry.farmName?.trim() ||
+      entry.farmFieldId ||
+      entry.applicationBoundary.length > 0 ||
+      entry.comment?.trim() ||
+      entry.mediaLocalUri ||
+      entry.mediaUrl ||
+      entry.pyrolysisLinks.length > 0,
+  );
+}
+
+export function applicationDraftSubtitle(entry: ApplicationEntryView): string {
+  return [
+    entry.farmName?.trim() || "Farmer not chosen",
+    entry.fieldCode,
+    entry.applicationBoundary.length >= 3 ? "Area drawn" : null,
+    entry.pyrolysisLinks.length > 0
+      ? `${entry.pyrolysisLinks.length} pyrolysis batch${entry.pyrolysisLinks.length === 1 ? "" : "es"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export async function refreshApplicationReviewStatuses() {
   const remote = await backendFetch<ApplicationEntryRecord[]>("/application-entries");
   const byServerId = new Map(remote.map((row) => [row.id, row] as const));
@@ -244,6 +271,24 @@ export async function createApplicationEntryLocal(operatorId: string): Promise<s
   await db.runAsync(sql, args);
 
   return entryId;
+}
+
+/** Removes an application entry that was never submitted. */
+export async function deleteApplicationDraft(entryId: string) {
+  const entry = await findEntryOrThrow(entryId);
+  if (entry.status !== "draft" || entry.serverId) {
+    throw new Error("This entry has already been submitted.");
+  }
+  if (entry.uploadStatus === "pending" || entry.uploadStatus === "syncing" || entry.uploadStatus === "synced") {
+    throw new Error("This entry has already been submitted.");
+  }
+  const db = await getDb();
+  await db.runAsync("DELETE FROM application_pyrolysis_links WHERE application_entry_id = ?", [entryId]);
+  await db.runAsync(
+    "DELETE FROM sync_queue WHERE entity_type = ? AND entity_local_id = ?",
+    ["application_entry", entryId],
+  );
+  await db.runAsync("DELETE FROM application_entries WHERE id = ?", [entryId]);
 }
 
 export type ApplicationEntryUpdate = {

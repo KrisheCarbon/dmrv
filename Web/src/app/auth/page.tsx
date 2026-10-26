@@ -10,6 +10,7 @@ import {
   formatRoleLabel,
   isKrishecarbonEmail,
 } from "@krishecarbon/shared";
+import { fetchOwnProfile } from "@/lib/awsDataBrowser";
 import { supabase } from "@/lib/supabase";
 import { establishSessionFromUrl } from "@/lib/parseAuthHash";
 import { resolvePasswordLoginEmail } from "@/lib/loginIdentifier";
@@ -86,11 +87,7 @@ function AuthForm() {
         }
 
         if (session) {
-          const { data: profile } = await supabase
-            .from("users")
-            .select("status")
-            .eq("id", session.user.id)
-            .single();
+          const profile = await fetchOwnProfile<{ status?: string }>();
 
           if (profile?.status === "pending_auth") {
             router.replace("/signup");

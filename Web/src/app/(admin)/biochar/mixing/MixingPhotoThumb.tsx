@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createSignedStorageUrl } from "@/lib/privateStorage";
 import PhotoPreviewLightbox from "../PhotoPreviewLightbox";
 
 export default function MixingPhotoThumb({
@@ -12,7 +13,22 @@ export default function MixingPhotoThumb({
   label: string;
   size?: "drawer" | "page";
 }) {
+  const [src, setSrc] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!url) {
+      setSrc(null);
+      return;
+    }
+    let cancelled = false;
+    createSignedStorageUrl("mixing", url).then((signed) => {
+      if (!cancelled) setSrc(signed ?? url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
   const heightClass =
     size === "drawer" ? "aspect-[4/3] min-h-[11rem]" : "aspect-[4/3] min-h-[9rem]";
   const emptyClass = size === "drawer" ? "min-h-[11rem] py-8" : "min-h-[9rem] py-6";
@@ -36,7 +52,7 @@ export default function MixingPhotoThumb({
         aria-label={`View ${label} photo`}
       >
         <img
-          src={url}
+          src={src ?? undefined}
           alt={label}
           className="h-full w-full object-contain transition duration-200 group-hover:scale-[1.02]"
         />
@@ -50,7 +66,7 @@ export default function MixingPhotoThumb({
       <PhotoPreviewLightbox
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
-        src={url}
+        src={src ?? ""}
         label={label}
       />
     </>

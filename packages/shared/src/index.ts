@@ -15,6 +15,13 @@ export {
   findLoginEmailForPhone,
 } from "./authLogin";
 export type { LoginIdentifier } from "./authLogin";
+export {
+  OBJECT_STORAGE_BUCKETS,
+  isObjectStorageBucket,
+  storedObjectUrl,
+  storageRefFromValue,
+} from "./objectStorage";
+export type { ObjectStorageBucket } from "./objectStorage";
 import { isHarvestAfterSowing } from "./farmersNetwork";
 export {
   USER_ROLES,
@@ -694,6 +701,7 @@ export type {
   FarmFieldUpsertPayload,
   FarmerConsentRecord,
   FarmerConsentUpsertPayload,
+  ConsentPhotoCapture,
   SoilSampleSite,
   SoilReportRecord,
   SoilTestRecord,

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -10,10 +11,14 @@ import {
 } from "react-native";
 import { mixingMaterialLabel } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
+import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
 import {
+  deleteMixingDraft,
   listMixingEntries,
+  mixingDraftHasContent,
+  mixingDraftSubtitle,
   refreshMixingReviewStatuses,
   toMixingEntryView,
   type MixingEntryView,
@@ -123,7 +128,20 @@ export default function MixingDashboardScreen({ navigation }) {
       }
       const rows = await listMixingEntries(user.id);
       const views = await Promise.all(rows.map((row) => toMixingEntryView(row)));
-      setEntries(views);
+      const kept: MixingEntryView[] = [];
+      for (const entry of views) {
+        if (
+          entry.status === "draft" &&
+          !mixingDraftHasContent(entry) &&
+          !entry.serverId &&
+          entry.uploadStatus === "local"
+        ) {
+          await deleteMixingDraft(entry.id).catch(() => {});
+          continue;
+        }
+        kept.push(entry);
+      }
+      setEntries(kept);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -216,13 +234,30 @@ export default function MixingDashboardScreen({ navigation }) {
               </Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <EntryCard
-              entry={item}
-              syncing={syncingEntryIds.has(item.id) || isMixingEntrySyncing(item.id)}
-              onPress={() => navigation.navigate("MixingEntry", { entryId: item.id })}
-            />
-          )}
+          renderItem={({ item }) =>
+            item.status === "draft" ? (
+              <DraftEntryCard
+                subtitle={mixingDraftSubtitle(item)}
+                onContinue={() => navigation.navigate("MixingEntry", { entryId: item.id })}
+                onDelete={() => {
+                  void deleteMixingDraft(item.id)
+                    .then(() => loadData())
+                    .catch((err) => {
+                      Alert.alert(
+                        "Could not delete draft",
+                        err instanceof Error ? err.message : "Please try again.",
+                      );
+                    });
+                }}
+              />
+            ) : (
+              <EntryCard
+                entry={item}
+                syncing={syncingEntryIds.has(item.id) || isMixingEntrySyncing(item.id)}
+                onPress={() => navigation.navigate("MixingEntry", { entryId: item.id })}
+              />
+            )
+          }
         />
       )}
     </ScreenShell>

@@ -14,7 +14,8 @@ import PhotoSlot from "../components/PhotoSlot";
 import { saveConsentLocal } from "../services/farmersNetworkService";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import { processSyncQueue } from "../services/syncService";
-import { colors, fonts, spacing, radius } from "../constants/theme";
+import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
+import type { ConsentPhotoCapture } from "@krishecarbon/shared";
 import { usePersistedForm } from "../hooks/usePersistedForm";
 
 const AGREEMENT_TYPES = [
@@ -30,12 +31,35 @@ function todayPlusYears(years: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+type ConsentPhotoDraft = ConsentPhotoCapture & { uri: string };
+
+function consentPhotos(value: unknown): ConsentPhotoDraft[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === "string" && item) {
+      return [{ uri: item, latitude: null, longitude: null, captured_at: null }];
+    }
+    if (!item || typeof item !== "object" || typeof (item as ConsentPhotoDraft).uri !== "string") {
+      return [];
+    }
+    const photo = item as ConsentPhotoDraft;
+    return [
+      {
+        uri: photo.uri,
+        latitude: typeof photo.latitude === "number" ? photo.latitude : null,
+        longitude: typeof photo.longitude === "number" ? photo.longitude : null,
+        captured_at: typeof photo.captured_at === "string" ? photo.captured_at : null,
+      },
+    ];
+  });
+}
+
 const EMPTY_CONSENT = {
   selectedFarmerId: "",
   agreement_type: "Farmer consent",
   consent_date: new Date().toISOString().slice(0, 10),
   valid_to: todayPlusYears(1),
-  photos: [] as string[],
+  photos: [] as ConsentPhotoDraft[],
 };
 
 export default function ConsentFormScreen({ route, navigation }) {
@@ -55,6 +79,7 @@ export default function ConsentFormScreen({ route, navigation }) {
     consent_date: new Date().toISOString().slice(0, 10),
   });
   const farmerId = form.selectedFarmerId;
+  const photos = consentPhotos(form.photos);
 
   useEffect(() => {
     if (!hydrated || restoredFromDraft) return;
@@ -65,19 +90,31 @@ export default function ConsentFormScreen({ route, navigation }) {
 
   async function addPhoto() {
     try {
-      if (form.photos.length >= MAX_PHOTOS) {
+      if (photos.length >= MAX_PHOTOS) {
         Alert.alert("Limit", "Maximum 2 document photos.");
         return;
       }
       setCapturing(true);
-      const captured = await captureAndSaveFieldPhoto();
+      const captured = await captureAndSaveFieldPhoto({ preciseLocation: true });
       if (!captured) return;
       setForm((prev) => {
-        if (prev.photos.length >= MAX_PHOTOS) {
+        const current = consentPhotos(prev.photos);
+        if (current.length >= MAX_PHOTOS) {
           Alert.alert("Limit", "Maximum 2 document photos.");
           return prev;
         }
-        return { ...prev, photos: [...prev.photos, captured.uri] };
+        return {
+          ...prev,
+          photos: [
+            ...current,
+            {
+              uri: captured.uri,
+              latitude: captured.metadata.latitude,
+              longitude: captured.metadata.longitude,
+              captured_at: captured.metadata.captured_at,
+            },
+          ],
+        };
       });
     } catch (err) {
       Alert.alert("Photo", err instanceof Error ? err.message : String(err));
@@ -89,7 +126,7 @@ export default function ConsentFormScreen({ route, navigation }) {
   function removePhoto(uri: string) {
     setForm((prev) => ({
       ...prev,
-      photos: prev.photos.filter((photo) => photo !== uri),
+      photos: consentPhotos(prev.photos).filter((photo) => photo.uri !== uri),
     }));
   }
 
@@ -106,12 +143,19 @@ export default function ConsentFormScreen({ route, navigation }) {
       Alert.alert("Required", "Document expiry date is required.");
       return;
     }
-    if (form.photos.length < MIN_PHOTOS) {
+    if (photos.length < MIN_PHOTOS) {
       Alert.alert("Required", "Upload at least one document photo.");
       return;
     }
-    if (form.photos.length > MAX_PHOTOS) {
+    if (photos.length > MAX_PHOTOS) {
       Alert.alert("Limit", "Maximum 2 document photos.");
+      return;
+    }
+    if (photos.some((photo) => photo.latitude == null || photo.longitude == null)) {
+      Alert.alert(
+        "Location needed",
+        "Retake the consent photo so the place it was taken is saved. It can be outside the farm.",
+      );
       return;
     }
     try {
@@ -120,7 +164,12 @@ export default function ConsentFormScreen({ route, navigation }) {
         agreementType: "Farmer consent",
         consentDate: form.consent_date,
         validTo: form.valid_to,
-        photos: form.photos,
+        photos: photos.map((photo) => photo.uri),
+        photoCaptures: photos.map((photo) => ({
+          latitude: photo.latitude,
+          longitude: photo.longitude,
+          captured_at: photo.captured_at,
+        })),
         consentStatus: "active",
       });
       processSyncQueue();
@@ -147,7 +196,7 @@ export default function ConsentFormScreen({ route, navigation }) {
       >
         <Text style={styles.title}>Farmer consent</Text>
         <Text style={styles.subtitle}>
-          Signed date, expiry, and photos.
+          Signed date, expiry, and photos. The photos can be taken outside the farm.
         </Text>
 
         <FarmerPicker
@@ -175,18 +224,25 @@ export default function ConsentFormScreen({ route, navigation }) {
         <PhotoSlot
           label="Document photos"
           required
-          uris={form.photos}
+          uris={photos.map((photo) => photo.uri)}
           max={MAX_PHOTOS}
           capturing={capturing}
           onAdd={addPhoto}
           onRemove={removePhoto}
           addLabel={
-            form.photos.length >= MAX_PHOTOS
+            photos.length >= MAX_PHOTOS
               ? "Maximum 2 photos"
-              : `Upload / take photo (${form.photos.length}/${MAX_PHOTOS})`
+              : `Upload / take photo (${photos.length}/${MAX_PHOTOS})`
           }
-          hint="1–2 photos. Tap to view. Use the red × on the photo to remove it."
+          hint="1–2 photos. Can be taken outside the farm. The place each photo was taken is saved."
         />
+        {photos.map((photo, index) =>
+          photo.latitude != null && photo.longitude != null ? (
+            <Text key={photo.uri} style={styles.location}>
+              Photo {index + 1} taken at {photo.latitude.toFixed(5)}, {photo.longitude.toFixed(5)}
+            </Text>
+          ) : null,
+        )}
 
         <PrimaryButton title="Save farmer consent" onPress={handleSave} loading={loading} />
       </ScrollView>
@@ -206,11 +262,16 @@ const styles = StyleSheet.create({
     color: colors.brunswick,
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: typeScale.label,
     fontFamily: fonts.regular,
-    color: colors.smoke,
-    lineHeight: 16,
+    color: colors.textSecondary,
+    lineHeight: 18,
     marginBottom: spacing.sm,
+  },
+  location: {
+    fontSize: typeScale.label,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
   },
   section: {
     marginTop: spacing.md,

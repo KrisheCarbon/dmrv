@@ -16,6 +16,7 @@ import {
   toDmrvViewerField,
   parseSoilSampleSites,
   soilSampleCodeSerial,
+  type ConsentPhotoCapture,
   type FarmFieldRecord,
   type FarmFieldUpsertPayload,
   type FarmerConsentRecord,
@@ -71,6 +72,7 @@ const CONSENT_SELECT = `
   valid_to,
   agreement_reference,
   photos,
+  photo_captures,
   evidence_notes,
   created_by,
   created_at,
@@ -93,6 +95,8 @@ const SOIL_TEST_SELECT = `
   sample_photo_url,
   sample_sites,
   info_sheet_photo_url,
+  info_sheet_lat,
+  info_sheet_lng,
   receive_photo_url,
   submitted_to_supervisor_id,
   collected_by,
@@ -235,12 +239,37 @@ export class FarmersNetworkService {
     };
   }
 
+  private parsePhotoCaptures(value: unknown): ConsentPhotoCapture[] {
+    const list = Array.isArray(value)
+      ? value
+      : typeof value === 'string'
+        ? (() => {
+            try {
+              const parsed = JSON.parse(value);
+              return Array.isArray(parsed) ? parsed : [];
+            } catch {
+              return [];
+            }
+          })()
+        : [];
+    return list.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const row = item as Record<string, unknown>;
+      const latitude = typeof row.latitude === 'number' ? row.latitude : null;
+      const longitude = typeof row.longitude === 'number' ? row.longitude : null;
+      const capturedAt = typeof row.captured_at === 'string' ? row.captured_at : null;
+      if (latitude == null && longitude == null && !capturedAt) return [];
+      return [{ latitude, longitude, captured_at: capturedAt }];
+    });
+  }
+
   private mapConsent(row: Record<string, unknown>): FarmerConsentRecord {
     const farmRaw = row.farm;
     const farm = this.asArray(farmRaw)[0] as FarmerConsentRecord['farm'] | undefined;
     return {
       ...(row as unknown as FarmerConsentRecord),
       photos: this.parseJsonArray(row.photos),
+      photo_captures: this.parsePhotoCaptures(row.photo_captures),
       farm: farm ?? null,
     };
   }
@@ -529,6 +558,7 @@ export class FarmersNetworkService {
       valid_to: payload.valid_to,
       agreement_reference: payload.agreement_reference || null,
       photos: payload.photos ?? [],
+      photo_captures: payload.photo_captures ?? [],
       evidence_notes: payload.evidence_notes || null,
       created_by: user.id,
     };
@@ -766,8 +796,8 @@ export class FarmersNetworkService {
   }
 
   /**
-   * Every photo of the sample must sit inside the mapped boundary of one of
-   * the selected farms, which must all belong to this farmer.
+   * Dig-point photos must sit inside a selected farm. The mixed sample photo
+   * and the info sheet may be taken outside the farm; their GPS is still required.
    */
   private async assertSampleInsideFarms(payload: SoilTestUpsertPayload) {
     const { data: fields, error } = await this.supabase
@@ -796,12 +826,8 @@ export class FarmersNetworkService {
       latitude: site.latitude,
       longitude: site.longitude,
     }));
-    if (payload.sample_photo_url) {
-      points.push({
-        name: 'Mixed sample photo',
-        latitude: payload.sample_lat ?? null,
-        longitude: payload.sample_lng ?? null,
-      });
+    if (payload.sample_photo_url && (payload.sample_lat == null || payload.sample_lng == null)) {
+      throw new BadRequestException('Mixed sample photo has no GPS location.');
     }
     for (const point of points) {
       if (point.latitude == null || point.longitude == null) {
@@ -907,6 +933,8 @@ export class FarmersNetworkService {
       sample_photo_url: payload.sample_photo_url || null,
       sample_sites: parseSoilSampleSites(payload.sample_sites),
       info_sheet_photo_url: payload.info_sheet_photo_url || null,
+      info_sheet_lat: payload.info_sheet_lat ?? null,
+      info_sheet_lng: payload.info_sheet_lng ?? null,
       last_crop: payload.last_crop?.trim() || null,
       next_crop: payload.next_crop?.trim() || null,
       submitted_to_supervisor_id: supervisorId,

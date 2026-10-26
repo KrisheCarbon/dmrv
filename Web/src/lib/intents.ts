@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { browserData } from "@/lib/awsDataBrowser";
 import type { FetchIntentsResult, RoiIntent } from "@/types";
 
 export async function fetchIntents({
@@ -8,7 +8,8 @@ export async function fetchIntents({
   status?: string;
   queryType?: string;
 } = {}): Promise<FetchIntentsResult> {
-  let query = supabase
+  const dataClient = await browserData();
+  let query = dataClient
     .from("roi_intents")
     .select("*")
     .order("created_at", { ascending: false });
@@ -35,7 +36,8 @@ export async function updateIntentStatus(
   intentId: string,
   status: string
 ): Promise<void> {
-  const { error } = await supabase
+  const dataClient = await browserData();
+  const { error } = await dataClient
     .from("roi_intents")
     .update({
       status,

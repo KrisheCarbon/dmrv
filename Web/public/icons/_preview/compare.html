@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Sidebar icon preview</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #FAF7F2; color: #1A3C2A; }
+    .wrap { padding: 40px; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { margin: 0 0 28px; color: #5C5C5E; font-size: 14px; }
+    .row { display: flex; gap: 24px; }
+    .card { background: #fff; border: 1px solid #E8E4DE; border-radius: 16px; padding: 20px 24px; width: 180px; }
+    .nav { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: #f5f5f5; }
+    .nav img { width: 20px; height: 20px; opacity: 0.85; }
+    .nav span { font-size: 15px; font-weight: 600; }
+    .big { width: 72px; height: 72px; }
+    .label { margin-top: 12px; font-size: 13px; font-weight: 600; }
+    .hint { margin-top: 4px; font-size: 12px; color: #5C5C5E; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Unique sidebar icons</h1>
+    <p>Same black outline style. Different mark for each module.</p>
+    <div class="row">
+      <div class="card">
+        <img class="big" src="../stats.svg" alt="Stats" />
+        <div class="label">Stats</div>
+        <div class="hint">Bar chart</div>
+        <div class="nav"><img src="../stats.svg" alt="" /><span>Stats</span></div>
+      </div>
+      <div class="card">
+        <img class="big" src="../carbon.svg" alt="Carbon" />
+        <div class="label">Carbon</div>
+        <div class="hint">Leaf / sequestration</div>
+        <div class="nav"><img src="../carbon.svg" alt="" /><span>Carbon</span></div>
+      </div>
+      <div class="card">
+        <img class="big" src="../verification.svg" alt="Verification" />
+        <div class="label">Verification Reports</div>
+        <div class="hint">Checked report</div>
+        <div class="nav"><img src="../verification.svg" alt="" /><span>Verification Reports</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

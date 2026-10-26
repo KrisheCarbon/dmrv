@@ -12,6 +12,7 @@ async function bootstrap() {
       'http://localhost:8081',
     ],
     credentials: true,
+    exposedHeaders: ['Content-Range', 'Content-Location', 'Preference-Applied'],
   });
 
   const port = process.env.PORT ?? 3001;

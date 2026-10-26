@@ -2,8 +2,8 @@ import {
   deleteStorageObject,
   extensionFromFile,
   fileNameFromStoragePath,
+  uploadStorageObject,
 } from "@/lib/privateStorage";
-import { supabase } from "@/lib/supabase";
 import { SOIL_REPORTS_BUCKET } from "@krishecarbon/shared";
 
 export const SOIL_REPORT_ACCEPT = "application/pdf";
@@ -23,11 +23,7 @@ export async function uploadSoilReportPdf({
 }): Promise<string> {
   const ext = extensionFromFile(file);
   const path = buildSoilReportPath(soilTestId, ext);
-  const { error } = await supabase.storage
-    .from(SOIL_REPORTS_BUCKET)
-    .upload(path, file, { upsert: true });
-
-  if (error) throw error;
+  await uploadStorageObject(SOIL_REPORTS_BUCKET, path, file, file.type || "application/pdf");
   return path;
 }
 

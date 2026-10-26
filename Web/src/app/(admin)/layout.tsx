@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { canAccessWebPortal } from "@krishecarbon/shared";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
 import Sidebar from "@/components/Sidebar";
@@ -20,13 +21,9 @@ export default async function AdminLayout({
 
   if (!user) redirect("/auth");
 
-  const { data: profile, error } = await supabase
-    .from("users")
-    .select("role, first_name, last_name, status")
-    .eq("id", user.id)
-    .single();
+  const profile = await fetchPortalProfile();
 
-  if (error || !profile || !canAccessWebPortal(profile.role)) {
+  if (!profile || profile.id !== user.id || !canAccessWebPortal(profile.role)) {
     redirect("/auth");
   }
 

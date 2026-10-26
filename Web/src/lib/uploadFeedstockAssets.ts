@@ -2,8 +2,8 @@ import {
   deleteStorageObject,
   extensionFromFile,
   FEEDSTOCK_DOCS_BUCKET,
+  uploadStorageObject,
 } from "@/lib/privateStorage";
-import { supabase } from "@/lib/supabase";
 
 export type FeedstockAssetType = "lab_report" | "ghg_avoidance_approval";
 
@@ -38,14 +38,12 @@ export async function uploadFeedstockAsset({
   const ext = extensionFromFile(file);
   const path = buildFeedstockAssetPath(feedstockId, type, ext);
 
-  const { error } = await supabase.storage
-    .from(FEEDSTOCK_DOCS_BUCKET)
-    .upload(path, file, { upsert: true });
-
-  if (error) {
-    console.error("STORAGE UPLOAD ERROR:", error);
-    throw error;
-  }
+  await uploadStorageObject(
+    FEEDSTOCK_DOCS_BUCKET,
+    path,
+    file,
+    file.type || "application/octet-stream",
+  );
 
   return path;
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createSignedStorageUrl } from "@/lib/privateStorage";
 import PhotoPreviewLightbox from "../PhotoPreviewLightbox";
 
 export default function ApplicationMediaThumb({
@@ -14,7 +15,22 @@ export default function ApplicationMediaThumb({
   label?: string;
   size?: "drawer" | "page";
 }) {
+  const [src, setSrc] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!url) {
+      setSrc(null);
+      return;
+    }
+    let cancelled = false;
+    createSignedStorageUrl("application", url).then((signed) => {
+      if (!cancelled) setSrc(signed ?? url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
   const heightClass =
     size === "drawer" ? "aspect-[4/3] min-h-[11rem]" : "aspect-[4/3] min-h-[9rem]";
   const emptyClass = size === "drawer" ? "min-h-[11rem] py-8" : "min-h-[9rem] py-6";
@@ -39,13 +55,13 @@ export default function ApplicationMediaThumb({
       >
         {mediaType === "video" ? (
           <video
-            src={url}
+            src={src ?? ""}
             className="h-full w-full object-contain"
             muted
             playsInline
           />
         ) : (
-          <img src={url} alt={label} className="h-full w-full object-contain" />
+          <img src={src ?? ""} alt={label} className="h-full w-full object-contain" />
         )}
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition duration-200 group-hover:bg-black/35">
           <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-medium text-neutral-900 opacity-0 shadow-sm transition duration-200 group-hover:opacity-100">
@@ -70,7 +86,7 @@ export default function ApplicationMediaThumb({
               Close
             </button>
             <video
-              src={url}
+              src={src ?? ""}
               controls
               autoPlay
               className="max-h-[90vh] max-w-full"
@@ -81,7 +97,7 @@ export default function ApplicationMediaThumb({
           <PhotoPreviewLightbox
             open={previewOpen}
             onClose={() => setPreviewOpen(false)}
-            src={url}
+            src={src ?? ""}
             label={label}
           />
         )

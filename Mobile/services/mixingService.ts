@@ -1,4 +1,5 @@
 import {
+  mixingMaterialLabel,
   toPostgresJson,
   type AvailableMixingPyrolysisBatch,
   type FieldPhotoMetadata,
@@ -157,6 +158,36 @@ export async function toMixingEntryView(entry: MixingEntry): Promise<MixingEntry
   };
 }
 
+/** True once the operator has entered something, ignoring the automatic GPS fix. */
+export function mixingDraftHasContent(entry: MixingEntryView): boolean {
+  return Boolean(
+    entry.farmId ||
+      entry.farmName?.trim() ||
+      entry.materialType ||
+      (entry.materialToBiocharRatio != null && !Number.isNaN(entry.materialToBiocharRatio)) ||
+      entry.comment?.trim() ||
+      entry.biocharPhotoLocalUri ||
+      entry.biocharPhotoUrl ||
+      entry.substratePhotoLocalUri ||
+      entry.substratePhotoUrl ||
+      entry.mixingPhotoLocalUri ||
+      entry.mixingPhotoUrl ||
+      entry.pyrolysisLinks.length > 0,
+  );
+}
+
+export function mixingDraftSubtitle(entry: MixingEntryView): string {
+  return [
+    entry.farmName?.trim() || "Farm not chosen",
+    entry.materialType ? mixingMaterialLabel(entry.materialType) : null,
+    entry.pyrolysisLinks.length > 0
+      ? `${entry.pyrolysisLinks.length} pyrolysis batch${entry.pyrolysisLinks.length === 1 ? "" : "es"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export async function refreshMixingReviewStatuses() {
   const remote = await backendFetch<MixingEntryRecord[]>("/mixing-entries");
   const byServerId = new Map(remote.map((row) => [row.id, row] as const));
@@ -223,6 +254,24 @@ export async function createMixingEntryLocal(operatorId: string): Promise<string
   await db.runAsync(sql, args);
 
   return entryId;
+}
+
+/** Removes a mixing entry that was never submitted. */
+export async function deleteMixingDraft(entryId: string) {
+  const entry = await findEntryOrThrow(entryId);
+  if (entry.status !== "draft" || entry.serverId) {
+    throw new Error("This entry has already been submitted.");
+  }
+  if (entry.uploadStatus === "pending" || entry.uploadStatus === "syncing" || entry.uploadStatus === "synced") {
+    throw new Error("This entry has already been submitted.");
+  }
+  const db = await getDb();
+  await db.runAsync("DELETE FROM mixing_pyrolysis_links WHERE mixing_entry_id = ?", [entryId]);
+  await db.runAsync(
+    "DELETE FROM sync_queue WHERE entity_type = ? AND entity_local_id = ?",
+    ["mixing_entry", entryId],
+  );
+  await db.runAsync("DELETE FROM mixing_entries WHERE id = ?", [entryId]);
 }
 
 export type MixingEntryUpdate = {

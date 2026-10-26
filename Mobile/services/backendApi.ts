@@ -22,7 +22,7 @@ function getMetroHost(): string | null {
   return host;
 }
 
-const PRODUCTION_BACKEND_URL = "https://krishecarbon-backend.onrender.com";
+const PRODUCTION_BACKEND_URL = "https://d3einqtwag7iu2.cloudfront.net";
 
 function isLocalBackendUrl(url: string): boolean {
   try {
@@ -52,7 +52,9 @@ function getCandidateBackendUrls(): string[] {
     .filter(Boolean);
 
   if (!__DEV__) {
-    const remote = fromConfig.filter((url) => !isLocalBackendUrl(url));
+    const remote = fromConfig.filter(
+      (url) => !isLocalBackendUrl(url) && !/onrender\.com/i.test(url),
+    );
     return [...new Set(remote.length > 0 ? remote : [PRODUCTION_BACKEND_URL])];
   }
 
@@ -77,7 +79,7 @@ export function getBackendUrl(): string {
   );
 }
 
-/** Render's free instance sleeps, and the first request can take the better part of a minute. */
+/** Field networks are slow. Give the first request time to finish. */
 const COLD_START_BUDGET_MS = 75_000;
 const PROBE_ATTEMPT_MS = 20_000;
 

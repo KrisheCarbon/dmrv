@@ -35,9 +35,9 @@ const BASE_MODULES = [
   {
     id: "dashboard-cluster",
     title: "Dashboard",
-    desc: "Your cluster totals and your own entries",
+    desc: "Your cluster totals, your entries, and payment stats",
     active: true,
-    screen: "FieldActivity",
+    screen: "DashboardHub",
     roles: ["climapreneur"]
   },
   {
@@ -82,14 +82,6 @@ const BASE_MODULES = [
     desc: "Connect to ESP32 sensors linked to your kontikkis",
     active: true,
     screen: "KilnSelectKontikki",
-    roles: ["admin", "manager", "supervisor", "climapreneur"]
-  },
-  {
-    id: "payments",
-    title: "Payments",
-    desc: "What you have earned and what you have been paid",
-    active: true,
-    screen: "Payments",
     roles: ["admin", "manager", "supervisor", "climapreneur"]
   },
   {

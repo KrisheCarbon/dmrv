@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -15,9 +16,14 @@ import {
   type ApplicationFarmerOption,
 } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
+import DraftEntryCard from "../components/DraftEntryCard";
 import { getStoredAuthUser } from "../services/auth";
 import {
+  biomassDraftHasContent,
+  biomassDraftSubtitle,
+  biomassIsUnfinished,
   createBiomassCollectionLocal,
+  deleteBiomassDraft,
   listBiomassCollections,
   loadBiomassCollectionOptions,
   toBiomassCollectionView,
@@ -158,7 +164,21 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
       const user = await getStoredAuthUser();
       if (!user) return;
       const rows = await listBiomassCollections(user.id);
-      setItems(rows.map(toBiomassCollectionView));
+      const views = rows.map(toBiomassCollectionView);
+      const kept: BiomassCollectionView[] = [];
+      for (const item of views) {
+        if (
+          biomassIsUnfinished(item) &&
+          !biomassDraftHasContent(item) &&
+          !item.serverId &&
+          item.uploadStatus === "local"
+        ) {
+          await deleteBiomassDraft(item.id).catch(() => {});
+          continue;
+        }
+        kept.push(item);
+      }
+      setItems(kept);
       try {
         const options = await loadBiomassCollectionOptions();
         setFarmers(options.farmers);
@@ -254,7 +274,25 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
               </Text>
             </View>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }) =>
+            biomassIsUnfinished(item) ? (
+              <DraftEntryCard
+                subtitle={biomassDraftSubtitle(item)}
+                onContinue={() =>
+                  navigation.navigate("BiomassCollectionEntry", { collectionId: item.id })
+                }
+                onDelete={() => {
+                  void deleteBiomassDraft(item.id)
+                    .then(() => loadData())
+                    .catch((err) => {
+                      Alert.alert(
+                        "Could not delete draft",
+                        err instanceof Error ? err.message : "Please try again.",
+                      );
+                    });
+                }}
+              />
+            ) : (
             <CollectionCard
               item={item}
               syncing={syncingIds.has(item.id) || isBiomassCollectionSyncing(item.id)}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { browserData, fetchOwnProfile } from "@/lib/awsDataBrowser";
 import { supabase } from "@/lib/supabase";
 import { canEditUser, formatRoleLabel, getUserManagementHint, type UserRole } from "@/lib/roles";
 import DataTable from "@/components/table/DataTable";
@@ -50,18 +51,14 @@ export default function UsersPage() {
     } = await supabase.auth.getUser();
 
     if (user) {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-
+      const profile = await fetchOwnProfile<{ role?: UserRole }>();
       if (profile?.role) {
-        setActorRole(profile.role as UserRole);
+        setActorRole(profile.role);
       }
     }
 
-    const { data, error } = await supabase
+    const dataClient = await browserData();
+    const { data, error } = await dataClient
       .from("users")
       .select(`
         id,

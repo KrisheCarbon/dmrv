@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="280" viewBox="0 0 720 280">
+  <rect width="720" height="280" fill="#FAF7F2"/>
+  <text x="36" y="36" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="700" fill="#1A3C2A">Unique sidebar icons</text>
+  <text x="36" y="58" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#5C5C5E">Same black outline style. Different mark for each module.</text>
+  <rect x="36" y="80" width="200" height="160" rx="16" fill="#FFFFFF" stroke="#E8E4DE"/>
+  <g transform="translate(98,110) scale(2.5)">
+    <path d="M4 19.5V4.5" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M4 19.5h16" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round"/>
+    <rect x="7" y="11" width="3" height="5.5" rx="0.5" fill="none" stroke="#000" stroke-width="1.75"/>
+    <rect x="12" y="7" width="3" height="9.5" rx="0.5" fill="none" stroke="#000" stroke-width="1.75"/>
+    <rect x="17" y="9.5" width="3" height="7" rx="0.5" fill="none" stroke="#000" stroke-width="1.75"/>
+  </g>
+  <text x="136" y="205" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1A3C2A">Stats</text>
+  <text x="136" y="222" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#5C5C5E">Bar chart</text>
+  <rect x="260" y="80" width="200" height="160" rx="16" fill="#FFFFFF" stroke="#E8E4DE"/>
+  <g transform="translate(322,110) scale(2.5)">
+    <circle cx="12" cy="12" r="3.25" fill="none" stroke="#000" stroke-width="1.75"/>
+    <circle cx="12" cy="4.75" r="2" fill="none" stroke="#000" stroke-width="1.75"/>
+    <circle cx="18.25" cy="15.75" r="2" fill="none" stroke="#000" stroke-width="1.75"/>
+    <circle cx="5.75" cy="15.75" r="2" fill="none" stroke="#000" stroke-width="1.75"/>
+    <path d="M12 8.75V6.75" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M14.7 13.7l2.3 1.35" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M9.3 13.7 7 15.05" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round"/>
+  </g>
+  <text x="360" y="205" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1A3C2A">Carbon</text>
+  <text x="360" y="222" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#5C5C5E">Molecule</text>
+  <rect x="484" y="80" width="200" height="160" rx="16" fill="#FFFFFF" stroke="#E8E4DE"/>
+  <g transform="translate(546,110) scale(2.5)">
+    <path d="M8 3.5h8a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" fill="none" stroke="#000" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M10 3.5v2h4v-2" fill="none" stroke="#000" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M9 12.5l2 2 4-4.5" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="584" y="205" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#1A3C2A">Verification</text>
+  <text x="584" y="222" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#5C5C5E">Checked report</text>
+</svg>

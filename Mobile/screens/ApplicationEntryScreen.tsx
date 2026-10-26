@@ -33,6 +33,8 @@ import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import { getCurrentFarmLocation } from "../utils/location";
 import { startLocationCache } from "../services/locationCache";
 import {
+  applicationDraftHasContent,
+  deleteApplicationDraft,
   fetchAvailablePyrolysisBatches,
   getApplicationEntry,
   loadApplicationFarmers,
@@ -41,6 +43,7 @@ import {
   submitApplicationEntry,
   toApplicationEntryView,
   updateApplicationEntryLocal,
+  type ApplicationEntryUpdate,
   type ApplicationEntryView,
   type SelectablePyrolysisBatch,
 } from "../services/applicationService";
@@ -50,6 +53,9 @@ import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 export default function ApplicationEntryScreen({ navigation, route }) {
   const entryId = route.params?.entryId as string;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatchRef = useRef<ApplicationEntryUpdate>({});
+  const saveInFlightRef = useRef<Promise<void> | null>(null);
+  const leavingRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const [loading, setLoading] = useState(true);
@@ -156,16 +162,35 @@ export default function ApplicationEntryScreen({ navigation, route }) {
     };
   }, [entryId, loadEntry]);
 
+  const flushPendingSave = useCallback(async () => {
+    if (saveInFlightRef.current) await saveInFlightRef.current;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const patch = pendingPatchRef.current;
+    if (Object.keys(patch).length === 0) return;
+    pendingPatchRef.current = {};
+    const work = updateApplicationEntryLocal(entryId, patch).then(() => undefined);
+    saveInFlightRef.current = work;
+    try {
+      await work;
+    } finally {
+      if (saveInFlightRef.current === work) saveInFlightRef.current = null;
+    }
+  }, [entryId]);
+
   const queueAutoSave = useCallback(
-    (patch: Parameters<typeof updateApplicationEntryLocal>[1]) => {
+    (patch: ApplicationEntryUpdate) => {
       if (!isEditable) return;
 
+      pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
       saveTimerRef.current = setTimeout(async () => {
         setSaving(true);
         try {
-          await updateApplicationEntryLocal(entryId, patch);
+          await flushPendingSave();
           await loadEntry();
         } catch (err) {
           console.warn("[application] auto-save failed:", err);
@@ -174,8 +199,37 @@ export default function ApplicationEntryScreen({ navigation, route }) {
         }
       }, 450);
     },
-    [entryId, isEditable, loadEntry],
+    [isEditable, flushPendingSave, loadEntry],
   );
+
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  flushPendingSaveRef.current = flushPendingSave;
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (leavingRef.current) return;
+      event.preventDefault();
+      leavingRef.current = true;
+      void (async () => {
+        try {
+          await flushPendingSaveRef.current();
+          const view = await toApplicationEntryView(await getApplicationEntry(entryId));
+          if (
+            view.status === "draft" &&
+            !view.serverId &&
+            view.uploadStatus === "local" &&
+            !applicationDraftHasContent(view)
+          ) {
+            await deleteApplicationDraft(entryId);
+          }
+        } catch (err) {
+          console.warn("[application] leave save failed:", err);
+        }
+        navigation.dispatch(event.data.action);
+      })();
+    });
+    return unsubscribe;
+  }, [navigation, entryId]);
 
   function handleFarmerChange(farmerId: string) {
     const farmer = farmers.find((item) => item.id === farmerId);

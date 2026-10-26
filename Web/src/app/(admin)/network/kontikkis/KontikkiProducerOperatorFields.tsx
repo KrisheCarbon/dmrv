@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { browserData } from "@/lib/awsDataBrowser";
 import { formatRoleLabel } from "@/lib/roles";
 
 export interface ProducerOption {
@@ -49,7 +49,8 @@ export default function KontikkiProducerOperatorFields({
 
   useEffect(() => {
     async function fetchProducers() {
-      const withRegistry = await supabase
+      const db = await browserData();
+      const withRegistry = await db
         .from("biochar_producers")
         .select("id, name, producer_code, registry")
         .order("name");
@@ -59,7 +60,7 @@ export default function KontikkiProducerOperatorFields({
         return;
       }
 
-      const fallback = await supabase
+      const fallback = await db
         .from("biochar_producers")
         .select("id, name, producer_code")
         .order("name");
@@ -83,7 +84,8 @@ export default function KontikkiProducerOperatorFields({
       const showLoading = operators.length === 0;
       if (showLoading) setLoadingOperators(true);
 
-      const climapreneursQuery = supabase
+      const db = await browserData();
+      const climapreneursQuery = db
         .from("users")
         .select("id, full_name, role")
         .eq("role", "climapreneur")
@@ -91,14 +93,14 @@ export default function KontikkiProducerOperatorFields({
 
       const assignedQuery =
         operatorIds.length > 0
-          ? supabase
+          ? db
               .from("users")
               .select("id, full_name, role")
               .in("id", operatorIds)
           : Promise.resolve({ data: [] as OperatorOption[] });
 
       const supervisorLinksQuery = producerId
-        ? supabase
+        ? db
             .from("biochar_producer_supervisors")
             .select("supervisor_id")
             .eq("biochar_producer_id", producerId)
@@ -116,7 +118,7 @@ export default function KontikkiProducerOperatorFields({
       );
       const supervisorsRes =
         supervisorIds.length > 0
-          ? await supabase
+          ? await db
               .from("users")
               .select("id, full_name, role")
               .in("id", supervisorIds)

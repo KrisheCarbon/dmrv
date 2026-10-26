@@ -1,5 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
-import { supabase } from "../services/supabase";
+import { publicObjectUrl, uploadStorageObject } from "../services/objectStorage";
 import { canUploadToCloud } from "../services/syncService";
 import { MIXING_BUCKET, buildMixingPhotoPath, type MixingPhotoKind } from "./mixingStorage";
 
@@ -25,21 +25,17 @@ async function uploadLocalPhoto(
   const ext = localUri.split(".").pop()?.split("?")[0] || "jpg";
   const contentType = ext === "png" ? "image/png" : "image/jpeg";
 
-  const { error } = await supabase.storage
-    .from(MIXING_BUCKET)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
-
-  if (error) {
-    const hint =
-      error.message?.includes("Bucket not found") ||
-      error.message?.includes("not found")
-        ? " Mixing photo storage is not configured on the server."
-        : "";
-    throw new Error(`${error.message}${hint}`);
+  try {
+    await uploadStorageObject(MIXING_BUCKET, storagePath, arrayBuffer, contentType);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Photo upload failed.";
+    const hint = /not found/i.test(message)
+      ? " Mixing photo storage is not configured on the server."
+      : "";
+    throw new Error(`${message}${hint}`);
   }
 
-  const { data } = supabase.storage.from(MIXING_BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+  return publicObjectUrl(MIXING_BUCKET, storagePath);
 }
 
 function photoExt(localUri: string | null | undefined): string {

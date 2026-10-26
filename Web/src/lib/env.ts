@@ -26,11 +26,24 @@ export function getServiceRoleKey(): string {
   );
 }
 
-/** NestJS API base URL (server-side). Falls back to public URL for local dev. */
+/** The always-on API. Table reads and writes on this host use the AWS database. */
+export const AWS_BACKEND_URL = "https://d3einqtwag7iu2.cloudfront.net";
+
+/** NestJS API base URL. Production uses the AWS host, including when an old Render URL is still set. */
 export function getBackendUrl(): string {
-  return (
+  const configured = (
     process.env.BACKEND_URL ??
     process.env.NEXT_PUBLIC_BACKEND_URL ??
-    "http://localhost:3001"
-  );
+    ""
+  ).trim();
+  const production = process.env.NODE_ENV === "production";
+  const stale =
+    !configured ||
+    /localhost|127\.0\.0\.1|onrender\.com/i.test(configured);
+
+  if (stale) {
+    return production ? AWS_BACKEND_URL : configured || "http://localhost:3001";
+  }
+
+  return configured;
 }

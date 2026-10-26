@@ -1,5 +1,6 @@
 import { canViewVerificationReports } from "@krishecarbon/shared";
 import { getBackendUrl } from "@/lib/env";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
 export async function GET() {
@@ -12,11 +13,7 @@ export async function GET() {
     return new Response("You must be signed in.", { status: 401 });
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const profile = await fetchPortalProfile();
 
   if (!profile || !canViewVerificationReports(profile.role)) {
     return new Response("You do not have access to verification reports.", {

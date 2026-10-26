@@ -43,6 +43,7 @@ import type {
 import {
   FARMER_NETWORK_PHOTOS_BUCKET,
   SOIL_REPORTS_BUCKET,
+  farmContainingPoint,
   parseBoundaryGeojson,
   soilSampleStage,
   fieldSeasonLabel,
@@ -89,6 +90,16 @@ function formatGps(lat?: number | null, lng?: number | null) {
   const point = gpsPoint(lat, lng);
   if (!point) return null;
   return `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
+}
+
+function mixedSamplePlace(test: SoilTestRecord, farms: FarmFieldRecord[]) {
+  const place = formatGps(test.sample_lat, test.sample_lng);
+  if (!place) return null;
+  const point = gpsPoint(test.sample_lat, test.sample_lng);
+  const farm = point ? farmContainingPoint(point, farms) : null;
+  return farm?.field_code
+    ? `${place} · inside farm ${farm.field_code}`
+    : `${place} · outside the farm`;
 }
 
 function gpsPoint(lat?: number | null, lng?: number | null): GeoPoint | null {
@@ -956,8 +967,12 @@ export default function FarmerDetailPage() {
                         value={test.submitted_to_supervisor?.full_name?.trim()}
                       />
                       <OptionalRow
-                        label="GPS"
-                        value={formatGps(test.sample_lat, test.sample_lng)}
+                        label="Mixed sample taken at"
+                        value={mixedSamplePlace(test, fields)}
+                      />
+                      <OptionalRow
+                        label="Info sheet taken at"
+                        value={formatGps(test.info_sheet_lat, test.info_sheet_lng)}
                       />
                       <OptionalRow
                         label="Received"
@@ -1181,7 +1196,17 @@ export default function FarmerDetailPage() {
                       />
                       <DetailRow label="Photos">
                         {consent.photos?.length ? (
-                          <PhotoLinks paths={consent.photos} />
+                          <div className="space-y-1">
+                            <PhotoLinks paths={consent.photos} />
+                            {consent.photo_captures?.map((capture, index) => {
+                              const place = formatGps(capture.latitude, capture.longitude);
+                              return place ? (
+                                <p key={`${consent.id}-place-${index}`} className="text-sm text-text-secondary">
+                                  Photo {index + 1} taken at {place}
+                                </p>
+                              ) : null;
+                            })}
+                          </div>
                         ) : (
                           "—"
                         )}

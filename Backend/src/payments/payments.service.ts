@@ -8,6 +8,7 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
+import { ObjectStorageService } from '../object-storage/object-storage.service';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import {
   buildStatement,
@@ -105,7 +106,10 @@ function declaredArea(farm: FarmRow): number {
 
 @Injectable()
 export class PaymentsService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly files: ObjectStorageService,
+  ) {}
 
   async options(user: AuthenticatedUser) {
     this.assertManager(user);
@@ -807,10 +811,7 @@ export class PaymentsService {
           signed[row.id] = null;
           return;
         }
-        const { data } = await this.supabase.storage
-          .from(row.proof_bucket)
-          .createSignedUrl(row.proof_path, 60 * 60);
-        signed[row.id] = data?.signedUrl ?? null;
+        signed[row.id] = await this.files.sign(row.proof_bucket, row.proof_path, 60 * 60);
       }),
     );
     return signed;

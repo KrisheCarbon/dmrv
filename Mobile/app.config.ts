@@ -48,11 +48,13 @@ export default (): ExpoConfig => {
       mapboxToken: process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? "",
       backendUrl: (() => {
         const configured = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
-        const local =
+        const stale =
           !configured ||
-          /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\.\d+\.\d+/.test(configured);
-        if (local && process.env.EAS_BUILD_PROFILE !== "development") {
-          return "https://krishecarbon-backend.onrender.com";
+          /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\.\d+\.\d+|onrender\.com/i.test(
+            configured,
+          );
+        if (stale && process.env.EAS_BUILD_PROFILE !== "development") {
+          return "https://d3einqtwag7iu2.cloudfront.net";
         }
         return (
           configured ||

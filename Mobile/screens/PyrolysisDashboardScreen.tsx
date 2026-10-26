@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -9,9 +10,11 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { ScreenShell } from "../components/ScreenHeader";
+import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
 import {
+  deletePyrolysisDraftSession,
   getSessionKontikkis,
   listPyrolysisSessions,
   refreshPyrolysisReviewStatuses,
@@ -121,6 +124,8 @@ export default function PyrolysisDashboardScreen({ navigation }) {
         batchIds: string[];
         reviewStatus: string | null;
         reviewerNotes: string | null;
+        subtitle: string;
+        canDelete: boolean;
       }
     >
   >({});
@@ -135,30 +140,43 @@ export default function PyrolysisDashboardScreen({ navigation }) {
       const user = await getStoredAuthUser();
       if (!user) return;
       const rows = await listPyrolysisSessions(user.id);
-      setSessions(rows);
+      const kept = [];
+      const entries = [];
 
-      const entries = await Promise.all(
-        rows.map(async (session) => {
-          const kontikkis = await getSessionKontikkis(session.id);
-          const batchIds = kontikkis
-            .map((row) => row.payload?.batch_number?.trim())
-            .filter((value): value is string => Boolean(value));
-          const notes =
-            kontikkis.map((row) => row.reviewerNotes).find((value) => Boolean(value)) ??
-            null;
-          return [
-            session.id,
-            {
-              batchIds,
-              reviewStatus:
-                session.uploadStatus === "synced"
-                  ? summarizeReviewStatuses(kontikkis.map((row) => row.reviewStatus))
-                  : null,
-              reviewerNotes: notes,
-            },
-          ] as const;
-        }),
-      );
+      for (const session of rows) {
+        const kontikkis = await getSessionKontikkis(session.id);
+        if (session.status === "active" && kontikkis.length === 0) {
+          await deletePyrolysisDraftSession(session.id).catch(() => {});
+          continue;
+        }
+        kept.push(session);
+        const batchIds = kontikkis
+          .map((row) => row.batchNumber?.trim() || row.payload?.batch_number?.trim())
+          .filter((value): value is string => Boolean(value));
+        const draftLabels = kontikkis
+          .map((row) => row.batchNumber?.trim() || row.payload?.batch_number?.trim() || row.kontikkiCode)
+          .filter((value): value is string => Boolean(value));
+        const notes =
+          kontikkis.map((row) => row.reviewerNotes).find((value) => Boolean(value)) ??
+          null;
+        const unfinished = session.status === "active";
+        entries.push([
+          session.id,
+          {
+            batchIds,
+            reviewStatus:
+              session.uploadStatus === "synced"
+                ? summarizeReviewStatuses(kontikkis.map((row) => row.reviewStatus))
+                : null,
+            reviewerNotes: notes,
+            subtitle: draftLabels.join(", ") || "Kontikkis selected",
+            canDelete:
+              unfinished && kontikkis.every((row) => row.submissionStatus !== "submitted"),
+          },
+        ] as const);
+      }
+
+      setSessions(kept);
       setSessionSamples(Object.fromEntries(entries));
     } finally {
       setLoading(false);
@@ -257,18 +275,46 @@ export default function PyrolysisDashboardScreen({ navigation }) {
               </Text>
             </View>
           }
-          renderItem={({ item }) => (
-            <SessionCard
-              session={item}
-              syncing={syncingSessionIds.has(item.id) || isPyrolysisSessionSyncing(item.id)}
-              batchIds={sessionSamples[item.id]?.batchIds ?? []}
-              reviewStatus={sessionSamples[item.id]?.reviewStatus ?? null}
-              reviewerNotes={sessionSamples[item.id]?.reviewerNotes ?? null}
-              onPress={() =>
-                navigation.navigate("PyrolysisSession", { sessionId: item.id })
-              }
-            />
-          )}
+          renderItem={({ item }) => {
+            const sample = sessionSamples[item.id];
+            if (item.status === "active") {
+              return (
+                <DraftEntryCard
+                  subtitle={sample?.subtitle || "Kontikkis selected"}
+                  pillLabel={sample?.canDelete === false ? "Still in progress" : "Draft · not submitted"}
+                  onContinue={() =>
+                    navigation.navigate("PyrolysisSession", { sessionId: item.id })
+                  }
+                  onDelete={
+                    sample?.canDelete
+                      ? () => {
+                          void deletePyrolysisDraftSession(item.id)
+                            .then(() => loadLocal())
+                            .catch((err) => {
+                              Alert.alert(
+                                "Could not delete draft",
+                                err instanceof Error ? err.message : "Please try again.",
+                              );
+                            });
+                        }
+                      : undefined
+                  }
+                />
+              );
+            }
+            return (
+              <SessionCard
+                session={item}
+                syncing={syncingSessionIds.has(item.id) || isPyrolysisSessionSyncing(item.id)}
+                batchIds={sessionSamples[item.id]?.batchIds ?? []}
+                reviewStatus={sessionSamples[item.id]?.reviewStatus ?? null}
+                reviewerNotes={sessionSamples[item.id]?.reviewerNotes ?? null}
+                onPress={() =>
+                  navigation.navigate("PyrolysisSession", { sessionId: item.id })
+                }
+              />
+            );
+          }}
         />
       )}
     </ScreenShell>

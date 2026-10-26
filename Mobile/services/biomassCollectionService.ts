@@ -67,6 +67,40 @@ function parseMetadata(json: string | null | undefined): FieldPhotoMetadata | nu
   }
 }
 
+/** True once the operator has entered something, not merely opened a blank trip. */
+export function biomassDraftHasContent(item: BiomassCollectionView): boolean {
+  return Boolean(
+    item.farmId ||
+      item.farmName?.trim() ||
+      item.producerId ||
+      item.tractorNumber?.trim() ||
+      item.loadedPhotoLocalUri ||
+      item.loadedPhotoUrl ||
+      item.unloadedPhotoLocalUri ||
+      item.unloadedPhotoUrl,
+  );
+}
+
+export function biomassIsUnfinished(item: BiomassCollectionView): boolean {
+  return item.status === "draft" || item.status === "loaded";
+}
+
+export function biomassDraftSubtitle(item: BiomassCollectionView): string {
+  if (item.status === "loaded") {
+    return [
+      item.farmName?.trim() || "Farm not set",
+      item.producerName ? `Unload at ${item.producerName}` : "Unload at the production site",
+    ].join(" · ");
+  }
+  return [
+    item.farmName?.trim() || "Farm not chosen",
+    item.tractorNumber?.trim() ? `Tractor ${item.tractorNumber.trim()}` : null,
+    item.loadedPhotoLocalUri || item.loadedPhotoUrl ? "Photo taken" : "Still loading",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function toBiomassCollectionView(row: BiomassCollection): BiomassCollectionView {
   return {
     id: row.id,
@@ -151,6 +185,23 @@ export async function getBiomassCollection(id: string): Promise<BiomassCollectio
   const row = await db.getFirstAsync<any>("SELECT * FROM biomass_collections WHERE id = ?", [id]);
   if (!row) throw new Error(`Biomass collection ${id} not found`);
   return rowToBiomassCollection(row);
+}
+
+/** Removes a biomass trip that has not been submitted. */
+export async function deleteBiomassDraft(id: string) {
+  const row = await getBiomassCollection(id);
+  if (!biomassIsUnfinished(toBiomassCollectionView(row)) || row.serverId) {
+    throw new Error("This trip has already been submitted.");
+  }
+  if (row.uploadStatus === "pending" || row.uploadStatus === "syncing" || row.uploadStatus === "synced") {
+    throw new Error("This trip has already been submitted.");
+  }
+  const db = await getDb();
+  await db.runAsync(
+    "DELETE FROM sync_queue WHERE entity_type = ? AND entity_local_id = ?",
+    ["biomass_collection", id],
+  );
+  await db.runAsync("DELETE FROM biomass_collections WHERE id = ?", [id]);
 }
 
 export async function createBiomassCollectionLocal(operatorId: string): Promise<string> {

@@ -10,12 +10,13 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { isDmrvViewer } from '@krishecarbon/shared';
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-import { SUPABASE_CLIENT } from '../supabase/supabase.module';
+import { SUPABASE_AUTH_CLIENT, SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from './auth.types';
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
   constructor(
+    @Inject(SUPABASE_AUTH_CLIENT) private readonly authClient: SupabaseClient,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
@@ -31,7 +32,7 @@ export class SupabaseAuthGuard implements CanActivate {
     const {
       data: { user },
       error,
-    } = await this.supabase.auth.getUser(token);
+    } = await this.authClient.auth.getUser(token);
 
     if (error || !user) {
       throw new UnauthorizedException('Invalid or expired session');

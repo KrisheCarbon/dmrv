@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -11,6 +10,7 @@ import {
 import { hasMappedBoundary, isFarmerProfileComplete } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import AddEntryButton from "../components/AddEntryButton";
+import DraftEntryCard from "../components/DraftEntryCard";
 import EntryStatusPill, { syncPill, type EntryTone } from "../components/EntryStatusPill";
 import { getDb } from "../database/db";
 import {
@@ -128,27 +128,6 @@ export default function NetworkEntriesScreen({ route, navigation }) {
   const openForm = useCallback(
     (params: Record<string, unknown> = {}) => navigation.navigate(FORM_ROUTE[kind], params),
     [navigation, kind],
-  );
-
-  const deleteDraft = useCallback(
-    (onDone: () => void) => {
-      Alert.alert(
-        "Delete this draft?",
-        "Everything entered in this unfinished entry will be removed. This cannot be undone.",
-        [
-          { text: "Keep draft", style: "cancel" },
-          {
-            text: "Delete draft",
-            style: "destructive",
-            onPress: async () => {
-              await clearFormDraft(copy.draft);
-              onDone();
-            },
-          },
-        ],
-      );
-    },
-    [copy.draft],
   );
 
   const load = useCallback(async () => {
@@ -323,43 +302,31 @@ export default function NetworkEntriesScreen({ route, navigation }) {
         ListEmptyComponent={
           loaded ? <Text style={styles.empty}>{copy.empty}</Text> : null
         }
-        renderItem={({ item }) => (
-          <Pressable
-            style={({ pressed }) => [
-              styles.card,
-              item.isDraft && styles.draftCard,
-              pressed && styles.cardPressed,
-            ]}
-            onPress={item.onPress}
-            onLongPress={
-              item.isDraft ? () => deleteDraft(() => load().catch(() => {})) : undefined
-            }
-            delayLongPress={400}
-            accessibilityHint={item.isDraft ? "Long press to delete this draft" : undefined}
-          >
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            {item.subtitle ? <Text style={styles.cardSubtitle}>{item.subtitle}</Text> : null}
-            <View style={styles.pills}>
-              {item.pills.map((pill) => (
-                <EntryStatusPill key={pill.label} label={pill.label} tone={pill.tone} />
-              ))}
-            </View>
-            {item.isDraft ? (
-              <View style={styles.draftActions}>
-                <Pressable style={styles.draftButton} onPress={item.onPress} accessibilityRole="button">
-                  <Text style={styles.draftContinue}>Continue</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.draftButton, styles.draftDelete]}
-                  onPress={() => deleteDraft(() => load().catch(() => {}))}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.draftDeleteText}>Delete draft</Text>
-                </Pressable>
+        renderItem={({ item }) =>
+          item.isDraft ? (
+            <DraftEntryCard
+              title={item.title}
+              subtitle={item.subtitle}
+              onContinue={item.onPress}
+              onDelete={() => {
+                void clearFormDraft(copy.draft).then(() => load().catch(() => {}));
+              }}
+            />
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+              onPress={item.onPress}
+            >
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              {item.subtitle ? <Text style={styles.cardSubtitle}>{item.subtitle}</Text> : null}
+              <View style={styles.pills}>
+                {item.pills.map((pill) => (
+                  <EntryStatusPill key={pill.label} label={pill.label} tone={pill.tone} />
+                ))}
               </View>
-            ) : null}
-          </Pressable>
-        )}
+            </Pressable>
+          )
+        }
       />
     </ScreenShell>
   );
@@ -402,10 +369,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.xs,
   },
-  draftCard: {
-    borderColor: colors.warning,
-    borderStyle: "dashed",
-  },
   cardPressed: {
     backgroundColor: colors.chalk,
   },
@@ -424,33 +387,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.xs,
     marginTop: 2,
-  },
-  draftActions: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  draftButton: {
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.brunswick,
-    backgroundColor: colors.white,
-  },
-  draftContinue: {
-    fontFamily: fonts.bold,
-    fontSize: typeScale.label,
-    color: colors.brunswick,
-  },
-  draftDelete: {
-    borderColor: colors.error,
-  },
-  draftDeleteText: {
-    fontFamily: fonts.bold,
-    fontSize: typeScale.label,
-    color: colors.error,
   },
   empty: {
     paddingTop: spacing.xxl,

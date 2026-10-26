@@ -1,7 +1,7 @@
 import NetInfo from "@react-native-community/netinfo";
 import type { PyrolysisKontikkiData } from "@krishecarbon/shared";
 import { PYROLYSIS_STAGE_KEYS } from "@krishecarbon/shared";
-import { supabase } from "../services/supabase";
+import { publicObjectUrl, uploadStorageObject } from "../services/objectStorage";
 import { canUploadToCloud } from "../services/syncService";
 import { applyBatchPayload, assembleBatchPayload } from "../services/batchData";
 import { PYROLYSIS_BUCKET, buildPyrolysisPhotoPath } from "./pyrolysisStorage";
@@ -33,32 +33,17 @@ async function uploadLocalPhoto(
         ? "video/mp4"
         : "image/jpeg";
 
-  const { error } = await supabase.storage
-    .from(PYROLYSIS_BUCKET)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
-
-  if (error) {
-    // A finished upload locks the object. A retry must keep that file
-    // instead of failing the whole batch sync.
-    if (/row-level security/i.test(error.message)) {
-      const { error: readError } = await supabase.storage
-        .from(PYROLYSIS_BUCKET)
-        .download(storagePath);
-      if (!readError) {
-        const { data } = supabase.storage.from(PYROLYSIS_BUCKET).getPublicUrl(storagePath);
-        return data.publicUrl;
-      }
-    }
-    const hint =
-      error.message?.includes("Bucket not found") ||
-      error.message?.includes("not found")
-        ? " Pyrolysis photo storage is not configured on the server."
-        : "";
-    throw new Error(`${error.message}${hint}`);
+  try {
+    await uploadStorageObject(PYROLYSIS_BUCKET, storagePath, arrayBuffer, contentType);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Photo upload failed.";
+    const hint = /not found/i.test(message)
+      ? " Pyrolysis photo storage is not configured on the server."
+      : "";
+    throw new Error(`${message}${hint}`);
   }
 
-  const { data } = supabase.storage.from(PYROLYSIS_BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+  return publicObjectUrl(PYROLYSIS_BUCKET, storagePath);
 }
 
 function photoExt(localUri: string | null | undefined): string {

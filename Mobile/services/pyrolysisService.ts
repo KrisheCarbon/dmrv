@@ -682,6 +682,28 @@ export async function deleteSessionKontikkiLocal(
   return { sessionDeleted: false };
 }
 
+/** Removes a pyrolysis session that has not had any kontikki submitted. */
+export async function deletePyrolysisDraftSession(sessionId: string) {
+  const kontikkis = await getSessionKontikkis(sessionId);
+  if (kontikkis.some((row) => row.submissionStatus === "submitted")) {
+    throw new Error("Part of this batch has already been submitted.");
+  }
+
+  if (kontikkis.length === 0) {
+    const db = await getDb();
+    await db.runAsync(
+      "DELETE FROM sync_queue WHERE entity_local_id = ? AND entity_type = ?",
+      [sessionId, "pyrolysis_session"],
+    );
+    await db.runAsync("DELETE FROM pyrolysis_sessions WHERE id = ?", [sessionId]);
+    return;
+  }
+
+  for (const row of kontikkis) {
+    await deleteSessionKontikkiLocal(sessionId, row.id);
+  }
+}
+
 export function isKontikkiReadyToSubmit(row: SessionKontikkiView): boolean {
   if (row.standard === "rainbow") {
     return (

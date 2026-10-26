@@ -1,25 +1,13 @@
 "use server";
 
 import { backendFetch } from "@/lib/backendApi";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import { canReviewApplicationEntries } from "@krishecarbon/shared";
 import type { SubmitApplicationEntryStatusPayload } from "@krishecarbon/shared";
 import type { ApplicationEntryDetail, ApplicationEntryListItem } from "./applicationLib";
 
 export async function canCurrentUserReviewApplicationEntries() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return false;
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
+  const profile = await fetchPortalProfile();
   return profile ? canReviewApplicationEntries(profile.role) : false;
 }
 

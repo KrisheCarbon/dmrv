@@ -220,14 +220,11 @@ export default function SoilTestFormScreen({ route, navigation }) {
     );
   }
 
-  /** Names of photos that are not inside the selected farm right now. */
+  /** Dig-point photos that are not inside the selected farm. */
   function photosOutsideFarm(): string[] {
     const outside: string[] = [];
     for (const site of completedSoilSampleSites(sampleSites)) {
       if (!farmLabelFor(site.latitude, site.longitude)) outside.push(site.name);
-    }
-    if (form.samplePhotoUri && !farmLabelFor(form.sampleLat, form.sampleLng)) {
-      outside.push("Mixed sample photo");
     }
     return outside;
   }
@@ -309,22 +306,33 @@ export default function SoilTestFormScreen({ route, navigation }) {
   }
 
   async function captureMixedSamplePhoto() {
-    const captured = await capturePhotoInsideFarm("mixed");
-    if (!captured) return;
-    setForm((p) => ({
-      ...p,
-      samplePhotoUri: captured.uri,
-      sampleLat: captured.metadata.latitude,
-      sampleLng: captured.metadata.longitude,
-      sampleCapturedAt: captured.metadata.captured_at,
-    }));
+    if (selectedFields.length === 0) {
+      Alert.alert("Select a farm", "Choose the farm you are sampling before taking photos.");
+      return;
+    }
+    try {
+      setCapturingKey("mixed");
+      const captured = await captureAndSaveFieldPhoto({ preciseLocation: true });
+      if (!captured) return;
+      setForm((p) => ({
+        ...p,
+        samplePhotoUri: captured.uri,
+        sampleLat: captured.metadata.latitude,
+        sampleLng: captured.metadata.longitude,
+        sampleCapturedAt: captured.metadata.captured_at,
+      }));
+    } catch (err) {
+      Alert.alert("Photo", err instanceof Error ? err.message : String(err));
+    } finally {
+      setCapturingKey(null);
+    }
   }
 
   /** The info sheet is evidence too: watermarked and GPS-tagged, but it may be filled in off the farm. */
   async function captureInfoSheetPhoto() {
     try {
       setCapturingSheet(true);
-      const captured = await captureAndSaveFieldPhoto();
+      const captured = await captureAndSaveFieldPhoto({ preciseLocation: true });
       if (!captured) return;
       setForm((p) => ({
         ...p,
@@ -353,22 +361,17 @@ export default function SoilTestFormScreen({ route, navigation }) {
         )
         .map((site) => site.id),
     );
-    const keepMixed = !form.samplePhotoUri || inside(form.sampleLat, form.sampleLng);
-    const dropped = outsideSiteIds.size + (keepMixed ? 0 : 1);
     setForm((prev) => ({
       ...prev,
       fieldIds: values,
       sampleSites: prev.sampleSites.map((site) =>
         outsideSiteIds.has(site.id) ? clearSite(site) : site,
       ),
-      ...(keepMixed
-        ? {}
-        : { samplePhotoUri: "", sampleLat: null, sampleLng: null, sampleCapturedAt: "" }),
     }));
-    if (dropped > 0) {
+    if (outsideSiteIds.size > 0) {
       Alert.alert(
         "Photos removed",
-        `${dropped} photo${dropped === 1 ? " was" : "s were"} not inside the selected farm and must be retaken.`,
+        `${outsideSiteIds.size} sampling photo${outsideSiteIds.size === 1 ? " was" : "s were"} not inside the selected farm and must be retaken.`,
       );
     }
   }
@@ -456,6 +459,8 @@ export default function SoilTestFormScreen({ route, navigation }) {
         sampleLng: form.sampleLng,
         samplePhotoUri: form.samplePhotoUri,
         infoSheetPhotoUri: form.infoSheetPhotoUri,
+        infoSheetLat: form.infoSheetLat,
+        infoSheetLng: form.infoSheetLng,
         lastCrop: form.lastCrop ?? "",
         nextCrop: form.nextCrop ?? "",
         sampleSites: sampleSites,
@@ -663,7 +668,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
               ? "Retake mixed sample photo"
               : "Take mixed sample photo"
           }
-          hint="Mix the soil inside the farm, then photograph the mixed sample."
+          hint="Can be taken outside the farm. The place this photo was taken is saved."
           metadata={
             form.samplePhotoUri
               ? [
@@ -676,12 +681,16 @@ export default function SoilTestFormScreen({ route, navigation }) {
               : undefined
           }
         />
-        {form.samplePhotoUri && farmLabelFor(form.sampleLat, form.sampleLng) ? (
-          <Text style={styles.inside}>
-            ✓ Inside farm {farmLabelFor(form.sampleLat, form.sampleLng)}
-          </Text>
-        ) : form.samplePhotoUri && selectedFields.length > 0 ? (
-          <Text style={styles.outside}>✕ Not inside the selected farm. Retake it.</Text>
+        {form.samplePhotoUri && form.sampleLat != null && form.sampleLng != null ? (
+          farmLabelFor(form.sampleLat, form.sampleLng) ? (
+            <Text style={styles.inside}>
+              ✓ Inside farm {farmLabelFor(form.sampleLat, form.sampleLng)}. Location saved.
+            </Text>
+          ) : (
+            <Text style={styles.noted}>
+              Taken outside the farm. Location saved.
+            </Text>
+          )
         ) : null}
 
         <PhotoSlot
@@ -702,7 +711,7 @@ export default function SoilTestFormScreen({ route, navigation }) {
           addLabel={
             form.infoSheetPhotoUri ? "Retake info sheet photo" : "Take info sheet photo"
           }
-          hint="Photograph the filled-in sample info sheet so every entry is readable."
+          hint="Can be taken off the farm. The place this photo was taken is saved."
           metadata={
             form.infoSheetPhotoUri
               ? [
@@ -782,6 +791,11 @@ const styles = StyleSheet.create({
     fontSize: typeScale.label,
     fontFamily: fonts.medium,
     color: colors.success,
+  },
+  noted: {
+    fontSize: typeScale.label,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
   },
   outside: {
     fontSize: typeScale.label,

@@ -3,8 +3,8 @@ import {
   deleteStorageObject,
   extensionFromFile,
   fileNameFromStoragePath,
+  uploadStorageObject,
 } from "@/lib/privateStorage";
-import { supabase } from "@/lib/supabase";
 
 export type BiocharProducerDocType =
   | "contract"
@@ -46,13 +46,12 @@ export async function uploadBiocharProducerOtherDoc({
 }): Promise<string> {
   const path = buildBiocharProducerOtherDocPath(producerId, file);
 
-  const { error } = await supabase.storage
-    .from(BIOCHAR_PRODUCER_DOCS_BUCKET)
-    .upload(path, file, { upsert: false });
-
-  if (error) {
-    throw error;
-  }
+  await uploadStorageObject(
+    BIOCHAR_PRODUCER_DOCS_BUCKET,
+    path,
+    file,
+    file.type || "application/octet-stream",
+  );
 
   return path;
 }
@@ -69,13 +68,12 @@ export async function uploadBiocharProducerDoc({
   const ext = extensionFromFile(file);
   const path = buildBiocharProducerDocPath(producerId, type, ext);
 
-  const { error } = await supabase.storage
-    .from(BIOCHAR_PRODUCER_DOCS_BUCKET)
-    .upload(path, file, { upsert: true });
-
-  if (error) {
-    throw error;
-  }
+  await uploadStorageObject(
+    BIOCHAR_PRODUCER_DOCS_BUCKET,
+    path,
+    file,
+    file.type || "application/octet-stream",
+  );
 
   return path;
 }

@@ -2,8 +2,8 @@ import {
   deleteStorageObject,
   extensionFromFile,
   fileNameFromStoragePath,
+  uploadStorageObject,
 } from "@/lib/privateStorage";
-import { supabase } from "@/lib/supabase";
 
 export const TRAINING_DOCS_BUCKET = "trainings";
 
@@ -28,13 +28,7 @@ export async function uploadTrainingCertificate({
   const ext = extensionFromFile(file);
   const path = buildTrainingCertificatePath(trainingId, ext);
 
-  const { error } = await supabase.storage
-    .from(TRAINING_DOCS_BUCKET)
-    .upload(path, file, { upsert: true });
-
-  if (error) {
-    throw error;
-  }
+  await uploadStorageObject(TRAINING_DOCS_BUCKET, path, file, file.type || "application/pdf");
 
   return path;
 }

@@ -1,5 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
-import { supabase } from "../services/supabase";
+import { publicObjectUrl, uploadStorageObject } from "../services/objectStorage";
 import { canUploadToCloud } from "../services/syncService";
 import { getModuleBucket } from "./moduleStorage";
 
@@ -35,17 +35,15 @@ export async function uploadBiomassCollectionPhoto(
   const contentType = ext === "png" ? "image/png" : "image/jpeg";
   const storagePath = `collections/${collectionId}/${kind}.${ext}`;
 
-  const { error } = await supabase.storage
-    .from(BIOMASS_COLLECTION_BUCKET)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
-
-  if (error) {
-    const hint = error.message?.includes("not found")
+  try {
+    await uploadStorageObject(BIOMASS_COLLECTION_BUCKET, storagePath, arrayBuffer, contentType);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Photo upload failed.";
+    const hint = /not found/i.test(message)
       ? " Biomass collection storage is not configured on the server."
       : "";
-    throw new Error(`${error.message}${hint}`);
+    throw new Error(`${message}${hint}`);
   }
 
-  const { data } = supabase.storage.from(BIOMASS_COLLECTION_BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+  return publicObjectUrl(BIOMASS_COLLECTION_BUCKET, storagePath);
 }

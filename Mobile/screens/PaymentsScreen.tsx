@@ -84,7 +84,7 @@ export default function PaymentsScreen({ navigation }) {
             <Text style={styles.backText}>‹</Text>
           </Pressable>
           <View style={styles.headerText}>
-            <Text style={styles.title}>{team ? "Payments" : "Your payments"}</Text>
+            <Text style={styles.title}>Payment stats</Text>
             <Text style={styles.subtitle}>
               {team
                 ? "What the field team is owed, and what has already been paid."
@@ -108,18 +108,31 @@ export default function PaymentsScreen({ navigation }) {
 
         {statement ? (
           <>
-            <View style={styles.summary}>
-              <SummaryRow label="Owed" value={formatInr(statement.totals.owed)} />
-              <SummaryRow label="Received" value={formatInr(statement.totals.paid)} />
-              <SummaryRow label="Still to receive" value={formatInr(statement.totals.balance)} />
-            </View>
+            {self && !team ? (
+              <View style={styles.summary}>
+                <SummaryRow label="You are owed" value={formatInr(self.owed)} />
+                <SummaryRow label="You have received" value={formatInr(self.paid)} />
+                <SummaryRow label="Still to receive" value={formatInr(self.balance)} />
+              </View>
+            ) : (
+              <View style={styles.summary}>
+                <SummaryRow label="Team is owed" value={formatInr(statement.totals.owed)} />
+                <SummaryRow label="Team has received" value={formatInr(statement.totals.paid)} />
+                <SummaryRow label="Still to pay" value={formatInr(statement.totals.balance)} />
+              </View>
+            )}
             {statement.rates_active === false ? (
               <Text style={styles.caption}>
                 Entries are counted. Amounts stay at ₹0 until a rate card is saved in the admin portal.
               </Text>
             ) : null}
 
-            {self && !team ? <PersonBody person={self} /> : null}
+            {self && !team ? (
+              <PersonBody
+                person={self}
+                payments={statement.disbursements.filter((payment) => payment.payee_id === self.id)}
+              />
+            ) : null}
 
             {team
               ? statement.people.map((person) => {
@@ -132,13 +145,23 @@ export default function PaymentsScreen({ navigation }) {
                       >
                         <View style={styles.personText}>
                           <Text style={styles.cardTitle}>{person.name}</Text>
-                          <Text style={styles.caption}>
-                            {roleLabel(person.role)} · still to pay {formatInr(person.balance)}
-                          </Text>
+                          <Text style={styles.caption}>{roleLabel(person.role)}</Text>
+                          <View style={styles.statLine}>
+                            <Text style={styles.stat}>Owed {formatInr(person.owed)}</Text>
+                            <Text style={styles.stat}>Received {formatInr(person.paid)}</Text>
+                          </View>
+                          <Text style={styles.caption}>Still to pay {formatInr(person.balance)}</Text>
                         </View>
                         <Text style={styles.chevron}>{open ? "▾" : "›"}</Text>
                       </Pressable>
-                      {open ? <PersonBody person={person} /> : null}
+                      {open ? (
+                        <PersonBody
+                          person={person}
+                          payments={statement.disbursements.filter(
+                            (payment) => payment.payee_id === person.id,
+                          )}
+                        />
+                      ) : null}
                     </View>
                   );
                 })
@@ -152,31 +175,6 @@ export default function PaymentsScreen({ navigation }) {
               </View>
             ) : null}
 
-            <Text style={styles.section}>Payments received</Text>
-            {statement.disbursements.length === 0 ? (
-              <View style={styles.card}>
-                <Text style={styles.body}>No payment has been recorded yet.</Text>
-              </View>
-            ) : (
-              statement.disbursements.map((payment) => (
-                <View key={payment.id} style={styles.card}>
-                  <Text style={styles.cardTitle}>{formatInr(payment.amount_inr)}</Text>
-                  <Text style={styles.caption}>
-                    {formatDate(payment.paid_on)}
-                    {team ? ` · ${payment.payee_name}` : ""}
-                    {payment.note ? ` · ${payment.note}` : ""}
-                  </Text>
-                  {payment.signed_url ? (
-                    <Pressable
-                      style={styles.proof}
-                      onPress={() => void Linking.openURL(payment.signed_url!)}
-                    >
-                      <Text style={styles.proofText}>{payment.proof_name || "View proof"}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))
-            )}
           </>
         ) : null}
       </ScrollView>
@@ -193,7 +191,13 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PersonBody({ person }: { person: PaymentPerson }) {
+function PersonBody({
+  person,
+  payments,
+}: {
+  person: PaymentPerson;
+  payments: PaymentStatement["disbursements"];
+}) {
   return (
     <View style={styles.personBody}>
       {person.by_activity.map((row) => (
@@ -207,14 +211,26 @@ function PersonBody({ person }: { person: PaymentPerson }) {
           <Text style={styles.bodyStrong}>{formatInr(row.amount_inr)}</Text>
         </View>
       ))}
-      {person.recent.slice(0, 8).map((line) => (
-        <Text key={line.id} style={styles.caption}>
-          {formatDate(line.occurred_on)} · {line.label} · {formatInr(line.amount_inr)}
-        </Text>
-      ))}
-      {person.by_activity.length === 0 && person.recent.length === 0 ? (
-        <Text style={styles.body}>No entries yet.</Text>
-      ) : null}
+      {person.by_activity.length === 0 ? <Text style={styles.body}>No entries yet.</Text> : null}
+      <Text style={styles.receivedTitle}>Received</Text>
+      {payments.length === 0 ? (
+        <Text style={styles.body}>No payment recorded yet.</Text>
+      ) : (
+        payments.map((payment) => (
+          <View key={payment.id} style={styles.payment}>
+            <Text style={styles.bodyStrong}>{formatInr(payment.amount_inr)}</Text>
+            <Text style={styles.caption}>
+              {formatDate(payment.paid_on)}
+              {payment.note ? ` · ${payment.note}` : ""}
+            </Text>
+            {payment.signed_url ? (
+              <Pressable style={styles.proof} onPress={() => void Linking.openURL(payment.signed_url!)}>
+                <Text style={styles.proofText}>{payment.proof_name || "View proof"}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ))
+      )}
     </View>
   );
 }
@@ -333,6 +349,26 @@ const styles = StyleSheet.create({
   },
   personText: {
     flex: 1,
+  },
+  statLine: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  stat: {
+    fontSize: typeScale.body,
+    fontFamily: fonts.medium,
+    color: colors.text,
+  },
+  receivedTitle: {
+    marginTop: spacing.sm,
+    fontSize: typeScale.body,
+    fontFamily: fonts.medium,
+    color: colors.brunswick,
+  },
+  payment: {
+    gap: spacing.xs,
   },
   personBody: {
     marginTop: spacing.sm,

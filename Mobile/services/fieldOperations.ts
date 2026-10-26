@@ -1,7 +1,8 @@
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { supabase } from "./supabase";
 import { backendFetch } from "./backendApi";
+import { uploadStorageObject } from "./objectStorage";
+import { supabase } from "./supabase";
 
 export const TRAINING_SESSION_BUCKET = "training-sessions";
 export const INSPECTION_BUCKET = "inspections";
@@ -131,11 +132,7 @@ export async function uploadPicked(
     }
     const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
     const path = `${user.id}/${randomId()}/${kind}/${clean}`;
-    const { error } = await supabase.storage.from(bucket).upload(path, body, {
-      contentType: file.contentType,
-      upsert: false,
-    });
-    if (error) throw new Error(error.message);
+    await uploadStorageObject(bucket, path, body, file.contentType);
     uploaded.push({
       kind,
       path,

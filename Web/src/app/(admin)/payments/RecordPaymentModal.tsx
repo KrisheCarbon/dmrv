@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import FileDrop from "@/components/FileDrop";
 import Modal from "@/components/Modal";
 import { formatRoleLabel } from "@/lib/roles";
-import { supabase } from "@/lib/supabase";
+import { uploadStorageObject } from "@/lib/privateStorage";
 import { recordPayment } from "./actions";
 import {
   PAYMENT_PROOF_BUCKET,
@@ -79,10 +79,7 @@ export default function RecordPaymentModal({
     try {
       const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "proof";
       const path = `${payee}/${crypto.randomUUID()}/${clean}`;
-      const { error: uploadError } = await supabase.storage
-        .from(PAYMENT_PROOF_BUCKET)
-        .upload(path, file, { upsert: false, contentType: file.type });
-      if (uploadError) throw new Error(uploadError.message);
+      await uploadStorageObject(PAYMENT_PROOF_BUCKET, path, file, file.type);
 
       await recordPayment({
         payee_id: payee,

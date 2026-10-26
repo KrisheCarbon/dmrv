@@ -200,6 +200,7 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "farm_fields", "sync_error", "TEXT");
 
   await addColumnIfMissing(db, "farmer_consents", "photos_json", "TEXT");
+  await addColumnIfMissing(db, "farmer_consents", "photo_captures_json", "TEXT");
   await addColumnIfMissing(db, "farmer_consents", "server_id", "TEXT");
   await addColumnIfMissing(db, "farmer_consents", "sync_status", "TEXT");
   await addColumnIfMissing(db, "farmer_consents", "sync_error", "TEXT");
@@ -227,6 +228,8 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "soil_tests", "collected_by_name", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "info_sheet_photo_uri", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "info_sheet_photo_url", "TEXT");
+  await addColumnIfMissing(db, "soil_tests", "info_sheet_lat", "REAL");
+  await addColumnIfMissing(db, "soil_tests", "info_sheet_lng", "REAL");
   await addColumnIfMissing(db, "soil_tests", "last_crop", "TEXT");
   await addColumnIfMissing(db, "soil_tests", "next_crop", "TEXT");
 

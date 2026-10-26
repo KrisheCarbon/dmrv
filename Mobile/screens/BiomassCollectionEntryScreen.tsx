@@ -16,6 +16,9 @@ import PyrolysisPhotoSlot from "../components/PyrolysisPhotoSlot";
 import { LocationUnavailableError } from "../services/fieldPhoto";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import {
+  biomassDraftHasContent,
+  biomassIsUnfinished,
+  deleteBiomassDraft,
   getBiomassCollection,
   loadBiomassCollectionOptions,
   saveLoadedStep,
@@ -44,6 +47,10 @@ function TractorNotice() {
 export default function BiomassCollectionEntryScreen({ navigation, route }) {
   const collectionId = route.params?.collectionId as string;
   const tractorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tractorDirty = useRef(false);
+  const tractorValue = useRef<string | null>(null);
+  const tractorSaveRef = useRef<Promise<void> | null>(null);
+  const leavingRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -105,9 +112,44 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
     void init();
     return () => {
       cancelled = true;
-      if (tractorTimer.current) clearTimeout(tractorTimer.current);
     };
   }, [reload]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (leavingRef.current) return;
+      event.preventDefault();
+      leavingRef.current = true;
+      void (async () => {
+        try {
+          if (tractorTimer.current) {
+            clearTimeout(tractorTimer.current);
+            tractorTimer.current = null;
+          }
+          if (tractorSaveRef.current) await tractorSaveRef.current;
+          if (tractorDirty.current) {
+            tractorDirty.current = false;
+            await updateBiomassCollectionLocal(collectionId, {
+              tractorNumber: tractorValue.current,
+            });
+          }
+          const view = toBiomassCollectionView(await getBiomassCollection(collectionId));
+          if (
+            biomassIsUnfinished(view) &&
+            !biomassDraftHasContent(view) &&
+            !view.serverId &&
+            view.uploadStatus === "local"
+          ) {
+            await deleteBiomassDraft(view.id);
+          }
+        } catch (err) {
+          console.warn("[biomass] leave save failed:", err);
+        }
+        navigation.dispatch(event.data.action);
+      })();
+    });
+    return unsubscribe;
+  }, [navigation, collectionId]);
 
   async function save(patch: BiomassCollectionUpdate) {
     try {
@@ -124,9 +166,15 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   function handleTractorChange(text: string) {
     const value = text.toUpperCase();
     setTractorNumber(value);
+    tractorDirty.current = true;
+    tractorValue.current = value.trim() || null;
     if (tractorTimer.current) clearTimeout(tractorTimer.current);
     tractorTimer.current = setTimeout(() => {
-      void save({ tractorNumber: value.trim() || null });
+      tractorDirty.current = false;
+      const work = save({ tractorNumber: tractorValue.current }).finally(() => {
+        if (tractorSaveRef.current === work) tractorSaveRef.current = null;
+      });
+      tractorSaveRef.current = work;
     }, 450);
   }
 

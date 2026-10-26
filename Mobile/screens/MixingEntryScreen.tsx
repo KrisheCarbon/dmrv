@@ -28,13 +28,16 @@ import KeyboardSafeScroll from "../components/KeyboardSafeScroll";
 import { LocationUnavailableError } from "../services/fieldPhoto";
 import { captureAndSaveFieldPhoto } from "../services/photoWatermark";
 import {
+  deleteMixingDraft,
   fetchAvailablePyrolysisBatches,
   getMixingEntry,
+  mixingDraftHasContent,
   refreshMixingReviewStatuses,
   setMixingPyrolysisLinks,
   submitMixingEntry,
   toMixingEntryView,
   updateMixingEntryLocal,
+  type MixingEntryUpdate,
   type MixingEntryView,
   type SelectablePyrolysisBatch,
 } from "../services/mixingService";
@@ -51,6 +54,9 @@ type PhotoKind = "biochar" | "substrate" | "mixing";
 export default function MixingEntryScreen({ navigation, route }) {
   const entryId = route.params?.entryId as string;
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPatchRef = useRef<MixingEntryUpdate>({});
+  const saveInFlightRef = useRef<Promise<void> | null>(null);
+  const leavingRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const [loading, setLoading] = useState(true);
@@ -159,16 +165,35 @@ export default function MixingEntryScreen({ navigation, route }) {
     };
   }, [entryId, loadEntry]);
 
+  const flushPendingSave = useCallback(async () => {
+    if (saveInFlightRef.current) await saveInFlightRef.current;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const patch = pendingPatchRef.current;
+    if (Object.keys(patch).length === 0) return;
+    pendingPatchRef.current = {};
+    const work = updateMixingEntryLocal(entryId, patch).then(() => undefined);
+    saveInFlightRef.current = work;
+    try {
+      await work;
+    } finally {
+      if (saveInFlightRef.current === work) saveInFlightRef.current = null;
+    }
+  }, [entryId]);
+
   const queueAutoSave = useCallback(
-    (patch: Parameters<typeof updateMixingEntryLocal>[1]) => {
+    (patch: MixingEntryUpdate) => {
       if (!isEditable) return;
 
+      pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
       saveTimerRef.current = setTimeout(async () => {
         setSaving(true);
         try {
-          await updateMixingEntryLocal(entryId, patch);
+          await flushPendingSave();
           await loadEntry();
         } catch (err) {
           console.warn("[mixing] auto-save failed:", err);
@@ -177,8 +202,37 @@ export default function MixingEntryScreen({ navigation, route }) {
         }
       }, 450);
     },
-    [entryId, isEditable, loadEntry],
+    [isEditable, flushPendingSave, loadEntry],
   );
+
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  flushPendingSaveRef.current = flushPendingSave;
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event) => {
+      if (leavingRef.current) return;
+      event.preventDefault();
+      leavingRef.current = true;
+      void (async () => {
+        try {
+          await flushPendingSaveRef.current();
+          const view = await toMixingEntryView(await getMixingEntry(entryId));
+          if (
+            view.status === "draft" &&
+            !view.serverId &&
+            view.uploadStatus === "local" &&
+            !mixingDraftHasContent(view)
+          ) {
+            await deleteMixingDraft(entryId);
+          }
+        } catch (err) {
+          console.warn("[mixing] leave save failed:", err);
+        }
+        navigation.dispatch(event.data.action);
+      })();
+    });
+    return unsubscribe;
+  }, [navigation, entryId]);
 
   async function handleFarmChange(farmId: string) {
     const farm = farms.find((item) => item.id === farmId);

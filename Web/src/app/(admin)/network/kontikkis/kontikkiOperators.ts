@@ -1,11 +1,12 @@
-import { supabase } from "@/lib/supabase";
+import { browserData } from "@/lib/awsDataBrowser";
 
 /** Replace all operator assignments for a kontikki. */
 export async function syncKontikkiOperators(
   kontikkiId: string,
   operatorIds: string[],
 ): Promise<void> {
-  const { error: deleteError } = await supabase
+  const dataClient = await browserData();
+  const { error: deleteError } = await dataClient
     .from("kontikki_operators")
     .delete()
     .eq("kontikki_id", kontikkiId);
@@ -14,7 +15,7 @@ export async function syncKontikkiOperators(
 
   if (operatorIds.length === 0) return;
 
-  const { error: insertError } = await supabase.from("kontikki_operators").insert(
+  const { error: insertError } = await dataClient.from("kontikki_operators").insert(
     operatorIds.map((operator_id) => ({
       kontikki_id: kontikkiId,
       operator_id,

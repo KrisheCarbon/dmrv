@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import { canAccessFarmersNetworkPortal, isDmrvViewer } from "@/lib/roles";
 import type { ReactNode } from "react";
 
@@ -8,19 +8,9 @@ export default async function NetworkLayout({
 }: {
   children: ReactNode;
 }) {
-  const supabase = await createServerSupabaseClient();
+  const profile = await fetchPortalProfile();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/auth");
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  if (!profile) redirect("/auth");
 
   if (
     !profile ||

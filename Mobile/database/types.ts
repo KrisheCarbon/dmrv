@@ -4,6 +4,7 @@
 // in the app need minimal changes.
 import {
   parseSoilSampleSites,
+  type ConsentPhotoCapture,
   type FarmerCrop,
   type SoilSampleSite,
 } from "@krishecarbon/shared";
@@ -236,6 +237,25 @@ interface FarmFieldRowRaw {
   updated_at: number;
 }
 
+function parsePhotoCaptures(raw: string | null | undefined): ConsentPhotoCapture[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const row = item as Record<string, unknown>;
+      const latitude = typeof row.latitude === "number" ? row.latitude : null;
+      const longitude = typeof row.longitude === "number" ? row.longitude : null;
+      const captured_at = typeof row.captured_at === "string" ? row.captured_at : null;
+      if (latitude == null && longitude == null && !captured_at) return [];
+      return [{ latitude, longitude, captured_at }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 function parsePhotos(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
@@ -388,6 +408,7 @@ export interface FarmerConsent {
   agreementReference: string | null;
   documentUri: string | null;
   photos: string[];
+  photoCaptures: ConsentPhotoCapture[];
   evidenceNotes: string | null;
   serverId: string | null;
   uploadStatus: string | null;
@@ -407,6 +428,7 @@ interface FarmerConsentRowRaw {
   agreement_reference: string | null;
   document_uri: string | null;
   photos_json?: string | null;
+  photo_captures_json?: string | null;
   evidence_notes: string | null;
   server_id?: string | null;
   sync_status?: string | null;
@@ -427,6 +449,7 @@ export function rowToFarmerConsent(row: FarmerConsentRowRaw): FarmerConsent {
     agreementReference: row.agreement_reference,
     documentUri: row.document_uri,
     photos: parsePhotos(row.photos_json),
+    photoCaptures: parsePhotoCaptures(row.photo_captures_json),
     evidenceNotes: row.evidence_notes,
     serverId: row.server_id ?? null,
     uploadStatus: row.sync_status ?? null,
@@ -449,6 +472,7 @@ export function farmerConsentToRow(
     agreement_reference: consent.agreementReference,
     document_uri: consent.documentUri,
     photos_json: JSON.stringify(consent.photos ?? []),
+    photo_captures_json: JSON.stringify(consent.photoCaptures ?? []),
     evidence_notes: consent.evidenceNotes,
     server_id: consent.serverId,
     sync_status: consent.uploadStatus,
@@ -479,6 +503,8 @@ export interface SoilTest {
   /** Photo of the filled-in soil sample info sheet. */
   infoSheetPhotoUri: string | null;
   infoSheetPhotoUrl: string | null;
+  infoSheetLat: number | null;
+  infoSheetLng: number | null;
   /** Crop harvested from these farms before sampling. */
   lastCrop: string | null;
   /** Crop the farmer plans to sow next. */
@@ -523,6 +549,8 @@ interface SoilTestRowRaw {
   sample_sites_json?: string | null;
   info_sheet_photo_uri?: string | null;
   info_sheet_photo_url?: string | null;
+  info_sheet_lat?: number | null;
+  info_sheet_lng?: number | null;
   last_crop?: string | null;
   next_crop?: string | null;
   receive_photo_uri?: string | null;
@@ -569,6 +597,8 @@ export function rowToSoilTest(row: SoilTestRowRaw): SoilTest {
     sampleSites: parseSoilSampleSites(row.sample_sites_json),
     infoSheetPhotoUri: row.info_sheet_photo_uri ?? null,
     infoSheetPhotoUrl: row.info_sheet_photo_url ?? null,
+    infoSheetLat: row.info_sheet_lat ?? null,
+    infoSheetLng: row.info_sheet_lng ?? null,
     lastCrop: row.last_crop ?? null,
     nextCrop: row.next_crop ?? null,
     receivePhotoUri: row.receive_photo_uri ?? null,
@@ -612,6 +642,8 @@ export function soilTestToRow(test: Omit<SoilTest, "id">): Record<string, unknow
     sample_sites_json: JSON.stringify(test.sampleSites ?? []),
     info_sheet_photo_uri: test.infoSheetPhotoUri,
     info_sheet_photo_url: test.infoSheetPhotoUrl,
+    info_sheet_lat: test.infoSheetLat,
+    info_sheet_lng: test.infoSheetLng,
     last_crop: test.lastCrop,
     next_crop: test.nextCrop,
     receive_photo_uri: test.receivePhotoUri,

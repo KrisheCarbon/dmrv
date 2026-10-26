@@ -454,6 +454,13 @@ export interface FarmFieldUpsertPayload {
   crop_photos?: string[];
 }
 
+/** Where one consent photo was taken. Same order as `photos`. */
+export interface ConsentPhotoCapture {
+  latitude?: number | null;
+  longitude?: number | null;
+  captured_at?: string | null;
+}
+
 export interface FarmerConsentRecord {
   id: string;
   farm_id: string;
@@ -464,6 +471,7 @@ export interface FarmerConsentRecord {
   valid_to: string;
   agreement_reference?: string | null;
   photos?: string[];
+  photo_captures?: ConsentPhotoCapture[];
   evidence_notes?: string | null;
   created_by?: string | null;
   created_at?: string;
@@ -484,6 +492,7 @@ export interface FarmerConsentUpsertPayload {
   valid_to: string;
   agreement_reference?: string | null;
   photos?: string[];
+  photo_captures?: ConsentPhotoCapture[];
   evidence_notes?: string | null;
 }
 
@@ -739,6 +748,8 @@ export interface SoilTestRecord {
   sample_photo_url?: string | null;
   sample_sites?: SoilSampleSite[];
   info_sheet_photo_url?: string | null;
+  info_sheet_lat?: number | null;
+  info_sheet_lng?: number | null;
   /** Crop harvested from these farms before sampling. */
   last_crop?: string | null;
   /** Crop the farmer plans to sow next. */
@@ -789,6 +800,8 @@ export interface SoilTestUpsertPayload {
   sample_photo_url?: string | null;
   sample_sites?: SoilSampleSite[];
   info_sheet_photo_url?: string | null;
+  info_sheet_lat?: number | null;
+  info_sheet_lng?: number | null;
   last_crop?: string | null;
   next_crop?: string | null;
   submitted_to_supervisor_id?: string | null;

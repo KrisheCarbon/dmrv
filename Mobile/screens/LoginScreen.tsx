@@ -13,6 +13,7 @@ import {
   ScrollView
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { backendFetch } from "../services/backendApi";
 import { supabase } from "../services/supabase";
 import { assertActiveAccount, resolvePasswordLoginEmail } from "../services/auth";
 import {
@@ -58,12 +59,13 @@ export default function LoginScreen() {
   }
 
   async function rejectWebOnlyAccount(userId: string) {
-    const { data } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", userId)
-      .maybeSingle();
-    if (!data?.role || canAccessMobileApp(data.role)) return false;
+    let profile: { role?: string } | null = null;
+    try {
+      profile = await backendFetch<{ role?: string }>("/auth/me");
+    } catch {
+      return false;
+    }
+    if (!profile?.role || canAccessMobileApp(profile.role)) return false;
     await supabase.auth.signOut();
     Alert.alert(
       "Web access only",

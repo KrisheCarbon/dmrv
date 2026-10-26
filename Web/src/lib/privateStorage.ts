@@ -1,3 +1,5 @@
+import { storageRefFromValue, storedObjectUrl } from "@krishecarbon/shared";
+import { getBackendUrl } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
 
 export const BIOCHAR_PRODUCER_DOCS_BUCKET = "biochar-producers";
@@ -16,31 +18,58 @@ export const ORGANIZATION_DOCUMENT_MIME_TYPES = [
   "image/heif",
 ] as const;
 
-const PUBLIC_OBJECT_MARKER = "/storage/v1/object/public/";
-
 export function storagePathFromValue(
   value: string,
   defaultBucket?: string,
 ): { bucket: string; path: string } | null {
-  if (!value.trim()) return null;
+  return storageRefFromValue(value, defaultBucket);
+}
 
-  if (value.includes(PUBLIC_OBJECT_MARKER)) {
-    const idx = value.indexOf(PUBLIC_OBJECT_MARKER);
-    const rest = value.slice(idx + PUBLIC_OBJECT_MARKER.length);
-    const slash = rest.indexOf("/");
-    if (slash === -1) return null;
-
-    return {
-      bucket: rest.slice(0, slash),
-      path: decodeURIComponent(rest.slice(slash + 1)),
-    };
+async function storageApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("You must be signed in.");
   }
 
-  if (defaultBucket) {
-    return { bucket: defaultBucket, path: value };
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${session.access_token}`);
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
   }
 
-  return null;
+  const response = await fetch(`${getBackendUrl()}${path}`, { ...init, headers });
+  const text = await response.text();
+  const body = text ? (JSON.parse(text) as { message?: string }) : null;
+  if (!response.ok) {
+    throw new Error(body?.message || "The file could not be saved.");
+  }
+  return body as T;
+}
+
+export async function uploadStorageObject(
+  bucket: string,
+  path: string,
+  body: Blob,
+  contentType: string,
+): Promise<void> {
+  const { uploadUrl } = await storageApi<{ uploadUrl: string }>("/storage/upload-url", {
+    method: "POST",
+    body: JSON.stringify({ bucket, path, contentType }),
+  });
+  const saved = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body,
+  });
+  if (!saved.ok) {
+    throw new Error("The file could not be saved.");
+  }
+}
+
+export function publicObjectUrl(bucket: string, path: string): string {
+  return storedObjectUrl(bucket, path);
 }
 
 export async function createSignedStorageUrl(
@@ -51,16 +80,15 @@ export async function createSignedStorageUrl(
   const ref = storagePathFromValue(pathOrValue, bucket);
   if (!ref) return null;
 
-  const { data, error } = await supabase.storage
-    .from(ref.bucket)
-    .createSignedUrl(ref.path, expiresInSeconds);
-
-  if (error) {
+  try {
+    const data = await storageApi<{ url: string | null }>(
+      `/storage/sign?bucket=${encodeURIComponent(ref.bucket)}&path=${encodeURIComponent(ref.path)}&expires=${expiresInSeconds}`,
+    );
+    return data?.url ?? null;
+  } catch (error) {
     console.error("Failed to create signed URL:", error);
     return null;
   }
-
-  return data.signedUrl;
 }
 
 export async function deleteStorageObject(
@@ -70,10 +98,10 @@ export async function deleteStorageObject(
   const ref = storagePathFromValue(pathOrValue, bucket);
   if (!ref) return;
 
-  const { error } = await supabase.storage.from(ref.bucket).remove([ref.path]);
-  if (error) {
-    throw error;
-  }
+  await storageApi("/storage/delete", {
+    method: "POST",
+    body: JSON.stringify({ bucket: ref.bucket, path: ref.path }),
+  });
 }
 
 export function fileNameFromStoragePath(path: string) {

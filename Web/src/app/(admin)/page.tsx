@@ -5,6 +5,7 @@ import DashboardSectionCard from "@/components/DashboardSectionCard";
 import DashboardSensorData from "@/components/sensor/DashboardSensorData";
 import { getDashboardSectionsForRole } from "@/lib/nav-helpers";
 import { canAccessNetwork, formatRoleLabel, isDmrvViewer } from "@/lib/roles";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import { createServerSupabaseClient } from "@/lib/supabaseServer";
 
 /** Sample placeholders until live MRV / payout data is wired up. */
@@ -28,13 +29,9 @@ export default async function Home() {
     redirect("/auth");
   }
 
-  const { data: profile, error } = await supabase
-    .from("users")
-    .select("full_name, role")
-    .eq("id", user.id)
-    .single();
+  const profile = await fetchPortalProfile();
 
-  if (error || !profile) {
+  if (!profile) {
     throw new Error("Failed to load profile");
   }
 

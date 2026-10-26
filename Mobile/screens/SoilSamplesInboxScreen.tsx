@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   View,
   Text,
   StyleSheet,
@@ -13,7 +12,7 @@ import { ScreenShell } from "../components/ScreenHeader";
 import SoilSampleTracker from "../components/SoilSampleTracker";
 import FormPicker from "../components/FormPicker";
 import AddEntryButton from "../components/AddEntryButton";
-import EntryStatusPill from "../components/EntryStatusPill";
+import DraftEntryCard from "../components/DraftEntryCard";
 import { NETWORK_FORM_DRAFTS, clearFormDraft, readFormDraft } from "../utils/formDrafts";
 import { listAllSoilTests } from "../services/farmersNetworkService";
 import { getFarmerByIdLocal } from "../services/farmerService";
@@ -65,24 +64,6 @@ export default function SoilSamplesInboxScreen({ navigation }) {
       `${farmer?.farmerName || "Farmer not chosen"} · ${photos} point photo${photos === 1 ? "" : "s"}`,
     );
   }, []);
-
-  function deleteDraft() {
-    Alert.alert(
-      "Delete this draft?",
-      "The farmer, farm and photos in this unfinished sample will be removed. This cannot be undone.",
-      [
-        { text: "Keep draft", style: "cancel" },
-        {
-          text: "Delete draft",
-          style: "destructive",
-          onPress: async () => {
-            await clearFormDraft(NETWORK_FORM_DRAFTS.soilSample);
-            setDraftSummary(null);
-          },
-        },
-      ],
-    );
-  }
 
   const load = useCallback(async () => {
     loadDraft().catch(() => {});
@@ -188,33 +169,15 @@ export default function SoilSamplesInboxScreen({ navigation }) {
         }
         ListHeaderComponent={
           draftSummary ? (
-            <Pressable
-              style={[styles.card, styles.draftCard]}
-              onPress={() => navigation.navigate("SoilTestForm", {})}
-              onLongPress={deleteDraft}
-              delayLongPress={400}
-              accessibilityHint="Long press to delete this draft"
-            >
-              <Text style={styles.code}>Unfinished sample</Text>
-              <Text style={styles.meta}>{draftSummary}</Text>
-              <EntryStatusPill label="Draft · not submitted" tone="draft" />
-              <View style={styles.draftActions}>
-                <Pressable
-                  style={styles.draftButton}
-                  onPress={() => navigation.navigate("SoilTestForm", {})}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.draftContinue}>Continue</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.draftButton, styles.draftDelete]}
-                  onPress={deleteDraft}
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.draftDeleteText}>Delete draft</Text>
-                </Pressable>
-              </View>
-            </Pressable>
+            <DraftEntryCard
+              title="Unfinished sample"
+              subtitle={draftSummary}
+              confirmMessage="The farmer, farm and photos in this unfinished sample will be removed. This cannot be undone."
+              onContinue={() => navigation.navigate("SoilTestForm", {})}
+              onDelete={() => {
+                void clearFormDraft(NETWORK_FORM_DRAFTS.soilSample).then(() => setDraftSummary(null));
+              }}
+            />
           ) : null
         }
         ListEmptyComponent={
@@ -265,37 +228,6 @@ const styles = StyleSheet.create({
   titleText: {
     flex: 1,
     gap: 4,
-  },
-  draftCard: {
-    borderColor: colors.warning,
-    borderStyle: "dashed",
-  },
-  draftActions: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  draftButton: {
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.brunswick,
-    backgroundColor: colors.white,
-  },
-  draftContinue: {
-    fontFamily: fonts.bold,
-    fontSize: typeScale.label,
-    color: colors.brunswick,
-  },
-  draftDelete: {
-    borderColor: colors.error,
-  },
-  draftDeleteText: {
-    fontFamily: fonts.bold,
-    fontSize: typeScale.label,
-    color: colors.error,
   },
   title: {
     fontSize: typeScale.title,

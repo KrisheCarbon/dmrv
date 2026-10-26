@@ -1,6 +1,6 @@
 import NetInfo from "@react-native-community/netinfo";
 import type { ApplicationMediaType } from "@krishecarbon/shared";
-import { supabase } from "../services/supabase";
+import { publicObjectUrl, uploadStorageObject } from "../services/objectStorage";
 import { canUploadToCloud } from "../services/syncService";
 import {
   APPLICATION_BUCKET,
@@ -46,21 +46,17 @@ async function uploadLocalMedia(
   const ext = mediaExt(localUri, mediaType);
   const contentType = contentTypeForExt(ext, mediaType);
 
-  const { error } = await supabase.storage
-    .from(APPLICATION_BUCKET)
-    .upload(storagePath, arrayBuffer, { contentType, upsert: true });
-
-  if (error) {
-    const hint =
-      error.message?.includes("Bucket not found") ||
-      error.message?.includes("not found")
-        ? " Application media storage is not configured on the server."
-        : "";
-    throw new Error(`${error.message}${hint}`);
+  try {
+    await uploadStorageObject(APPLICATION_BUCKET, storagePath, arrayBuffer, contentType);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Media upload failed.";
+    const hint = /not found/i.test(message)
+      ? " Application media storage is not configured on the server."
+      : "";
+    throw new Error(`${message}${hint}`);
   }
 
-  const { data } = supabase.storage.from(APPLICATION_BUCKET).getPublicUrl(storagePath);
-  return data.publicUrl;
+  return publicObjectUrl(APPLICATION_BUCKET, storagePath);
 }
 
 export type ApplicationMediaFields = {

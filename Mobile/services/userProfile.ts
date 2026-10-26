@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { contactEmail, formatRoleLabel, type UserRole } from "@krishecarbon/shared";
-import { supabase } from "./supabase";
+import { backendFetch } from "./backendApi";
 import { getStoredAuthUser } from "./auth";
 
 const PROFILE_CACHE_KEY = "dmrv_user_profile";
@@ -47,11 +47,13 @@ export async function getUserProfile(): Promise<UserProfile | null> {
   const cached = await readCachedProfile(user.id);
 
   try {
-    const { data: profile } = await supabase
-      .from("users")
-      .select("full_name, role, email, phone, collector_code")
-      .eq("id", user.id)
-      .maybeSingle();
+    const profile = await backendFetch<{
+      full_name?: string | null;
+      role?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      collector_code?: string | null;
+    }>("/auth/me");
 
     const role =
       profile?.role ||

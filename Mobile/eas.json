@@ -20,7 +20,7 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://krishecarbon-backend.onrender.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net"
       }
     },
     "play-internal": {
@@ -30,12 +30,15 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://krishecarbon-backend.onrender.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net"
       }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net"
+      }
     }
   },
   "submit": {

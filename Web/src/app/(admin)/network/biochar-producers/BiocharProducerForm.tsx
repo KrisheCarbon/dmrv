@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import LocationPicker from "@/components/maps/Locationpicker";
 import SignedStorageLink from "@/components/SignedStorageLink";
 import { BIOCHAR_PRODUCER_DOCS_BUCKET, ORGANIZATION_DOCUMENT_ACCEPT } from "@/lib/privateStorage";
+import { browserData } from "@/lib/awsDataBrowser";
 import { supabase } from "@/lib/supabase";
 import {
   deleteBiocharProducerDoc,
@@ -794,12 +795,24 @@ function AffiliationSelect({
   >([]);
 
   useEffect(() => {
-    supabase
-      .from("partner_organizations")
-      .select("id, org_name")
-      .is("deleted_at", null)
-      .order("org_name")
-      .then(({ data }) => setPartners(data ?? []));
+    let ignore = false;
+    browserData()
+      .then((db) =>
+        db
+          .from("partner_organizations")
+          .select("id, org_name")
+          .is("deleted_at", null)
+          .order("org_name"),
+      )
+      .then(({ data }) => {
+        if (!ignore) setPartners(data ?? []);
+      })
+      .catch(() => {
+        if (!ignore) setPartners([]);
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   return (
@@ -1143,7 +1156,8 @@ function SupervisorSection({
     async function fetchSupervisors() {
       setLoading(true);
 
-      const { data } = await supabase
+      const db = await browserData();
+      const { data } = await db
         .from("users")
         .select("id, full_name")
         .eq("role", "supervisor")

@@ -9,6 +9,7 @@ import {
   MIN_SOIL_SAMPLE_SITES,
   soilSampleCodeSerial,
   soilSampleToneFromStatuses,
+  type ConsentPhotoCapture,
   type FarmerCrop,
   type SoilSampleSite,
   type SoilSampleTone,
@@ -476,6 +477,7 @@ export type ConsentFormInput = {
   agreementReference?: string;
   documentUri?: string;
   photos?: string[];
+  photoCaptures?: ConsentPhotoCapture[];
   evidenceNotes?: string;
   fieldId?: string | null;
 };
@@ -520,6 +522,13 @@ export async function saveConsentLocal(
   if (photoCount > 2) {
     throw new Error("Maximum 2 document photos.");
   }
+  const captures = form.photoCaptures ?? [];
+  if (
+    captures.length !== photoCount ||
+    captures.some((capture) => capture.latitude == null || capture.longitude == null)
+  ) {
+    throw new Error("Each consent photo needs a GPS location. Retake it.");
+  }
   const db = await getDb();
   const now = Date.now();
   const id = generateId();
@@ -535,6 +544,7 @@ export async function saveConsentLocal(
     agreementReference: form.agreementReference?.trim() || null,
     documentUri: form.documentUri || null,
     photos: form.photos ?? [],
+    photoCaptures: form.photoCaptures ?? [],
     evidenceNotes: form.evidenceNotes?.trim() || null,
     serverId: null,
     uploadStatus: "pending",
@@ -562,6 +572,8 @@ export type SoilTestFormInput = {
   samplePhotoUri?: string | null;
   sampleSites?: SoilSampleSite[];
   infoSheetPhotoUri?: string | null;
+  infoSheetLat?: number | null;
+  infoSheetLng?: number | null;
   lastCrop?: string | null;
   nextCrop?: string | null;
   labSource?: string;
@@ -666,14 +678,11 @@ export async function saveSoilTestLocal(
   if (!form.infoSheetPhotoUri) {
     throw new Error("Take a photo of the filled-in soil sample info sheet.");
   }
-  const photoPoints = [
-    ...completedSoilSampleSites(sampleSites).map((site) => ({
-      name: site.name,
-      latitude: site.latitude,
-      longitude: site.longitude,
-    })),
-    { name: "Mixed sample photo", latitude: form.sampleLat, longitude: form.sampleLng },
-  ];
+  const photoPoints = completedSoilSampleSites(sampleSites).map((site) => ({
+    name: site.name,
+    latitude: site.latitude,
+    longitude: site.longitude,
+  }));
   for (const point of photoPoints) {
     if (
       point.latitude == null ||
@@ -684,6 +693,12 @@ export async function saveSoilTestLocal(
         `${point.name} is not inside the selected farm of this farmer. Retake it inside the farm boundary.`,
       );
     }
+  }
+  if (form.sampleLat == null || form.sampleLng == null) {
+    throw new Error("The mixed sample photo has no GPS location. Retake it.");
+  }
+  if (form.infoSheetLat == null || form.infoSheetLng == null) {
+    throw new Error("The info sheet photo has no GPS location. Retake it.");
   }
   const farmer = await db.getFirstAsync<{ farmer_name: string | null; village: string | null }>(
     "SELECT farmer_name, village FROM farmers WHERE id = ?",
@@ -713,6 +728,8 @@ export async function saveSoilTestLocal(
     sampleSites,
     infoSheetPhotoUri: form.infoSheetPhotoUri ?? null,
     infoSheetPhotoUrl: null,
+    infoSheetLat: form.infoSheetLat ?? null,
+    infoSheetLng: form.infoSheetLng ?? null,
     lastCrop: form.lastCrop?.trim() || null,
     nextCrop: form.nextCrop?.trim() || null,
     receivePhotoUri: null,

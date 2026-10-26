@@ -1,3 +1,4 @@
+import { uploadStorageObject } from "@/lib/privateStorage";
 import { supabase } from "@/lib/supabase";
 
 export const TRAINING_SESSION_BUCKET = "training-sessions";
@@ -46,11 +47,7 @@ export async function uploadOpsFiles(
     }
     const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
     const path = `${user.id}/${crypto.randomUUID()}/${kind}/${clean}`;
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
-      upsert: false,
-      contentType,
-    });
-    if (error) throw new Error(error.message);
+    await uploadStorageObject(bucket, path, file, contentType);
     uploaded.push({
       kind,
       path,

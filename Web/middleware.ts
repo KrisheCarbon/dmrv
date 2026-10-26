@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { canAccessWebPortal } from "@krishecarbon/shared";
-import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
+import { getBackendUrl, supabaseAnonKey, supabaseUrl } from "@/lib/env";
 import { isRecoveryAccessToken } from "@/lib/recoverySession";
 
 const PUBLIC_PREFIXES = [
@@ -54,11 +54,7 @@ export async function middleware(req: NextRequest) {
 
   if (isPublicRoute(pathname)) {
     if (user && (pathname === "/auth" || pathname === "/signup")) {
-      const { data: profile } = await supabase
-        .from("users")
-        .select("status, role")
-        .eq("id", user.id)
-        .single();
+      const profile = await loadAccount(supabase);
 
       if (profile?.status === "pending_auth") {
         if (pathname !== "/signup") {
@@ -87,11 +83,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/auth", req.url));
   }
 
-  const { data: profile } = await supabase
-    .from("users")
-    .select("status, role")
-    .eq("id", user.id)
-    .single();
+  const profile = await loadAccount(supabase);
 
   if (!profile) {
     return NextResponse.redirect(new URL("/auth", req.url));
@@ -115,6 +107,22 @@ export async function middleware(req: NextRequest) {
   }
 
   return res;
+}
+
+async function loadAccount(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+): Promise<{ status: string; role: string } | null> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) return null;
+
+  const response = await fetch(`${getBackendUrl()}/auth/me`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  return response.json();
 }
 
 export const config = {

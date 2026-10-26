@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -10,9 +11,13 @@ import {
 } from "react-native";
 import { applicationAreaAcres, applicationMediaTypeLabel, formatApplicationAcres, type ApplicationFarmerOption } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
+import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
 import {
+  applicationDraftHasContent,
+  applicationDraftSubtitle,
+  deleteApplicationDraft,
   listApplicationEntries,
   loadApplicationFarmers,
   refreshApplicationReviewStatuses,
@@ -145,7 +150,20 @@ export default function ApplicationDashboardScreen({ navigation }) {
       }
       const rows = await listApplicationEntries(user.id);
       const views = await Promise.all(rows.map((row) => toApplicationEntryView(row)));
-      setEntries(views);
+      const kept: ApplicationEntryView[] = [];
+      for (const entry of views) {
+        if (
+          entry.status === "draft" &&
+          !applicationDraftHasContent(entry) &&
+          !entry.serverId &&
+          entry.uploadStatus === "local"
+        ) {
+          await deleteApplicationDraft(entry.id).catch(() => {});
+          continue;
+        }
+        kept.push(entry);
+      }
+      setEntries(kept);
       try {
         setFarmers(await loadApplicationFarmers());
       } catch {
@@ -243,7 +261,23 @@ export default function ApplicationDashboardScreen({ navigation }) {
               </Text>
             </View>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }) =>
+            item.status === "draft" ? (
+              <DraftEntryCard
+                subtitle={applicationDraftSubtitle(item)}
+                onContinue={() => navigation.navigate("ApplicationEntry", { entryId: item.id })}
+                onDelete={() => {
+                  void deleteApplicationDraft(item.id)
+                    .then(() => loadData())
+                    .catch((err) => {
+                      Alert.alert(
+                        "Could not delete draft",
+                        err instanceof Error ? err.message : "Please try again.",
+                      );
+                    });
+                }}
+              />
+            ) : (
             <EntryCard
               entry={item}
               farmAcres={farmAcresFor(item, farmers)}

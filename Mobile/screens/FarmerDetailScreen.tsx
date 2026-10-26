@@ -21,6 +21,7 @@ import {
   listSoilTestsForFarmer,
   setFieldStatus,
 } from "../services/farmersNetworkService";
+import { useResolvedFileUri } from "../services/objectStorage";
 import { isFarmerSyncing } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
 import ChecklistItem from "../components/ChecklistItem";
@@ -56,6 +57,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
   const [latestConsentLabel, setLatestConsentLabel] = useState("—");
   const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("fields");
   const [loading, setLoading] = useState(true);
+  const photoUri = useResolvedFileUri(farmer?.farmer_photo_uri || farmer?.farmer_photo_url);
 
   const loadFarmer = useCallback(async () => {
     if (!farmerId) {
@@ -195,9 +197,9 @@ export default function FarmerDetailScreen({ route, navigation }) {
               <Text style={styles.link}>Edit</Text>
             </Pressable>
           </View>
-          {farmer.farmer_photo_uri || farmer.farmer_photo_url ? (
+          {photoUri ? (
             <Image
-              source={{ uri: farmer.farmer_photo_uri || farmer.farmer_photo_url }}
+              source={{ uri: photoUri }}
               style={styles.farmerPhoto}
               resizeMode="contain"
             />

@@ -8,6 +8,7 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import { canAccessNetwork, canAccessWebPortal } from '@krishecarbon/shared';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { ObjectStorageService } from '../object-storage/object-storage.service';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import {
   INSPECTION_BUCKET,
@@ -34,7 +35,10 @@ export interface InspectionRecord {
 
 @Injectable()
 export class InspectionsService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly files: ObjectStorageService,
+  ) {}
 
   async list(user: AuthenticatedUser): Promise<InspectionRecord[]> {
     this.assertView(user);
@@ -142,7 +146,7 @@ export class InspectionsService {
       files.map(async (file) => {
         const bucket = String(file.bucket);
         const path = String(file.path);
-        const { data } = await this.supabase.storage.from(bucket).createSignedUrl(path, 60 * 60);
+        const signedUrl = await this.files.sign(bucket, path, 60 * 60);
         return {
           id: String(file.id),
           kind: String(file.kind),
@@ -150,7 +154,7 @@ export class InspectionsService {
           path,
           file_name: String(file.file_name),
           content_type: String(file.content_type),
-          signed_url: data?.signedUrl ?? null,
+          signed_url: signedUrl,
         };
       }),
     );

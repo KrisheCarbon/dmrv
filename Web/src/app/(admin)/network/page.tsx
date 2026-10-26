@@ -3,13 +3,11 @@ import {
   fetchDashboardCounts,
   networkOverviewStats,
 } from "@/lib/dashboardStats";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getPortalRole } from "@/lib/portalRole";
 import { isDmrvViewer } from "@/lib/roles";
 
 export default async function NetworkOverviewPage() {
-  const supabase = await createServerSupabaseClient();
-  const [counts, role] = await Promise.all([fetchDashboardCounts(supabase), getPortalRole()]);
+  const [counts, role] = await Promise.all([fetchDashboardCounts(), getPortalRole()]);
   const viewer = isDmrvViewer(role);
   const stats = networkOverviewStats(counts);
   if (viewer) {
