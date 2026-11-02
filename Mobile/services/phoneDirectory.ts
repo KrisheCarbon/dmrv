@@ -1,9 +1,9 @@
 import NetInfo from "@react-native-community/netinfo";
-import type { Farmer as ServerFarmer, FarmerCrop } from "@krishecarbon/shared";
+import type { Farmer as ServerFarmer, FarmFieldRecord, FarmerCrop } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate } from "../database/sqlHelpers";
 import { farmerToRow, rowToFarmer, type Farmer } from "../database/types";
-import { backendFetch } from "./backendApi";
+import { backendFetch, fetchMobileNetworkOverview } from "./backendApi";
 import { pullClusterVillages } from "./clusterVillageService";
 import { pullFarmFieldsForFarmer } from "./farmerNetworkSync";
 
@@ -102,6 +102,54 @@ export function syncPhoneDirectory() {
   return syncing;
 }
 
+function directoryRouteMissing(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /cannot get \/mobile-network\/directory/i.test(message);
+}
+
+/**
+ * The short directory route is not on the live API yet. The same basics are
+ * already on the farmer, farm, and network routes, so sync can use those
+ * instead of failing with "Cannot GET /mobile-network/directory".
+ */
+async function fetchDirectoryFromExistingRoutes(): Promise<PhoneDirectoryPayload> {
+  const [farmers, fields, overview] = await Promise.all([
+    backendFetch<ServerFarmer[]>("/farms"),
+    backendFetch<FarmFieldRecord[]>("/farm-fields").catch(() => [] as FarmFieldRecord[]),
+    fetchMobileNetworkOverview().catch(() => null),
+  ]);
+
+  return {
+    farmers: (farmers ?? []).map((row) => ({
+      id: row.id,
+      farmer_name: row.farmer_name?.trim() || "Unnamed farmer",
+      village: row.village ?? null,
+      district: row.district ?? null,
+      mobile_number: row.mobile_number ?? null,
+      created_by: row.created_by ?? null,
+    })),
+    farms: (fields ?? []).map((field) => ({
+      id: field.id,
+      farmer_id: field.farm_id,
+      area: field.calculated_area == null ? null : Number(field.calculated_area),
+    })),
+    kontikkis: (overview?.kontikkis ?? []).map((row) => ({
+      id: row.id,
+      registry_name: row.producer?.registry ?? null,
+      volume: row.capacity == null ? null : Number(row.capacity),
+    })),
+  };
+}
+
+async function fetchPhoneDirectory(): Promise<PhoneDirectoryPayload> {
+  try {
+    return await backendFetch<PhoneDirectoryPayload>("/mobile-network/directory");
+  } catch (err) {
+    if (!directoryRouteMissing(err)) throw err;
+    return fetchDirectoryFromExistingRoutes();
+  }
+}
+
 async function runDirectorySync() {
   const net = await NetInfo.fetch();
   if (net.isConnected === false) {
@@ -110,7 +158,7 @@ async function runDirectorySync() {
     );
   }
 
-  const data = await backendFetch<PhoneDirectoryPayload>("/mobile-network/directory");
+  const data = await fetchPhoneDirectory();
   const db = await getDb();
   const previous = await db.getFirstAsync<{ n: number }>(
     "SELECT COUNT(*) AS n FROM directory_farmers",
