@@ -9,7 +9,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { applicationAreaAcres, applicationMediaTypeLabel, formatApplicationAcres, type ApplicationFarmerOption } from "@krishecarbon/shared";
+import { applicationAreaAcres, applicationMediaTypeLabel, formatApplicationAcres } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
@@ -19,7 +19,6 @@ import {
   applicationDraftSubtitle,
   deleteApplicationDraft,
   listApplicationEntries,
-  loadApplicationFarmers,
   refreshApplicationReviewStatuses,
   toApplicationEntryView,
   type ApplicationEntryView,
@@ -30,15 +29,12 @@ import {
   retryFailedApplicationSyncs,
   subscribeSyncEvents,
 } from "../services/syncService";
+import { areaByFieldId, syncPhoneDirectoryIfStale } from "../services/phoneDirectory";
 import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 
-function farmAcresFor(entry: ApplicationEntryView, farmers: ApplicationFarmerOption[]) {
+function farmAcresFor(entry: ApplicationEntryView, areas: Map<string, number>) {
   if (!entry.farmFieldId) return null;
-  for (const farmer of farmers) {
-    const field = farmer.fields.find((item) => item.id === entry.farmFieldId);
-    if (field) return field.area_acres;
-  }
-  return null;
+  return areas.get(entry.farmFieldId) ?? null;
 }
 
 function EntryCard({
@@ -134,7 +130,7 @@ function EntryCard({
 
 export default function ApplicationDashboardScreen({ navigation }) {
   const [entries, setEntries] = useState<ApplicationEntryView[]>([]);
-  const [farmers, setFarmers] = useState<ApplicationFarmerOption[]>([]);
+  const [fieldAreas, setFieldAreas] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingEntryIds, setSyncingEntryIds] = useState<Set<string>>(new Set());
@@ -165,9 +161,10 @@ export default function ApplicationDashboardScreen({ navigation }) {
       }
       setEntries(kept);
       try {
-        setFarmers(await loadApplicationFarmers());
+        await syncPhoneDirectoryIfStale();
+        setFieldAreas(await areaByFieldId());
       } catch {
-        setFarmers([]);
+        setFieldAreas(await areaByFieldId().catch(() => new Map()));
       }
     } finally {
       setLoading(false);
@@ -280,7 +277,7 @@ export default function ApplicationDashboardScreen({ navigation }) {
             ) : (
             <EntryCard
               entry={item}
-              farmAcres={farmAcresFor(item, farmers)}
+              farmAcres={farmAcresFor(item, fieldAreas)}
               syncing={syncingEntryIds.has(item.id) || isApplicationEntrySyncing(item.id)}
               onPress={() => navigation.navigate("ApplicationEntry", { entryId: item.id })}
             />

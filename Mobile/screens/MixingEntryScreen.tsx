@@ -41,10 +41,7 @@ import {
   type MixingEntryView,
   type SelectablePyrolysisBatch,
 } from "../services/mixingService";
-import {
-  fetchMobileNetworkOverview,
-  type NetworkFarm,
-} from "../services/backendApi";
+import { listPhoneFarmers } from "../services/phoneDirectory";
 import { getCurrentFarmLocation } from "../utils/location";
 import { startLocationCache } from "../services/locationCache";
 import { colors, fonts, spacing, radius } from "../constants/theme";
@@ -63,7 +60,9 @@ export default function MixingEntryScreen({ navigation, route }) {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [entry, setEntry] = useState<MixingEntryView | null>(null);
-  const [farms, setFarms] = useState<NetworkFarm[]>([]);
+  const [farms, setFarms] = useState<
+    Array<{ id: string; farmer_name: string; village: string | null; district: string | null }>
+  >([]);
   const [pyrolysisBatches, setPyrolysisBatches] = useState<SelectablePyrolysisBatch[]>([]);
   const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -78,7 +77,7 @@ export default function MixingEntryScreen({ navigation, route }) {
       farms.map((farm) => ({
         value: farm.id,
         label: farm.farmer_name,
-        hint: [farm.village, farm.cluster_name].filter(Boolean).join(" · "),
+        hint: [farm.village, farm.district].filter(Boolean).join(" · "),
       })),
     [farms],
   );
@@ -138,14 +137,23 @@ export default function MixingEntryScreen({ navigation, route }) {
 
     async function init() {
       try {
-        const [overview, batches] = await Promise.all([
-          fetchMobileNetworkOverview(),
+        const [farmers, batches] = await Promise.all([
+          listPhoneFarmers(),
           fetchAvailablePyrolysisBatches(),
         ]);
 
         if (cancelled) return;
 
-        setFarms(overview.farms ?? []);
+        setFarms(
+          farmers
+            .filter((farmer) => farmer.serverId)
+            .map((farmer) => ({
+              id: farmer.serverId as string,
+              farmer_name: farmer.farmer_name,
+              village: farmer.village,
+              district: farmer.district,
+            })),
+        );
         setPyrolysisBatches(batches);
         await loadEntry();
       } catch (err) {

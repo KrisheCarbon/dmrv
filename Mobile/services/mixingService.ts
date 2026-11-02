@@ -19,6 +19,7 @@ import {
   type MixingEntry,
 } from "../database/types";
 import { backendFetch, fetchMobileNetworkOverview } from "./backendApi";
+import { directoryKontikkiIds } from "./phoneDirectory";
 import { uploadMixingEntryPhotos } from "../utils/mixingPhotoUpload";
 import { getCurrentIST } from "./trustedtime";
 
@@ -442,8 +443,10 @@ export async function submitMixingEntry(entryId: string) {
 }
 
 export async function fetchAvailablePyrolysisBatches(): Promise<SelectablePyrolysisBatch[]> {
-  const overview = await fetchMobileNetworkOverview();
-  const allowedKontikkiIds = new Set(overview.kontikkis.map((row) => row.id));
+  const cachedIds = await directoryKontikkiIds();
+  const allowedKontikkiIds =
+    cachedIds ??
+    new Set((await fetchMobileNetworkOverview()).kontikkis.map((row) => row.id));
 
   let serverRows: AvailableMixingPyrolysisBatch[] = [];
 

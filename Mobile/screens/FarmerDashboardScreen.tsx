@@ -15,8 +15,8 @@ import FarmerCard from "../components/FarmerCard";
 import SearchField from "../components/SearchField";
 import { ScreenShell } from "../components/ScreenHeader";
 import { useKeyboardOverlap } from "../hooks/useKeyboardOverlap";
-import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
 import { getFarmersChecklist } from "../services/farmersNetworkService";
+import { listPhoneFarmers, subscribePhoneDirectory, syncPhoneDirectory } from "../services/phoneDirectory";
 import { getUserProfile } from "../services/userProfile";
 import {
   processSyncQueue,
@@ -93,6 +93,7 @@ function farmerSearchText(farmer): string {
     farmer.mobile_number,
     farmer.farmer_code,
     farmer.village,
+    farmer.district,
     farmer.cluster_name,
     farmer.mandal,
   ]
@@ -173,16 +174,26 @@ export default function FarmerDashboardScreen({ navigation, route }) {
       return;
     }
 
-    const localFarmers = await getAllFarmersLocal(profile.id, profile.role);
-    setFarmers(localFarmers.map((f) => farmerToFormData(f)));
+    const localFarmers = await listPhoneFarmers();
+    setFarmers(localFarmers);
     setSyncProgress(getAllSyncProgress());
-    setChecklist(await getFarmersChecklist(localFarmers.map((f) => f.id)));
+    const checklist = await getFarmersChecklist(localFarmers.map((f) => f.id));
+    for (const farmer of localFarmers) {
+      if (farmer.hasFarms && checklist[farmer.id]) {
+        checklist[farmer.id] = { ...checklist[farmer.id], hasFields: true };
+      }
+    }
+    setChecklist(checklist);
   }, []);
 
   useEffect(() => {
     loadData();
 
     const unsubscribeNav = navigation.addListener("focus", loadData);
+
+    const unsubscribeDirectory = subscribePhoneDirectory(() => {
+      loadData();
+    });
 
     const unsubscribeSync = subscribeSyncEvents((event) => {
       if (event.type === "progress") {
@@ -204,6 +215,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
 
     return () => {
       unsubscribeNav();
+      unsubscribeDirectory();
       unsubscribeSync();
     };
   }, [navigation, loadData]);
@@ -267,6 +279,7 @@ export default function FarmerDashboardScreen({ navigation, route }) {
       await retryFailedFarmSyncs(profile.id, profile.role);
     }
     await processSyncQueue();
+    await syncPhoneDirectory().catch(() => undefined);
     await loadData();
     setRefreshing(false);
   }

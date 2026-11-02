@@ -20,6 +20,7 @@ import {
   type ApplicationEntry,
 } from "../database/types";
 import { backendFetch, fetchMobileNetworkOverview } from "./backendApi";
+import { directoryKontikkiIds } from "./phoneDirectory";
 import { uploadApplicationEntryMedia } from "../utils/applicationMediaUpload";
 import { getCurrentIST } from "./trustedtime";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -438,8 +439,10 @@ export async function submitApplicationEntry(entryId: string) {
 }
 
 export async function fetchAvailablePyrolysisBatches(): Promise<SelectablePyrolysisBatch[]> {
-  const overview = await fetchMobileNetworkOverview();
-  const allowedKontikkiIds = new Set(overview.kontikkis.map((row) => row.id));
+  const cachedIds = await directoryKontikkiIds();
+  const allowedKontikkiIds =
+    cachedIds ??
+    new Set((await fetchMobileNetworkOverview()).kontikkis.map((row) => row.id));
 
   let serverRows: AvailableApplicationPyrolysisBatch[] = [];
 

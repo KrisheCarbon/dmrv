@@ -8,6 +8,10 @@ const PYRO_PHOTO_DIR = `${FileSystem.documentDirectory}pyrolysis-photos/`;
 
 const ALL_TABLES = [
   "farmers",
+  "directory_farmers",
+  "directory_farms",
+  "directory_kontikkis",
+  "directory_meta",
   "farm_fields",
   "farm_crops",
   "farmer_consents",

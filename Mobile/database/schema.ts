@@ -1,6 +1,6 @@
 // Plain SQLite DDL replacing the WatermelonDB schema/migrations. Fresh start:
 // this creates the final (v11-equivalent) shape directly, no historical replay.
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 10;
 
 export const SCHEMA_STATEMENTS: string[] = [
   `CREATE TABLE IF NOT EXISTS farmers (
@@ -52,6 +52,34 @@ export const SCHEMA_STATEMENTS: string[] = [
     updated_at INTEGER NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS idx_cluster_villages_cluster_id ON cluster_villages(cluster_id);`,
+
+  `CREATE TABLE IF NOT EXISTS directory_farmers (
+    id TEXT PRIMARY KEY NOT NULL,
+    farmer_name TEXT NOT NULL,
+    village TEXT,
+    district TEXT,
+    mobile_number TEXT,
+    created_by TEXT,
+    updated_at INTEGER NOT NULL
+  );`,
+
+  `CREATE TABLE IF NOT EXISTS directory_farms (
+    id TEXT PRIMARY KEY NOT NULL,
+    farmer_id TEXT NOT NULL,
+    area REAL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_directory_farms_farmer_id ON directory_farms(farmer_id);`,
+
+  `CREATE TABLE IF NOT EXISTS directory_kontikkis (
+    id TEXT PRIMARY KEY NOT NULL,
+    registry_name TEXT,
+    volume REAL
+  );`,
+
+  `CREATE TABLE IF NOT EXISTS directory_meta (
+    id TEXT PRIMARY KEY NOT NULL,
+    synced_at INTEGER NOT NULL
+  );`,
 
   `CREATE TABLE IF NOT EXISTS farm_fields (
     id TEXT PRIMARY KEY NOT NULL,
@@ -392,6 +420,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     farm_field_id TEXT,
     field_code TEXT,
     producer_id TEXT,
+    producer_site_id TEXT,
     producer_name TEXT,
     tractor_number TEXT,
     loaded_photo_local_uri TEXT,
@@ -407,6 +436,20 @@ export const SCHEMA_STATEMENTS: string[] = [
     updated_at INTEGER NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS idx_biomass_collections_operator_id ON biomass_collections(operator_id);`,
+
+  `CREATE TABLE IF NOT EXISTS biomass_collection_sources (
+    id TEXT PRIMARY KEY NOT NULL,
+    collection_id TEXT NOT NULL,
+    farm_id TEXT,
+    farm_name TEXT,
+    farm_field_id TEXT,
+    field_code TEXT,
+    acres REAL,
+    biomass_tonnes REAL,
+    sort_order INTEGER NOT NULL
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_biomass_sources_collection ON biomass_collection_sources(collection_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_biomass_sources_field ON biomass_collection_sources(farm_field_id);`,
 
   `CREATE TABLE IF NOT EXISTS encrypted_batches (
     id TEXT PRIMARY KEY NOT NULL,

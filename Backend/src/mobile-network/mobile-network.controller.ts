@@ -9,6 +9,12 @@ import { MobileNetworkService } from './mobile-network.service';
 export class MobileNetworkController {
   constructor(private readonly mobileNetworkService: MobileNetworkService) {}
 
+  /** Name, village, district, mobile; plot id and area; kontikki id, registry, volume. */
+  @Get('directory')
+  directory(@AuthUser() user: AuthenticatedUser) {
+    return this.mobileNetworkService.getDirectory(user);
+  }
+
   @Get()
   overview(@AuthUser() user: AuthenticatedUser) {
     return this.mobileNetworkService.getOverview(user);

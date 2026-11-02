@@ -18,7 +18,11 @@ import {
   type UserProfile,
 } from "../services/userProfile";
 import { ScreenShell } from "../components/ScreenHeader";
-import { getEntitySyncSummary, getSyncStatusSummary } from "../services/syncService";
+import { getEntitySyncSummary, getSyncStatusSummary, processSyncQueue } from "../services/syncService";
+import {
+  readDirectorySyncedAt,
+  syncPhoneDirectory,
+} from "../services/phoneDirectory";
 import { listPyrolysisSessions } from "../services/pyrolysisService";
 import { resetOfflineAppData } from "../utils/appDataReset";
 import { colors, fonts, spacing, radius, logos, typeScale } from "../constants/theme";
@@ -235,6 +239,8 @@ export default function HomeScreen({ navigation }) {
   const [dismissedCardIds, setDismissedCardIds] = useState([]);
   const [showHeroCard, setShowHeroCard] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [directorySyncing, setDirectorySyncing] = useState(false);
+  const [directorySyncedAt, setDirectorySyncedAt] = useState<number | null>(null);
   const [inProgressPyrolysis, setInProgressPyrolysis] = useState([]);
   const [unreadUpdates, setUnreadUpdates] = useState(0);
   const [latestUpdateTitle, setLatestUpdateTitle] = useState<string | null>(null);
@@ -347,6 +353,34 @@ export default function HomeScreen({ navigation }) {
     );
   }
 
+  async function openMenu() {
+    setMenuVisible(true);
+    setDirectorySyncedAt(await readDirectorySyncedAt().catch(() => null));
+  }
+
+  async function handleSyncData() {
+    if (directorySyncing) return;
+    setDirectorySyncing(true);
+    try {
+      await processSyncQueue();
+      await syncPhoneDirectory();
+      const syncedAt = await readDirectorySyncedAt();
+      setDirectorySyncedAt(syncedAt);
+      setMenuVisible(false);
+      Alert.alert(
+        "Sync data",
+        "Farmer, farm, and kontikki basics saved on this phone are up to date.",
+      );
+    } catch (error) {
+      Alert.alert(
+        "Could not sync",
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      setDirectorySyncing(false);
+    }
+  }
+
   async function handleClearOfflineData() {
     setMenuVisible(false);
     Alert.alert(
@@ -440,7 +474,9 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.profileBtn}
-              onPress={() => setMenuVisible(true)}
+              onPress={() => {
+                void openMenu();
+              }}
               activeOpacity={0.85}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
@@ -623,6 +659,28 @@ export default function HomeScreen({ navigation }) {
                 <Text style={styles.menuItemText}>My Network</Text>
               </TouchableOpacity>
             ) : null}
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              disabled={directorySyncing}
+              onPress={() => {
+                void handleSyncData();
+              }}
+            >
+              <Text style={styles.menuItemText}>
+                {directorySyncing ? "Syncing data…" : "Sync data"}
+              </Text>
+              <Text style={styles.menuHint}>
+                {directorySyncedAt
+                  ? `Farmers, farms, and kontikkis · ${new Date(directorySyncedAt).toLocaleString(undefined, {
+                      day: "numeric",
+                      month: "short",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}`
+                  : "Saves farmer, farm, and kontikki basics on this phone"}
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.menuItem, styles.menuItemDangerSection]}

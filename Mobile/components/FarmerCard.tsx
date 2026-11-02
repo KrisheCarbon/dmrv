@@ -54,6 +54,11 @@ export default function FarmerCard({ farmer, syncProgress = 0, onPress, checklis
         >
           {farmer.mobile_number || "Mobile not added yet"}
         </Text>
+        {[farmer.village, farmer.district].filter(Boolean).length > 0 ? (
+          <Text style={styles.mobile}>
+            {[farmer.village, farmer.district].filter(Boolean).join(", ")}
+          </Text>
+        ) : null}
         {farmer.farmer_code ? (
           <Text style={styles.code}>{farmer.farmer_code}</Text>
         ) : null}

@@ -23,10 +23,8 @@ import {
   syncFarmField,
   syncFarmerConsent,
   syncSoilTest,
-  pullSoilNetworkFromServer,
-  pullVisibleFarmFields,
 } from "./farmerNetworkSync";
-import { pullClusterVillages } from "./clusterVillageService";
+import { startPhoneDirectorySync, stopPhoneDirectorySync, syncPhoneDirectoryIfStale } from "./phoneDirectory";
 import { uploadFarmerNetworkPhoto } from "../utils/farmerNetworkPhotoUpload";
 
 const MAX_RETRIES = 5;
@@ -122,12 +120,15 @@ export function startSyncListener() {
   appStateSubscription = AppState.addEventListener("change", (nextState: AppStateStatus) => {
     if (nextState === "active") {
       processSyncQueue();
+      void syncPhoneDirectoryIfStale();
     }
   });
 
   syncPollInterval = setInterval(() => {
     processSyncQueue();
   }, SYNC_POLL_MS);
+
+  startPhoneDirectorySync();
 }
 
 export function stopSyncListener() {
@@ -150,6 +151,8 @@ export function stopSyncListener() {
     clearTimeout(syncDebounceTimer);
     syncDebounceTimer = null;
   }
+
+  stopPhoneDirectorySync();
 }
 
 export function processSyncQueue() {
@@ -329,17 +332,8 @@ async function runSyncQueue() {
       result = await processPendingSyncItems(pendingItems, userId);
     }
 
-    await reconcileFarmersWithServer(userId);
-    await pullClusterVillages().catch((err) => {
-      console.warn("[sync] cluster villages pull failed:", syncErrorMessage(err));
-    });
-    await pullVisibleFarmFields().catch((err) => {
-      console.warn("[sync] farm fields pull failed:", syncErrorMessage(err));
-    });
-    await pullSoilNetworkFromServer().catch((err) => {
-      console.warn("[sync] farmers network pull failed:", syncErrorMessage(err));
-    });
-    emitSyncEvent({ type: "reconcileComplete" });
+    // Farmer, farm, and kontikki basics refresh on their own 5-minute timer.
+    // Opening one farmer downloads that profile. This queue only uploads.
 
     await syncEncryptedKilnBatches().catch((err) => {
       console.warn("[sync] kiln batch sync failed:", syncErrorMessage(err));

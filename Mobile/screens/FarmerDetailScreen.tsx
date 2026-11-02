@@ -11,7 +11,8 @@ import {
 } from "react-native";
 import { fieldSeasonLabel, isFarmerProfileComplete, soilSampleToneFromStatuses } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
-import { farmerToFormData, getFarmerByIdLocal } from "../services/farmerService";
+import { farmerToFormData } from "../services/farmerService";
+import { ensureFarmerDetails } from "../services/phoneDirectory";
 import {
   consentExpiryLabel,
   getLatestConsent,
@@ -68,7 +69,7 @@ export default function FarmerDetailScreen({ route, navigation }) {
       return;
     }
     try {
-      const record = await getFarmerByIdLocal(farmerId);
+      const record = await ensureFarmerDetails(farmerId);
       setFarmer(farmerToFormData(record));
       const [fieldList, consentList, tests, reports, latest] = await Promise.all([
         listFieldsForFarmer(farmerId),

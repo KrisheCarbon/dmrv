@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Text, View, StyleSheet, ActivityIndicator, Pressable } from "react-native";
+import { Text, View, StyleSheet, Pressable } from "react-native";
 import FormPicker, { type FormPickerOption } from "./FormPicker";
-import { farmerToFormData, getAllFarmersLocal } from "../services/farmerService";
-import { listFarmerIdsWithMappedFields } from "../services/farmersNetworkService";
-import { getUserProfile } from "../services/userProfile";
+import { ensureFarmerDetails, listPhoneFarmers, subscribePhoneDirectory } from "../services/phoneDirectory";
 import { colors, fonts, radius, spacing } from "../constants/theme";
 
 function farmerLoadError(err: unknown): string {
@@ -28,7 +26,7 @@ type FarmerPickerProps = {
 };
 
 /**
- * Dropdown of locally onboarded farmers (scoped to the signed-in user).
+ * Farmers saved on this phone. Choosing one downloads the full profile.
  */
 export default function FarmerPicker({
   label = "Farmer *",
@@ -47,27 +45,15 @@ export default function FarmerPicker({
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        const profile = await getUserProfile();
-        if (!profile) {
-          setOptions([]);
-          setError("Sign in to load farmers.");
-          setLoading(false);
-          return;
-        }
-        const farmers = await getAllFarmersLocal(profile.id, profile.role);
-        const withFields = requireFields
-          ? await listFarmerIdsWithMappedFields()
-          : null;
+        const farmers = await listPhoneFarmers();
         const mapped = farmers
-          .filter((f) => (withFields ? withFields.has(f.id) : true))
-          .map((f) => {
-            const form = farmerToFormData(f);
-            const code = form.farmer_code ? ` · ${form.farmer_code}` : "";
-            const village = form.village ? ` · ${form.village}` : "";
-            const mobile = form.mobile_number ? ` · ${form.mobile_number}` : "";
+          .filter((farmer) => (requireFields ? farmer.hasFarms : true))
+          .map((farmer) => {
+            const village = farmer.village ? ` · ${farmer.village}` : "";
+            const mobile = farmer.mobile_number ? ` · ${farmer.mobile_number}` : "";
             return {
-              value: form.id!,
-              label: `${form.farmer_name}${code}${village}${mobile}`,
+              value: farmer.id,
+              label: `${farmer.farmer_name}${village}${mobile}`,
             };
           });
         setOptions(mapped);
@@ -89,7 +75,23 @@ export default function FarmerPicker({
 
   useEffect(() => {
     void load();
+    return subscribePhoneDirectory(() => {
+      void load();
+    });
   }, [load]);
+
+  const selectFarmer = useCallback(async (id: string) => {
+    if (!id) {
+      onChange("");
+      return;
+    }
+    try {
+      const farmer = await ensureFarmerDetails(id);
+      onChange(farmer.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open this farmer.");
+    }
+  }, [onChange]);
 
   useEffect(() => {
     if (loading || error) return;
@@ -98,20 +100,11 @@ export default function FarmerPicker({
       return;
     }
     if (!value && options.length === 1) {
-      onChange(options[0].value);
+      void selectFarmer(options[0].value);
     }
-  }, [loading, error, options, value, onChange]);
+  }, [loading, error, options, value, onChange, selectFarmer]);
 
-  if (loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={colors.brunswick} />
-        <Text style={styles.hint}>Loading farmers…</Text>
-      </View>
-    );
-  }
-
-  if (options.length === 0) {
+  if (!loading && options.length === 0) {
     return (
       <View style={styles.empty}>
         <Text style={styles.emptyTitle}>
@@ -142,10 +135,13 @@ export default function FarmerPicker({
         label={required ? label : label.replace(" *", "")}
         value={value}
         options={options}
-        onValueChange={onChange}
+        onValueChange={(id) => {
+          void selectFarmer(id);
+        }}
         placeholder="Select farmer…"
         searchable
         searchPlaceholder="Search name, mobile, or farmer ID"
+        loading={loading}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
@@ -153,12 +149,6 @@ export default function FarmerPicker({
 }
 
 const styles = StyleSheet.create({
-  loading: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-  },
   empty: {
     paddingVertical: spacing.sm,
     gap: 4,
