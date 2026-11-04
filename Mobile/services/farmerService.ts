@@ -32,6 +32,10 @@ export function canSeeAllFarms(role?: string | null) {
   return Boolean(role && canAccessWebPortal(role));
 }
 
+/** Own farmers, plus every farmer saved in a cluster assigned to this phone. */
+export const CLUSTER_FARMER_WHERE =
+  "(created_by = ? OR assigned_to = ? OR cluster_id IN (SELECT DISTINCT cluster_id FROM cluster_villages))";
+
 export function farmerToFormData(
   farmer: Farmer,
 ): ExtendedFarmerForm & {
@@ -89,7 +93,7 @@ export async function getAllFarmersLocal(
         "SELECT * FROM farmers ORDER BY created_at DESC",
       )
     : await db.getAllAsync<any>(
-        "SELECT * FROM farmers WHERE created_by = ? OR assigned_to = ? ORDER BY created_at DESC",
+        `SELECT * FROM farmers WHERE ${CLUSTER_FARMER_WHERE} ORDER BY created_at DESC`,
         [userId, userId],
       );
 
@@ -312,7 +316,7 @@ export async function getPendingSyncCount(
         ["pending"],
       )
     : await db.getFirstAsync<{ count: number }>(
-        "SELECT COUNT(*) as count FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+        `SELECT COUNT(*) as count FROM farmers WHERE ${CLUSTER_FARMER_WHERE} AND sync_status = ?`,
         [userId, userId, "pending"],
       );
 

@@ -10,7 +10,7 @@ import { canAccessWebPortal } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import { farmerToRow, rowToFarmer, syncQueueItemToRow, type Farmer } from "../database/types";
-import { getFarmerByIdLocal } from "./farmerService";
+import { getFarmerByIdLocal, CLUSTER_FARMER_WHERE } from "./farmerService";
 import { backendFetch, clearBackendUrlCache } from "./backendApi";
 import { getPyrolysisSession, syncPyrolysisBatch } from "./pyrolysisService";
 import { getMixingEntry, syncMixingEntry } from "./mixingService";
@@ -168,7 +168,7 @@ export async function retryFailedFarmSyncs(userId: string, role?: string | null)
   const failedRows = seeAll
     ? await db.getAllAsync<any>("SELECT * FROM farmers WHERE sync_status = ?", ["error"])
     : await db.getAllAsync<any>(
-        "SELECT * FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+        `SELECT * FROM farmers WHERE ${CLUSTER_FARMER_WHERE} AND sync_status = ?`,
         [userId, userId, "error"],
       );
   const failedFarmers = failedRows.map(rowToFarmer);
@@ -938,7 +938,7 @@ async function reconcileFarmersWithServer(userId: string) {
     const userLocalsRows = seeAll
       ? await db.getAllAsync<any>("SELECT * FROM farmers")
       : await db.getAllAsync<any>(
-          "SELECT * FROM farmers WHERE created_by = ? OR assigned_to = ?",
+          `SELECT * FROM farmers WHERE ${CLUSTER_FARMER_WHERE}`,
           [userId, userId],
         );
     const userLocals = userLocalsRows.map(rowToFarmer);
@@ -964,7 +964,7 @@ async function reconcileFarmersWithServer(userId: string) {
     }
 
     const pendingRows = await db.getAllAsync<any>(
-      "SELECT * FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+      `SELECT * FROM farmers WHERE ${CLUSTER_FARMER_WHERE} AND sync_status = ?`,
       [userId, userId, "pending"],
     );
     const pendingWithoutServerId = pendingRows.map(rowToFarmer);
@@ -1045,7 +1045,7 @@ export async function getSyncStatusSummary(
         ["pending", "syncing"],
       )
     : await db.getFirstAsync<{ count: number }>(
-        "SELECT COUNT(*) as count FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND (sync_status = ? OR sync_status = ?)",
+        `SELECT COUNT(*) as count FROM farmers WHERE ${CLUSTER_FARMER_WHERE} AND (sync_status = ? OR sync_status = ?)`,
         [userId, userId, "pending", "syncing"],
       );
 
@@ -1055,7 +1055,7 @@ export async function getSyncStatusSummary(
         ["error"],
       )
     : await db.getFirstAsync<{ count: number }>(
-        "SELECT COUNT(*) as count FROM farmers WHERE (created_by = ? OR assigned_to = ?) AND sync_status = ?",
+        `SELECT COUNT(*) as count FROM farmers WHERE ${CLUSTER_FARMER_WHERE} AND sync_status = ?`,
         [userId, userId, "error"],
       );
 

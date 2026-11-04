@@ -21,6 +21,11 @@ import {
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import {
+  assignedFieldClusterIds,
+  farmVisibilityFilter,
+  seesEveryFarm,
+} from '../farms/farm-visibility';
 
 export interface MobileNetworkPerson {
   id: string;
@@ -307,7 +312,13 @@ export class MobileNetworkService {
   private async fetchDirectoryFarmers(
     user: AuthenticatedUser,
   ): Promise<MobileDirectoryFarmer[]> {
-    const seeAll = canAccessWebPortal(user.role);
+    const seeAll = seesEveryFarm(user.role);
+    const visibility = seeAll
+      ? ''
+      : farmVisibilityFilter(
+          user.id,
+          await assignedFieldClusterIds(this.supabase, user),
+        );
     const rows = await fetchAllPages<{
       id: string;
       farmer_name: string | null;
@@ -323,7 +334,7 @@ export class MobileNetworkService {
         .range(from, to);
 
       if (!seeAll) {
-        query = query.or(`created_by.eq.${user.id},assigned_to.eq.${user.id}`);
+        query = query.or(visibility);
       }
 
       return query;

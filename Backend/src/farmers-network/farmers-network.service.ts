@@ -28,6 +28,11 @@ import {
   type SoilTestUpsertPayload,
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
+import {
+  assignedFieldClusterIds,
+  farmVisibilityFilter,
+  seesEveryFarm,
+} from '../farms/farm-visibility';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -165,18 +170,22 @@ export class FarmersNetworkService {
   }
 
   private canViewAll(user: AuthenticatedUser) {
-    return canAccessWebPortal(user.role) && !isDmrvViewer(user.role);
+    return seesEveryFarm(user.role) && !isDmrvViewer(user.role);
   }
 
   private async visibleFarmIds(user: AuthenticatedUser): Promise<string[] | null> {
     // Viewers see every farmer, but only basic fields (see toDmrvViewerField).
     if (isDmrvViewer(user.role) || this.canViewAll(user)) return null;
 
+    const visibility = farmVisibilityFilter(
+      user.id,
+      await assignedFieldClusterIds(this.supabase, user),
+    );
     const farms = await fetchAllPages<Farmer>((from, to) =>
       this.supabase
         .from('farms')
         .select('id')
-        .or(`created_by.eq.${user.id},assigned_to.eq.${user.id}`)
+        .or(visibility)
         .range(from, to),
     );
 
@@ -194,16 +203,42 @@ export class FarmersNetworkService {
     if (!data) throw new NotFoundException('Farmer not found');
 
     const farm = data as Farmer;
-    if (isDmrvViewer(user.role)) return farm;
-    if (
-      !this.canViewAll(user) &&
-      farm.created_by !== user.id &&
-      farm.assigned_to !== user.id
-    ) {
-      throw new ForbiddenException('Not allowed to use this farmer');
+    if (isDmrvViewer(user.role) || this.canViewAll(user)) return farm;
+    if (farm.created_by === user.id || farm.assigned_to === user.id) return farm;
+
+    const clusterId = farm.cluster_id ?? null;
+    if (clusterId) {
+      const clusters = await assignedFieldClusterIds(this.supabase, user);
+      if (clusters.includes(clusterId)) return farm;
     }
 
-    return farm;
+    throw new ForbiddenException('Not allowed to use this farmer');
+  }
+
+  /** Child rows are loaded in short farm-id groups so a full cluster still fits the request. */
+  private chunkIds(ids: string[], size = 80): string[][] {
+    const chunks: string[][] = [];
+    for (let index = 0; index < ids.length; index += size) {
+      chunks.push(ids.slice(index, index + size));
+    }
+    return chunks;
+  }
+
+  private async fetchByFarmIds<T>(
+    farmIds: string[] | null,
+    run: (
+      ids: string[] | null,
+      from: number,
+      to: number,
+    ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  ): Promise<T[]> {
+    if (!farmIds) return fetchAllPages((from, to) => run(null, from, to));
+    if (farmIds.length === 0) return [];
+    const rows: T[] = [];
+    for (const chunk of this.chunkIds(farmIds)) {
+      rows.push(...(await fetchAllPages((from, to) => run(chunk, from, to))));
+    }
+    return rows;
   }
 
   private asArray<T>(value: T | T[] | null | undefined): T[] {
@@ -323,6 +358,7 @@ export class FarmersNetworkService {
     onlyFarmIds?: string[],
   ): Promise<FarmFieldRecord[]> {
     this.assertAccess(user);
+    if (farmId) await this.getFarm(user, farmId);
     let farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
     if (onlyFarmIds) {
       // A page of farmers asks for just its own farms, still within what the user may see.
@@ -330,13 +366,13 @@ export class FarmersNetworkService {
     }
     if (farmIds && farmIds.length === 0) return [];
 
-    const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
+    const rows = await this.fetchByFarmIds<Record<string, unknown>>(farmIds, (ids, from, to) => {
       let query = this.supabase
         .from('farm_fields')
         .select(FIELD_SELECT)
         .order('created_at', { ascending: false })
         .range(from, to);
-      if (farmIds) query = query.in('farm_id', farmIds);
+      if (ids) query = query.in('farm_id', ids);
       return query;
     });
 
@@ -522,16 +558,17 @@ export class FarmersNetworkService {
     this.assertAccess(user);
     // Consent forms are personal documents; dMRV viewers do not see them.
     if (isDmrvViewer(user.role)) return [];
+    if (farmId) await this.getFarm(user, farmId);
     const farmIds = farmId ? [farmId] : await this.visibleFarmIds(user);
     if (farmIds && farmIds.length === 0) return [];
 
-    const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
+    const rows = await this.fetchByFarmIds<Record<string, unknown>>(farmIds, (ids, from, to) => {
       let query = this.supabase
         .from('farmer_consents')
         .select(CONSENT_SELECT)
         .order('consent_date', { ascending: false })
         .range(from, to);
-      if (farmIds) query = query.in('farm_id', farmIds);
+      if (ids) query = query.in('farm_id', ids);
       return query;
     });
 
@@ -583,18 +620,19 @@ export class FarmersNetworkService {
       throw new ForbiddenException('dMRV viewers cannot record soil samples.');
     }
     const farmIds = await this.visibleFarmIds(user);
-    const farmsQuery = this.supabase
-      .from('farms')
-      .select('id, farmer_name, village')
-      .order('farmer_name', { ascending: true });
-
-    const { data: farms, error: farmsError } = farmIds
-      ? farmIds.length === 0
-        ? { data: [], error: null }
-        : await farmsQuery.in('id', farmIds)
-      : await farmsQuery;
-
-    if (farmsError) throw new BadRequestException(farmsError.message);
+    const farms = await this.fetchByFarmIds<{
+      id: string;
+      farmer_name: string | null;
+      village: string | null;
+    }>(farmIds, (ids, from, to) => {
+      let query = this.supabase
+        .from('farms')
+        .select('id, farmer_name, village')
+        .order('farmer_name', { ascending: true })
+        .range(from, to);
+      if (ids) query = query.in('id', ids);
+      return query;
+    });
 
     const supervisors = await this.supervisorsForUser(user);
 
@@ -694,6 +732,7 @@ export class FarmersNetworkService {
     this.assertAccess(user);
     // Soil samples carry dig-site GPS inside the farm; dMRV viewers do not see them.
     if (isDmrvViewer(user.role)) return [];
+    if (options?.farmId) await this.getFarm(user, options.farmId);
     const farmIds = options?.farmId
       ? [options.farmId]
       : await this.visibleFarmIds(user);
@@ -702,32 +741,59 @@ export class FarmersNetworkService {
         ? await this.supervisedCollectorIds(user.id)
         : [];
 
-    const rows = await fetchAllPages<Record<string, unknown>>((from, to) => {
-      let query = this.supabase
-        .from('soil_tests')
-        .select(SOIL_TEST_SELECT)
-        .order('sample_date', { ascending: false })
-        .range(from, to);
+    const load = (chunk: string[] | null) =>
+      fetchAllPages<Record<string, unknown>>((from, to) => {
+        let query = this.supabase
+          .from('soil_tests')
+          .select(SOIL_TEST_SELECT)
+          .order('sample_date', { ascending: false })
+          .range(from, to);
 
-      if (options?.inbox && user.role === 'supervisor') {
-        query = query.eq('submitted_to_supervisor_id', user.id);
-      } else if (farmIds) {
-        const filters = [
-          `created_by.eq.${user.id}`,
-          `submitted_to_supervisor_id.eq.${user.id}`,
-        ];
-        if (farmIds.length > 0) filters.push(`farm_id.in.(${farmIds.join(',')})`);
-        if (collectorIds.length > 0) {
-          filters.push(`collected_by.in.(${collectorIds.join(',')})`);
+        if (options?.inbox && user.role === 'supervisor') {
+          query = query.eq('submitted_to_supervisor_id', user.id);
+        } else if (farmIds) {
+          const filters = [
+            `created_by.eq.${user.id}`,
+            `submitted_to_supervisor_id.eq.${user.id}`,
+          ];
+          if (chunk && chunk.length > 0) {
+            filters.push(`farm_id.in.(${chunk.join(',')})`);
+          }
+          if (collectorIds.length > 0) {
+            filters.push(`collected_by.in.(${collectorIds.join(',')})`);
+          }
+          query = query.or(filters.join(','));
         }
-        query = query.or(filters.join(','));
-      }
-      if (options?.farmIds) query = query.in('farm_id', options.farmIds);
+        if (options?.farmIds) query = query.in('farm_id', options.farmIds);
 
-      return query;
-    });
+        return query;
+      });
+
+    const rows =
+      options?.inbox && user.role === 'supervisor'
+        ? await load(null)
+        : await this.rowsForFarmChunks(farmIds, load);
 
     return rows.map((row) => this.mapSoilTest(row));
+  }
+
+  /** One query when every farm is visible; otherwise one query per farm-id group, without duplicates. */
+  private async rowsForFarmChunks<T extends { id?: unknown }>(
+    farmIds: string[] | null,
+    load: (chunk: string[] | null) => Promise<T[]>,
+  ): Promise<T[]> {
+    if (!farmIds || farmIds.length === 0) return load(null);
+    const seen = new Set<string>();
+    const rows: T[] = [];
+    for (const chunk of this.chunkIds(farmIds)) {
+      for (const row of await load(chunk)) {
+        const id = String(row.id ?? '');
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        rows.push(row);
+      }
+    }
+    return rows;
   }
 
   async getSoilTest(user: AuthenticatedUser, id: string): Promise<SoilTestRecord> {

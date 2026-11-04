@@ -21,6 +21,11 @@ import {
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import {
+  assignedFieldClusterIds,
+  farmVisibilityFilter,
+  seesEveryFarm,
+} from './farm-visibility';
 
 const FARM_SELECT = '*, cluster:clusters(id, name)';
 
@@ -118,7 +123,13 @@ export class FarmsService {
       return rows.map((row) => toDmrvViewerFarm(this.withCluster(row)));
     }
 
-    const seeAll = canAccessWebPortal(user.role);
+    const seeAll = seesEveryFarm(user.role);
+    const visibility = seeAll
+      ? ''
+      : farmVisibilityFilter(
+          user.id,
+          await assignedFieldClusterIds(this.supabase, user),
+        );
 
     const rows = await fetchAllPages<Farmer>((from, to) => {
       let query = this.supabase
@@ -128,9 +139,7 @@ export class FarmsService {
         .range(from, to);
 
       if (!seeAll) {
-        query = query.or(
-          `created_by.eq.${user.id},assigned_to.eq.${user.id}`,
-        );
+        query = query.or(visibility);
       }
 
       return query;
@@ -169,8 +178,13 @@ export class FarmsService {
       .order('id', { ascending: true })
       .range((page - 1) * pageSize, page * pageSize - 1);
 
-    if (!viewer && !canAccessWebPortal(user.role)) {
-      request = request.or(`created_by.eq.${user.id},assigned_to.eq.${user.id}`);
+    if (!viewer && !seesEveryFarm(user.role)) {
+      request = request.or(
+        farmVisibilityFilter(
+          user.id,
+          await assignedFieldClusterIds(this.supabase, user),
+        ),
+      );
     }
 
     request = this.applyRecordFilter(request, query.record);
@@ -242,7 +256,7 @@ export class FarmsService {
     if (isDmrvViewer(user.role)) {
       return toDmrvViewerFarm(farm);
     }
-    if (!this.canViewFarm(user, farm)) {
+    if (!(await this.canViewFarm(user, farm))) {
       throw new ForbiddenException('Not allowed to view this farm');
     }
 
@@ -295,6 +309,7 @@ export class FarmsService {
       throw new ForbiddenException('Not allowed to update farms');
     }
 
+    await this.findById(user, id);
     const location = await this.resolveVillageAssignment(user, payload, false);
     await this.assertRainbowFarmer(payload, location.cluster_id);
     const mobile =
@@ -329,6 +344,7 @@ export class FarmsService {
       throw new ForbiddenException('Not allowed to delete farms');
     }
 
+    await this.findById(user, id);
     const { error } = await this.supabase.from('farms').delete().eq('id', id);
 
     if (error) {
@@ -408,12 +424,13 @@ export class FarmsService {
       : { valid: true, taken: false };
   }
 
-  private canViewFarm(user: AuthenticatedUser, farm: Farmer): boolean {
-    if (canAccessWebPortal(user.role)) {
-      return true;
-    }
-
-    return farm.created_by === user.id || farm.assigned_to === user.id;
+  private async canViewFarm(user: AuthenticatedUser, farm: Farmer): Promise<boolean> {
+    if (seesEveryFarm(user.role)) return true;
+    if (farm.created_by === user.id || farm.assigned_to === user.id) return true;
+    const clusterId = farm.cluster_id ?? farm.cluster?.id ?? null;
+    if (!clusterId) return false;
+    const clusters = await assignedFieldClusterIds(this.supabase, user);
+    return clusters.includes(clusterId);
   }
 
   /** List row: cluster name from the view, and no mobile or photo for viewers. */
