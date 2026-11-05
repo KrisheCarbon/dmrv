@@ -51,7 +51,11 @@ export default function BiomassCollectionPage() {
             id: record.id,
             loaded: formatDateTime(record.loaded_at),
             unloaded: formatDateTime(record.unloaded_at),
-            farm_name: record.farm_name ?? "—",
+            farm_name: record.sources?.length
+              ? record.sources.length === 1
+                ? `${record.sources[0].farm_name ?? "Farmer"} · ${record.sources[0].field_code ?? "plot"}`
+                : `${record.sources[0].farm_name ?? "Farmer"} · ${record.sources[0].field_code ?? "plot"} + ${record.sources.length - 1} more`
+              : record.farm_name ?? "—",
             farm_id: record.farm_id,
             field_code: record.field_code ?? "—",
             farm_acres: formatApplicationAcres(record.farm_area_acres),

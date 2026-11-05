@@ -1,6 +1,12 @@
 import NetInfo from "@react-native-community/netinfo";
 import * as Location from "expo-location";
 import { getMapboxToken, mapboxReverseGeocode } from "./mapbox";
+import {
+  assertRealLocationFix,
+  isMockedFix,
+  MockLocationError,
+  noteLocationFix
+} from "./mockLocation";
 
 async function isOffline() {
   const net = await NetInfo.fetch();
@@ -80,6 +86,8 @@ export async function getCurrentFarmLocation() {
       "Could not get a GPS fix. GPS works offline but needs a clear view of the sky — try stepping outside and waiting a few seconds."
     );
   }
+
+  assertRealLocationFix(position);
 
   const { latitude, longitude } = position.coords;
   const address = await reverseGeocodeAddress(latitude, longitude);
@@ -164,6 +172,7 @@ export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
       // iOS and some Android builds do not support this prompt.
     }
 
+    let sawMock = false;
     const fresh = await new Promise<DeviceCoordinate | null>((resolve) => {
       let settled = false;
       let subscription: { remove: () => void } | null = null;
@@ -189,6 +198,13 @@ export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
           // Ignore a cached fix from earlier. That is what opened the map
           // in a different place.
           if (Date.now() - position.timestamp > 20000) return;
+          if (isMockedFix(position)) {
+            noteLocationFix(position);
+            sawMock = true;
+            finish(null);
+            return;
+          }
+          noteLocationFix(position);
           const next = toDeviceCoordinate(position);
           const nextAccuracy = next.accuracy ?? 99999;
           const bestAccuracy = best?.accuracy ?? 99999;
@@ -206,6 +222,7 @@ export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
         .catch(() => finish(best));
     });
 
+    if (sawMock) throw new MockLocationError();
     if (fresh) return fresh;
 
     const current = await withTimeout(
@@ -215,9 +232,12 @@ export async function readDeviceCoordinate(): Promise<DeviceCoordinate | null> {
       }),
       8000,
     );
+    if (current && isMockedFix(current)) throw new MockLocationError();
+    if (current) noteLocationFix(current);
     if (!current || Date.now() - current.timestamp > 30000) return null;
     return toDeviceCoordinate(current);
-  } catch {
+  } catch (err) {
+    if (err instanceof MockLocationError) throw err;
     return null;
   }
 }
@@ -237,7 +257,10 @@ export async function watchDeviceCoordinate(
       distanceInterval: 3,
       timeInterval: 2000,
     },
-    (position) => onUpdate(toDeviceCoordinate(position)),
+    (position) => {
+      if (noteLocationFix(position)) return;
+      onUpdate(toDeviceCoordinate(position));
+    },
   );
 }
 

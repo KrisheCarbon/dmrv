@@ -734,6 +734,10 @@ export {
   describeFarmPhotoDistance,
   biomassTravelSummary,
   checkLoadedPhotoNearFarm,
+  parseBiomassQuantity,
+  formatBiomassAcres,
+  formatBiomassTonnes,
+  biomassAcresLimitMessage,
 } from "./biomassCollection";
 export { toPostgresJson } from "./postgresJson";
 export type {
@@ -744,4 +748,5 @@ export type {
   FarmPhotoDistance,
   BiomassTravelDistance,
   LoadedPhotoFarmCheck,
+  BiomassCollectionSource,
 } from "./biomassCollection";

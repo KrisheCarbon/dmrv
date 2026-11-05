@@ -13,8 +13,8 @@ import {
   applicationBoundaryPoints,
   applicationPolygonInsideFarm,
   canAccessMobileApp,
-  canAccessWebPortal,
   canReviewApplicationEntries,
+  isDmrvViewer,
   checkApplicationPhoto,
   isApplicationEntryMediaKey,
   type ApplicationEntryMediaFlag,
@@ -32,6 +32,10 @@ import {
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
+import {
+  assertSupervisorCannotEnter,
+  clusterPeerIds,
+} from '../farms/farm-visibility';
 
 const ENTRY_PORTAL_SELECT = `
   id,
@@ -163,7 +167,7 @@ export class ApplicationEntriesService {
   async listEntries(
     user: AuthenticatedUser,
   ): Promise<ApplicationEntryRecord[] | ApplicationEntryPortalRecord[]> {
-    if (canAccessWebPortal(user.role)) {
+    if (this.seesEveryEntry(user)) {
       const { data, error } = await this.supabase
         .from('application_entries')
         .select(ENTRY_PORTAL_SELECT)
@@ -174,22 +178,24 @@ export class ApplicationEntriesService {
     }
 
     this.assertMobileAccess(user);
+    const peers = await clusterPeerIds(this.supabase, user);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('application_entries')
-      .select(ENTRY_SELECT)
-      .eq('operator_id', user.id)
+      .select(ENTRY_PORTAL_SELECT)
       .order('applied_at', { ascending: false });
+    if (peers) query = query.in('operator_id', peers);
+    const { data, error } = await query;
 
     if (error) throw new BadRequestException(error.message);
-    return this.withApplicationAreas((data ?? []).map((row) => this.mapEntryRow(row)));
+    return this.withApplicationAreas((data ?? []).map((row) => this.mapPortalEntryRow(row)));
   }
 
   async getEntry(
     user: AuthenticatedUser,
     id: string,
   ): Promise<ApplicationEntryRecord | ApplicationEntryPortalRecord> {
-    if (canAccessWebPortal(user.role)) {
+    if (this.seesEveryEntry(user)) {
       const { data, error } = await this.supabase
         .from('application_entries')
         .select(ENTRY_PORTAL_SELECT)
@@ -204,17 +210,18 @@ export class ApplicationEntriesService {
     }
 
     this.assertMobileAccess(user);
+    const peers = await clusterPeerIds(this.supabase, user);
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('application_entries')
-      .select(ENTRY_SELECT)
-      .eq('id', id)
-      .eq('operator_id', user.id)
-      .maybeSingle();
+      .select(ENTRY_PORTAL_SELECT)
+      .eq('id', id);
+    if (peers) query = query.in('operator_id', peers);
+    const { data, error } = await query.maybeSingle();
 
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new NotFoundException('Application entry not found.');
-    const [record] = await this.withApplicationAreas([this.mapEntryRow(data)]);
+    const [record] = await this.withApplicationAreas([this.mapPortalEntryRow(data)]);
     if (!record) throw new NotFoundException('Application entry not found.');
     return record;
   }
@@ -254,6 +261,7 @@ export class ApplicationEntriesService {
     payload: CreateApplicationEntryPayload,
   ): Promise<ApplicationEntryRecord> {
     this.assertMobileAccess(user);
+    assertSupervisorCannotEnter(user, 'application');
     this.validateCreatePayload(payload);
     const field = await this.assertAppliedArea(user, payload);
 
@@ -687,6 +695,10 @@ export class ApplicationEntriesService {
   private unwrap<T>(value: T | T[] | null | undefined): T | null {
     if (Array.isArray(value)) return value[0] ?? null;
     return value ?? null;
+  }
+
+  private seesEveryEntry(user: AuthenticatedUser) {
+    return user.role === 'admin' || user.role === 'manager' || isDmrvViewer(user.role);
   }
 
   private assertMobileAccess(user: AuthenticatedUser) {

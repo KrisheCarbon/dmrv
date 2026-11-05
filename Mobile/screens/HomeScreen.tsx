@@ -138,6 +138,16 @@ const TONE = {
   }
 };
 
+function formatLastSynced(syncedAt: number | null) {
+  if (!syncedAt) return "Not synced yet";
+  return `Last synced ${new Date(syncedAt).toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  })}`;
+}
+
 function StatusPill({ tone, label }) {
   const palette = TONE[tone] || TONE.neutral;
   return (
@@ -670,15 +680,8 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.menuItemText}>
                 {directorySyncing ? "Syncing data…" : "Sync data"}
               </Text>
-              <Text style={styles.menuHint}>
-                {directorySyncedAt
-                  ? `Farmers, farms, and kontikkis · ${new Date(directorySyncedAt).toLocaleString(undefined, {
-                      day: "numeric",
-                      month: "short",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}`
-                  : "Saves farmer, farm, and kontikki basics on this phone"}
+              <Text style={styles.menuSyncTime} numberOfLines={1}>
+                {formatLastSynced(directorySyncedAt)}
               </Text>
             </TouchableOpacity>
 
@@ -1041,9 +1044,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 56,
     right: spacing.lg,
+    width: 248,
     backgroundColor: colors.white,
     borderRadius: radius.md,
-    minWidth: 200,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: "hidden"
@@ -1080,6 +1083,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: typeScale.bodySmall,
     color: colors.brunswick
+  },
+  menuSyncTime: {
+    fontFamily: fonts.regular,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
+    marginTop: 2
   },
   menuItemDanger: {
     fontFamily: fonts.medium,

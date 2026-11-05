@@ -401,7 +401,10 @@ export default function BiocharProducerForm({
           },
         );
         Object.assign(payload, docPatch);
-        await updateProducer(producerId, payload);
+        unwrapQuery(
+          await updateProducer(producerId, payload),
+          "Failed to save producer",
+        );
         router.push(`/network/biochar-producers/${producerId}`);
         return;
       }
@@ -421,7 +424,10 @@ export default function BiocharProducerForm({
         },
       );
       if (Object.keys(docPatch).length > 0) {
-        await updateProducer(result.id, docPatch);
+        unwrapQuery(
+          await updateProducer(result.id, docPatch),
+          "Failed to save producer",
+        );
       }
       router.push(`/network/biochar-producers/${result.id}`);
     } catch (err) {

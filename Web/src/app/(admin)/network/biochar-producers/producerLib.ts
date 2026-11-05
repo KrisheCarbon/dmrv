@@ -128,6 +128,7 @@ export function createEmptySiteDraft(): ProducerSiteDraft {
 export function siteToDraft(site: ProducerSite): ProducerSiteDraft {
   return {
     clientId: site.id,
+    id: site.id,
     site_name: site.site_name ?? "",
     site_location: site.site_location ?? null,
     site_manager_name: site.site_manager_name ?? "",
@@ -296,6 +297,7 @@ export function extractClusterIds(
 // --- API payload ---
 
 export interface ProducerSitePayload {
+  id?: string;
   site_name: string;
   site_location: LocationValue;
   site_manager_name: string;
@@ -331,6 +333,7 @@ export interface ProducerSavePayload {
 
 function siteDraftToPayload(site: ProducerSiteDraft): ProducerSitePayload {
   return {
+    ...(site.id ? { id: site.id } : {}),
     site_name: site.site_name.trim(),
     site_location: site.site_location!,
     site_manager_name: site.site_manager_name.trim(),

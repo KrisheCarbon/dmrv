@@ -422,6 +422,8 @@ export interface AffiliationFields {
 
 export interface ProducerSiteDraft extends AffiliationFields {
   clientId: string;
+  /** Persisted producer_sites.id. Absent until the site has been saved. */
+  id?: string;
   site_name: string;
   site_location: LocationValue | null;
   site_manager_name: string;

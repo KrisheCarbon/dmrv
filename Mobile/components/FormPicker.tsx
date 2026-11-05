@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   View,
   Text,
@@ -9,7 +10,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { colors, fonts, spacing, radius } from "../constants/theme";
+import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 import SearchField from "./SearchField";
 import {
   sheetListMaxHeight,
@@ -32,6 +33,10 @@ type FormPickerProps = {
   enabled?: boolean;
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Shows a circular loader in the sheet while options are still arriving. */
+  loading?: boolean;
+  onOpen?: () => void;
+  emptyText?: string;
 };
 
 export default function FormPicker({
@@ -41,8 +46,11 @@ export default function FormPicker({
   options,
   onValueChange,
   enabled = true,
-  searchable = false,
+  searchable = true,
   searchPlaceholder = "Search…",
+  loading = false,
+  onOpen,
+  emptyText,
 }: FormPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -66,6 +74,7 @@ export default function FormPicker({
     if (!enabled) return;
     setQuery("");
     setOpen(true);
+    onOpen?.();
   }
 
   function closePicker() {
@@ -80,13 +89,15 @@ export default function FormPicker({
 
   const listMaxHeight = sheetListMaxHeight(
     keyboardOverlap,
-    84 + (keyboardOverlap > 0 ? 0 : 48),
+    84 + (searchable ? 64 : 0) + (keyboardOverlap > 0 ? 0 : 48),
   );
   const windowHeight = Dimensions.get("window").height;
   const searchableSheetHeight = Math.max(
     280,
     windowHeight - keyboardOverlap - insets.top - 8,
   );
+  const tallSheet =
+    searchable && (options.length > 8 || query.trim().length > 0 || (loading && options.length === 0));
 
   return (
     <View style={styles.wrapper}>
@@ -106,7 +117,11 @@ export default function FormPicker({
         >
           {selectedLabel || placeholder}
         </Text>
-        <Text style={styles.chevron}>▾</Text>
+        {loading ? (
+          <ActivityIndicator size="small" color={colors.brunswick} />
+        ) : (
+          <Text style={styles.chevron}>▾</Text>
+        )}
       </Pressable>
 
       <Modal
@@ -120,7 +135,7 @@ export default function FormPicker({
           <View
             style={[
               styles.sheet,
-              searchable && { height: searchableSheetHeight },
+              tallSheet && { height: searchableSheetHeight },
             ]}
           >
             <View style={styles.sheetHeader}>
@@ -146,14 +161,20 @@ export default function FormPicker({
               keyboardDismissMode="on-drag"
               style={[
                 styles.list,
-                searchable ? styles.listFill : { maxHeight: listMaxHeight },
+                tallSheet ? styles.listFill : { maxHeight: listMaxHeight },
               ]}
               ListEmptyComponent={
-                <Text style={styles.empty}>
-                  {query.trim()
-                    ? "No options match that search."
-                    : "No options available."}
-                </Text>
+                loading && !query.trim() ? (
+                  <View style={styles.loading}>
+                    <ActivityIndicator size="large" color={colors.brunswick} />
+                  </View>
+                ) : (
+                  <Text style={styles.empty}>
+                    {query.trim()
+                      ? "No options match that search."
+                      : emptyText ?? "No options available."}
+                  </Text>
+                )
               }
               renderItem={({ item }) => {
                 const selected = item.value === value;
@@ -276,12 +297,17 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
   },
+  loading: {
+    minHeight: 160,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   empty: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.lg,
     fontFamily: fonts.regular,
-    fontSize: 14,
-    color: colors.smoke,
+    fontSize: typeScale.bodySmall,
+    color: colors.textSecondary,
     textAlign: "center",
   },
   list: {
@@ -322,8 +348,8 @@ const styles = StyleSheet.create({
   },
   optionHint: {
     fontFamily: fonts.regular,
-    fontSize: 12,
-    color: colors.smoke,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
   },
   check: {
     fontFamily: fonts.bold,
@@ -339,7 +365,7 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     fontFamily: fonts.medium,
-    fontSize: 15,
-    color: colors.smoke,
+    fontSize: typeScale.bodySmall,
+    color: colors.textSecondary,
   },
 });

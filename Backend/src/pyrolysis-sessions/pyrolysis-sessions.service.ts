@@ -23,6 +23,10 @@ import { randomUUID } from 'crypto';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
+import {
+  assertSupervisorCannotEnter,
+  clusterPeerIds,
+} from '../farms/farm-visibility';
 
 const BATCH_UPDATABLE_FIELDS = [
   'batch_number',
@@ -97,13 +101,13 @@ export class PyrolysisSessionsService {
 
   async listSessions(user: AuthenticatedUser): Promise<PyrolysisSessionRecord[]> {
     this.assertMobileAccess(user);
+    const peers = await clusterPeerIds(this.supabase, user);
 
     const rows: Array<{ id: string; created_at?: string }> = [];
     for (const table of this.sessionTables) {
-      const { data, error } = await this.supabase
-        .from(table)
-        .select('id, created_at')
-        .eq('operator_id', user.id);
+      let query = this.supabase.from(table).select('id, created_at');
+      if (peers) query = query.in('operator_id', peers);
+      const { data, error } = await query;
       if (error) throw new BadRequestException(error.message);
       rows.push(...((data ?? []) as Array<{ id: string; created_at?: string }>));
     }
@@ -114,7 +118,7 @@ export class PyrolysisSessionsService {
       String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')),
     );
 
-    return Promise.all(ordered.map((row) => this.getSession(user, row.id)));
+    return Promise.all(ordered.map((row) => this.getSession(user, row.id, peers)));
   }
 
   async startSession(
@@ -122,6 +126,7 @@ export class PyrolysisSessionsService {
     payload: StartPyrolysisSessionPayload,
   ): Promise<PyrolysisSessionRecord> {
     this.assertMobileAccess(user);
+    assertSupervisorCannotEnter(user, 'pyrolysis');
 
     const kontikkiIds = [...new Set(payload.kontikki_ids ?? [])];
     if (kontikkiIds.length === 0) {
@@ -253,12 +258,18 @@ export class PyrolysisSessionsService {
   async getSession(
     user: AuthenticatedUser,
     sessionId: string,
+    knownPeers?: string[] | null,
   ): Promise<PyrolysisSessionRecord> {
     this.assertMobileAccess(user);
 
     const data = await this.readSessionRow(sessionId);
     if (!data) throw new NotFoundException('Pyrolysis session not found.');
-    if (data.operator_id !== user.id) {
+    const peers =
+      knownPeers === undefined
+        ? await clusterPeerIds(this.supabase, user)
+        : knownPeers;
+    const operatorId = String(data.operator_id ?? '');
+    if (operatorId !== user.id && peers !== null && !peers.includes(operatorId)) {
       throw new ForbiddenException('Not allowed to view this session.');
     }
 
@@ -281,7 +292,7 @@ export class PyrolysisSessionsService {
     sessionId: string,
     currentStep: PyrolysisStep,
   ): Promise<PyrolysisSessionRecord> {
-    await this.getSession(user, sessionId);
+    await this.assertCanChangeSession(user, sessionId);
 
     await this.patchSessions(sessionId, {
       current_step: currentStep,
@@ -296,6 +307,7 @@ export class PyrolysisSessionsService {
     batchId: string,
     payload: UpdatePyrolysisBatchPayload,
   ): Promise<PyrolysisSessionRecord> {
+    await this.assertCanChangeSession(user, sessionId);
     const session = await this.getSession(user, sessionId);
     const existing = session.batches.find((row) => row.id === batchId);
     if (!existing) throw new NotFoundException('Batch not found in this session.');
@@ -344,6 +356,7 @@ export class PyrolysisSessionsService {
     sessionId: string,
     batchId: string,
   ): Promise<{ session: PyrolysisSessionRecord | null }> {
+    await this.assertCanChangeSession(user, sessionId);
     const session = await this.getSession(user, sessionId);
 
     const batch = session.batches.find((row) => row.id === batchId);
@@ -381,7 +394,7 @@ export class PyrolysisSessionsService {
     user: AuthenticatedUser,
     sessionId: string,
   ): Promise<PyrolysisSessionRecord> {
-    await this.getSession(user, sessionId);
+    await this.assertCanChangeSession(user, sessionId);
 
     await this.patchSessions(sessionId, {
       status: 'completed',
@@ -401,12 +414,12 @@ export class PyrolysisSessionsService {
   > {
     this.assertMobileAccess(user);
 
+    const peers = await clusterPeerIds(this.supabase, user);
     const sessionIds: string[] = [];
     for (const table of this.sessionTables) {
-      const { data: sessions, error: sessionError } = await this.supabase
-        .from(table)
-        .select('id')
-        .eq('operator_id', user.id);
+      let query = this.supabase.from(table).select('id');
+      if (peers) query = query.in('operator_id', peers);
+      const { data: sessions, error: sessionError } = await query;
       if (sessionError) throw new BadRequestException(sessionError.message);
       sessionIds.push(...(sessions ?? []).map((row) => row.id as string));
     }
@@ -912,6 +925,7 @@ export class PyrolysisSessionsService {
     batchId: string,
     payload: Partial<RainbowPyrolysisBatchRecord>,
   ): Promise<PyrolysisSessionRecord> {
+    await this.assertCanChangeSession(user, sessionId);
     const session = await this.getSession(user, sessionId);
 
     const header: Record<string, unknown> = {
@@ -1109,6 +1123,7 @@ export class PyrolysisSessionsService {
     sessionId: string,
     batchId: string,
   ): Promise<{ session: PyrolysisSessionRecord | null }> {
+    await this.assertCanChangeSession(user, sessionId);
     const session = await this.getSession(user, sessionId);
     const batch = (session.rainbow_batches ?? []).find((row) => row.id === batchId);
     if (!batch) throw new NotFoundException('Rainbow batch not found in this session.');
@@ -1169,6 +1184,23 @@ export class PyrolysisSessionsService {
   private assertMobileAccess(user: AuthenticatedUser) {
     if (!canAccessMobileApp(user.role)) {
       throw new ForbiddenException('Not allowed to access pyrolysis sessions.');
+    }
+  }
+
+  /** The person who started the run can keep editing until it is submitted. */
+  private async assertCanChangeSession(user: AuthenticatedUser, sessionId: string) {
+    assertSupervisorCannotEnter(user, 'pyrolysis');
+    const data = await this.readSessionRow(sessionId);
+    if (!data) throw new NotFoundException('Pyrolysis session not found.');
+    if (data.operator_id !== user.id) {
+      throw new ForbiddenException(
+        'Only the person who started this kiln run can change it.',
+      );
+    }
+    if (data.status === 'completed' || data.status === 'cancelled') {
+      throw new ConflictException(
+        'This kiln run is submitted and can no longer be changed.',
+      );
     }
   }
 }

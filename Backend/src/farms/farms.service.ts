@@ -26,6 +26,7 @@ import {
   farmVisibilityFilter,
   seesEveryFarm,
 } from './farm-visibility';
+import { historyForPatch } from './edit-history';
 
 const FARM_SELECT = '*, cluster:clusters(id, name)';
 
@@ -317,13 +318,29 @@ export class FarmsService {
         ? null
         : await this.uniqueMobile(payload.mobile_number, id);
 
+    const { data: current, error: readError } = await this.supabase
+      .from('farms')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (readError) throw new BadRequestException(readError.message);
+
+    const patch: Record<string, unknown> = {
+      ...payload,
+      ...(mobile ? { mobile_number: mobile } : {}),
+      ...location,
+    };
+    delete patch.edit_history;
+    const history = historyForPatch(
+      (current as Record<string, unknown> | null) ?? null,
+      patch,
+      user.id,
+    );
+    if (history) patch.edit_history = history;
+
     const { data, error } = await this.supabase
       .from('farms')
-      .update({
-        ...payload,
-        ...(mobile ? { mobile_number: mobile } : {}),
-        ...location,
-      })
+      .update(patch)
       .eq('id', id)
       .select(FARM_SELECT)
       .single();

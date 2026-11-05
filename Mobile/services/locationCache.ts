@@ -1,6 +1,7 @@
 import * as Location from "expo-location";
 import type { LocationValue } from "@krishecarbon/shared";
 import { reverseGeocodeAddress } from "../utils/location";
+import { isUsingMockLocation, noteLocationFix } from "../utils/mockLocation";
 
 type CachedLocation = LocationValue & {
   updatedAt: number;
@@ -38,7 +39,7 @@ export async function startLocationCache(): Promise<void> {
     const position = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
     });
-    await updateFromCoords(position.coords.latitude, position.coords.longitude);
+    await rememberFix(position);
   } catch {
     // Watch will still try to deliver updates.
   }
@@ -50,7 +51,7 @@ export async function startLocationCache(): Promise<void> {
       timeInterval: 10000,
     },
     async (position) => {
-      await updateFromCoords(position.coords.latitude, position.coords.longitude);
+      await rememberFix(position);
     },
   );
 }
@@ -61,6 +62,14 @@ export async function stopLocationCache(): Promise<void> {
     watchSubscription.remove();
     watchSubscription = null;
   }
+}
+
+async function rememberFix(position: Location.LocationObject) {
+  if (noteLocationFix(position)) {
+    latestLocation = null;
+    return;
+  }
+  await updateFromCoords(position.coords.latitude, position.coords.longitude);
 }
 
 async function updateFromCoords(latitude: number, longitude: number) {
@@ -75,6 +84,7 @@ async function updateFromCoords(latitude: number, longitude: number) {
 
 /** Fast read for camera capture — uses cache only, no GPS wait. */
 export function getLocationForPhotoCapture(): LocationValue | null {
+  if (isUsingMockLocation()) return null;
   return getCachedLocationValue();
 }
 
@@ -86,15 +96,15 @@ export function getLocationForPhotoCapture(): LocationValue | null {
 export async function waitForLocation(timeoutMs = 8000): Promise<LocationValue | null> {
   await startLocationCache();
 
-  const cached = getCachedLocationValue();
+  const cached = getLocationForPhotoCapture();
   if (cached) return cached;
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 400));
-    const value = getCachedLocationValue();
+    const value = getLocationForPhotoCapture();
     if (value) return value;
   }
 
-  return getCachedLocationValue();
+  return getLocationForPhotoCapture();
 }

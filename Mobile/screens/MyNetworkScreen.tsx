@@ -17,6 +17,7 @@ import {
   type NetworkKontikki,
   type NetworkPerson,
   type NetworkProducer,
+  type NetworkSite,
   type NetworkFeedstock,
 } from "../services/backendApi";
 
@@ -58,12 +59,24 @@ function PersonCard({ person }: { person: NetworkPerson }) {
   );
 }
 
-function ProducerCard({ producer }: { producer: NetworkProducer }) {
+function ProducerCard({
+  producer,
+  sites,
+}: {
+  producer: NetworkProducer;
+  sites: NetworkSite[];
+}) {
+  const droppingSites = sites
+    .filter((site) => site.biochar_producer_id === producer.id)
+    .map((site) => site.site_name);
   return (
     <View style={styles.card}>
       <Text style={styles.cardTitle}>{producer.name}</Text>
       {producer.producer_code ? (
         <Text style={styles.cardMeta}>{producer.producer_code}</Text>
+      ) : null}
+      {droppingSites.length > 0 ? (
+        <Text style={styles.cardDetail}>Dropping sites: {droppingSites.join(", ")}</Text>
       ) : null}
       {producer.contact_name ? (
         <Text style={styles.cardDetail}>Contact: {producer.contact_name}</Text>
@@ -218,7 +231,11 @@ export default function MyNetworkScreen({ navigation }) {
                   <EmptyRow message="No producers assigned yet." />
                 ) : (
                   data.producers.map((producer) => (
-                    <ProducerCard key={producer.id} producer={producer} />
+                    <ProducerCard
+                      key={producer.id}
+                      producer={producer}
+                      sites={data.sites ?? []}
+                    />
                   ))
                 )}
               </Section>

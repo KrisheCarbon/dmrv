@@ -345,6 +345,13 @@ export interface NetworkProducer {
   registry?: string | null;
 }
 
+export interface NetworkSite {
+  id: string;
+  site_name: string;
+  biochar_producer_id: string;
+  producer_name: string | null;
+}
+
 export interface NetworkKontikki {
   id: string;
   kontikki_code: string;
@@ -376,6 +383,7 @@ export interface NetworkFarm {
 export interface MobileNetworkOverview {
   role: string;
   producers: NetworkProducer[];
+  sites?: NetworkSite[];
   kontikkis: NetworkKontikki[];
   supervisors: NetworkPerson[];
   climapreneurs: NetworkPerson[];

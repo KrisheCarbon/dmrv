@@ -6,6 +6,8 @@ dist/
 .next/
 .turbo/
 *.tsbuildinfo
+docs/.venv/
+docs/mobile-farmers-network-site/
 
 # Environment
 .env

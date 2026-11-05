@@ -166,11 +166,7 @@ export function canManageUsers(role: string): boolean {
 }
 
 /** Roles that can write an operational update and choose who receives it. */
-export const UPDATE_SEND_ROLES: readonly UserRole[] = [
-  "admin",
-  "manager",
-  "supervisor",
-];
+export const UPDATE_SEND_ROLES: readonly UserRole[] = ["admin"];
 
 export function canSendUpdates(role: string): boolean {
   return isUserRole(role) && UPDATE_SEND_ROLES.includes(role);

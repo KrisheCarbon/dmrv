@@ -14,6 +14,11 @@ import {
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import {
+  blockedSiteRemovalMessage,
+  isBiomassSiteReferenceError,
+  planSiteSync,
+} from './site-sync';
 
 export type ProducerSiteModel = 'hub' | 'mobile' | 'both';
 export type BiocharProducerClass = 'artisan_pro' | 'csink' | 'not_registered';
@@ -60,6 +65,7 @@ export interface LocationPayload {
 }
 
 export interface ProducerSitePayload extends AffiliationPayload {
+  id?: string | null;
   site_name: string;
   site_location: LocationPayload;
   site_manager_name: string;
@@ -138,7 +144,9 @@ export class BiocharProducersService {
     const isKrishe = Boolean(fields.is_from_krishe);
     return {
       partner_organization_id:
-        isIndividual || isKrishe ? null : fields.partner_organization_id ?? null,
+        isIndividual || isKrishe
+          ? null
+          : (fields.partner_organization_id ?? null),
       is_individual_contributor: isIndividual,
       is_from_krishe: isKrishe,
     };
@@ -147,7 +155,6 @@ export class BiocharProducersService {
   private generateProducerCode(): string {
     return `BP-${Date.now().toString(36).toUpperCase()}`;
   }
-
 
   private assertCanView(user: AuthenticatedUser): void {
     if (!canViewNetwork(user.role)) {
@@ -199,17 +206,19 @@ export class BiocharProducersService {
     return this.forViewer(user, await this.attachAssignments(data, id));
   }
 
-  private async attachAssignments<
-    T extends Record<string, unknown>,
-  >(producer: T, producerId: string): Promise<T> {
+  private async attachAssignments<T extends Record<string, unknown>>(
+    producer: T,
+    producerId: string,
+  ): Promise<T> {
     const withSupervisors = await this.attachSupervisors(producer, producerId);
     const withClusters = await this.attachClusters(withSupervisors, producerId);
     return this.attachKontikkis(withClusters, producerId);
   }
 
-  private async attachSupervisors<
-    T extends Record<string, unknown>,
-  >(producer: T, producerId: string): Promise<T> {
+  private async attachSupervisors<T extends Record<string, unknown>>(
+    producer: T,
+    producerId: string,
+  ): Promise<T> {
     const { data: links, error } = await this.supabase
       .from('biochar_producer_supervisors')
       .select('supervisor_id')
@@ -242,9 +251,10 @@ export class BiocharProducersService {
     };
   }
 
-  private async attachClusters<
-    T extends Record<string, unknown>,
-  >(producer: T, producerId: string): Promise<T> {
+  private async attachClusters<T extends Record<string, unknown>>(
+    producer: T,
+    producerId: string,
+  ): Promise<T> {
     const { data: links, error } = await this.supabase
       .from('biochar_producer_clusters')
       .select('cluster_id')
@@ -278,9 +288,10 @@ export class BiocharProducersService {
     };
   }
 
-  private async attachKontikkis<
-    T extends Record<string, unknown>,
-  >(producer: T, producerId: string): Promise<T> {
+  private async attachKontikkis<T extends Record<string, unknown>>(
+    producer: T,
+    producerId: string,
+  ): Promise<T> {
     const { data: kontikkis, error } = await this.supabase
       .from('kontikkis')
       .select('id, kontikki_code, status, module_id')
@@ -460,19 +471,18 @@ export class BiocharProducersService {
       updates.other_document_urls = payload.other_document_urls;
     }
 
+    if (payload.sites !== undefined) {
+      const operationModel =
+        payload.operation_model ?? (await this.getOperationModel(id));
+      await this.syncSites(id, operationModel, payload.sites);
+    }
+
     const { error } = await this.supabase
       .from('biochar_producers')
       .update(updates)
       .eq('id', id);
 
     if (error) throw new BadRequestException(error.message);
-
-    if (payload.sites !== undefined) {
-      const operationModel =
-        payload.operation_model ??
-        (await this.getOperationModel(id));
-      await this.replaceSites(id, operationModel, payload.sites);
-    }
 
     if (payload.supervisor_ids !== undefined) {
       await this.syncSupervisorRows(id, payload.supervisor_ids);
@@ -510,6 +520,21 @@ export class BiocharProducersService {
     return data.operation_model as ProducerSiteModel;
   }
 
+  private siteColumns(
+    operationModel: ProducerSiteModel,
+    site: ProducerSitePayload,
+  ) {
+    return {
+      site_name: site.site_name.trim(),
+      site_model: operationModel,
+      site_location: site.site_location,
+      site_manager_name: site.site_manager_name.trim(),
+      site_manager_email: site.site_manager_email.trim(),
+      site_manager_mobile: site.site_manager_mobile.trim(),
+      ...this.affiliationToDb(site),
+    };
+  }
+
   private async insertSites(
     producerId: string,
     operationModel: ProducerSiteModel,
@@ -519,32 +544,86 @@ export class BiocharProducersService {
 
     const rows = sites.map((site) => ({
       biochar_producer_id: producerId,
-      site_name: site.site_name.trim(),
-      site_model: operationModel,
-      site_location: site.site_location,
-      site_manager_name: site.site_manager_name.trim(),
-      site_manager_email: site.site_manager_email.trim(),
-      site_manager_mobile: site.site_manager_mobile.trim(),
-      ...this.affiliationToDb(site),
+      ...this.siteColumns(operationModel, site),
     }));
 
     const { error } = await this.supabase.from('producer_sites').insert(rows);
     if (error) throw new BadRequestException(error.message);
   }
 
-  private async replaceSites(
+  private async syncSites(
     producerId: string,
     operationModel: ProducerSiteModel,
     sites: ProducerSitePayload[],
   ): Promise<void> {
+    const { data, error } = await this.supabase
+      .from('producer_sites')
+      .select('id, site_name')
+      .eq('biochar_producer_id', producerId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    const existing = (data ?? []) as Array<{
+      id: string;
+      site_name: string | null;
+    }>;
+    const plan = planSiteSync(existing, sites);
+    await this.assertSitesCanBeRemoved(plan.deleteIds, existing);
+
+    for (const update of plan.updates) {
+      const { error: updateError } = await this.supabase
+        .from('producer_sites')
+        .update(this.siteColumns(operationModel, update.site))
+        .eq('id', update.id)
+        .eq('biochar_producer_id', producerId);
+
+      if (updateError) throw new BadRequestException(updateError.message);
+    }
+
+    await this.insertSites(producerId, operationModel, plan.inserts);
+
+    if (!plan.deleteIds.length) return;
+
     const { error: deleteError } = await this.supabase
       .from('producer_sites')
       .delete()
+      .in('id', plan.deleteIds)
       .eq('biochar_producer_id', producerId);
 
-    if (deleteError) throw new BadRequestException(deleteError.message);
+    if (deleteError) {
+      throw new BadRequestException(
+        isBiomassSiteReferenceError(deleteError.message)
+          ? blockedSiteRemovalMessage([])
+          : deleteError.message,
+      );
+    }
+  }
 
-    await this.insertSites(producerId, operationModel, sites);
+  private async assertSitesCanBeRemoved(
+    siteIds: string[],
+    existing: Array<{ id: string; site_name: string | null }>,
+  ): Promise<void> {
+    if (!siteIds.length) return;
+
+    const { data, error } = await this.supabase
+      .from('biomass_collections')
+      .select('producer_site_id')
+      .in('producer_site_id', siteIds);
+
+    if (error) throw new BadRequestException(error.message);
+
+    const usedIds = new Set(
+      (data ?? [])
+        .map((row) => row.producer_site_id as string | null)
+        .filter((id): id is string => Boolean(id)),
+    );
+    if (!usedIds.size) return;
+
+    const names = existing
+      .filter((site) => usedIds.has(site.id))
+      .map((site) => site.site_name?.trim() || 'Unnamed site');
+
+    throw new BadRequestException(blockedSiteRemovalMessage(names));
   }
 
   private async syncSupervisorRows(

@@ -14,6 +14,7 @@ import { ScreenShell } from "../components/ScreenHeader";
 import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
+import { getUserProfile } from "../services/userProfile";
 import {
   applicationDraftHasContent,
   applicationDraftSubtitle,
@@ -31,6 +32,11 @@ import {
 } from "../services/syncService";
 import { areaByFieldId, syncPhoneDirectoryIfStale } from "../services/phoneDirectory";
 import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
+import ClusterRecordList from "../components/ClusterRecordList";
+import {
+  listClusterApplicationCards,
+  type ClusterRecordCard,
+} from "../services/clusterRecords";
 
 function farmAcresFor(entry: ApplicationEntryView, areas: Map<string, number>) {
   if (!entry.farmFieldId) return null;
@@ -134,11 +140,19 @@ export default function ApplicationDashboardScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingEntryIds, setSyncingEntryIds] = useState<Set<string>>(new Set());
+  const [clusterRows, setClusterRows] = useState<ClusterRecordCard[]>([]);
+  const [canEnter, setCanEnter] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
       const user = await getStoredAuthUser();
       if (!user) return;
+      const profile = await getUserProfile().catch(() => null);
+      const role = profile?.role ?? "";
+      setCanEnter(role !== "supervisor");
+      if (role === "supervisor" || role === "climapreneur") {
+        void listClusterApplicationCards(user.id).then(setClusterRows).catch(() => undefined);
+      }
       try {
         await refreshApplicationReviewStatuses();
       } catch {
@@ -209,11 +223,11 @@ export default function ApplicationDashboardScreen({ navigation }) {
   }, [navigation, loadData, syncPendingEntries]);
 
   async function startNewEntry() {
-    const user = await getStoredAuthUser();
-    if (!user) return;
+    const profile = await getUserProfile();
+    if (!profile || profile.role === "supervisor") return;
 
     const { createApplicationEntryLocal } = await import("../services/applicationService");
-    const entryId = await createApplicationEntryLocal(user.id);
+    const entryId = await createApplicationEntryLocal(profile.id);
     navigation.navigate("ApplicationEntry", { entryId });
   }
 
@@ -221,13 +235,15 @@ export default function ApplicationDashboardScreen({ navigation }) {
     <ScreenShell>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Application</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={startNewEntry}
-          accessibilityLabel="Start new application entry"
-        >
-          <Text style={styles.addBtnText}>+</Text>
-        </TouchableOpacity>
+        {canEnter ? (
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={startNewEntry}
+            accessibilityLabel="Start new application entry"
+          >
+            <Text style={styles.addBtnText}>+</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {loading && entries.length === 0 ? (
@@ -251,13 +267,18 @@ export default function ApplicationDashboardScreen({ navigation }) {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No application entries yet</Text>
-              <Text style={styles.emptyText}>
-                Tap + to record biochar application on a farm.
-              </Text>
-            </View>
+            clusterRows.length > 0 ? null : (
+              <View style={styles.empty}>
+                <Text style={styles.emptyTitle}>No application entries yet</Text>
+                <Text style={styles.emptyText}>
+                  {canEnter
+                    ? "Tap + to record biochar application on a farm."
+                    : "Application entries from your cluster show here. Supervisors can view them, and do not start new ones."}
+                </Text>
+              </View>
+            )
           }
+          ListFooterComponent={<ClusterRecordList title="In this cluster" rows={clusterRows} />}
           renderItem={({ item }) =>
             item.status === "draft" ? (
               <DraftEntryCard

@@ -14,6 +14,7 @@ import { ScreenShell } from "../components/ScreenHeader";
 import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
+import { getUserProfile } from "../services/userProfile";
 import {
   deleteMixingDraft,
   listMixingEntries,
@@ -30,6 +31,8 @@ import {
   subscribeSyncEvents,
 } from "../services/syncService";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import ClusterRecordList from "../components/ClusterRecordList";
+import { listClusterMixingCards, type ClusterRecordCard } from "../services/clusterRecords";
 
 function EntryCard({
   entry,
@@ -116,11 +119,19 @@ export default function MixingDashboardScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingEntryIds, setSyncingEntryIds] = useState<Set<string>>(new Set());
+  const [clusterRows, setClusterRows] = useState<ClusterRecordCard[]>([]);
+  const [canEnter, setCanEnter] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
       const user = await getStoredAuthUser();
       if (!user) return;
+      const profile = await getUserProfile().catch(() => null);
+      const role = profile?.role ?? "";
+      setCanEnter(role !== "supervisor");
+      if (role === "supervisor" || role === "climapreneur") {
+        void listClusterMixingCards(user.id).then(setClusterRows).catch(() => undefined);
+      }
       try {
         await refreshMixingReviewStatuses();
       } catch {
@@ -185,11 +196,11 @@ export default function MixingDashboardScreen({ navigation }) {
   }, [navigation, loadData, syncPendingEntries]);
 
   async function startNewEntry() {
-    const user = await getStoredAuthUser();
-    if (!user) return;
+    const profile = await getUserProfile();
+    if (!profile || profile.role === "supervisor") return;
 
     const { createMixingEntryLocal } = await import("../services/mixingService");
-    const entryId = await createMixingEntryLocal(user.id);
+    const entryId = await createMixingEntryLocal(profile.id);
     navigation.navigate("MixingEntry", { entryId });
   }
 
@@ -197,13 +208,15 @@ export default function MixingDashboardScreen({ navigation }) {
     <ScreenShell>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Mixing</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={startNewEntry}
-          accessibilityLabel="Start new mixing entry"
-        >
-          <Text style={styles.addBtnText}>+</Text>
-        </TouchableOpacity>
+        {canEnter ? (
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={startNewEntry}
+            accessibilityLabel="Start new mixing entry"
+          >
+            <Text style={styles.addBtnText}>+</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {loading && entries.length === 0 ? (
@@ -227,13 +240,18 @@ export default function MixingDashboardScreen({ navigation }) {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No mixing entries yet</Text>
-              <Text style={styles.emptyText}>
-                Tap + to start a new mixing record and link pyrolysis batches.
-              </Text>
-            </View>
+            clusterRows.length > 0 ? null : (
+              <View style={styles.empty}>
+                <Text style={styles.emptyTitle}>No mixing entries yet</Text>
+                <Text style={styles.emptyText}>
+                  {canEnter
+                    ? "Tap + to start a new mixing record and link pyrolysis batches."
+                    : "Mixing entries from your cluster show here. Supervisors can view them, and do not start new ones."}
+                </Text>
+              </View>
+            )
           }
+          ListFooterComponent={<ClusterRecordList title="In this cluster" rows={clusterRows} />}
           renderItem={({ item }) =>
             item.status === "draft" ? (
               <DraftEntryCard

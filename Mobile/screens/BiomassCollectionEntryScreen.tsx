@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert, Pressable } from "react-native";
 import {
   BIOMASS_COLLECTION_TRACTOR_NOTICE,
   checkLoadedPhotoNearFarm,
   describeFarmPhotoDistance,
   formatApplicationAcres,
+  biomassAcresLimitMessage,
+  formatBiomassAcres,
   nearestBoundaryDistanceMeters,
+  parseBiomassQuantity,
+  type ApplicationFarmFieldOption,
 } from "@krishecarbon/shared";
 import ScreenHeader, { ScreenShell } from "../components/ScreenHeader";
 import FormInput from "../components/FormInput";
@@ -19,15 +23,23 @@ import {
   biomassDraftHasContent,
   biomassIsUnfinished,
   deleteBiomassDraft,
-  getBiomassCollection,
-  loadBiomassCollectionOptions,
+  getBiomassCollectionView,
+  loadBiomassDropSites,
+  loadBiomassFarmerFields,
+  loadBiomassFarmerNames,
+  loadCollectedAcres,
+  readCachedBiomassFarmerNames,
+  setOpenBiomassCollectionId,
+  newBiomassSourceDraft,
+  saveBiomassSources,
   saveLoadedStep,
   submitBiomassCollection,
-  toBiomassCollectionView,
   updateBiomassCollectionLocal,
-  type BiomassCollectionOptions,
   type BiomassCollectionUpdate,
   type BiomassCollectionView,
+  type BiomassDropSite,
+  type BiomassFarmerName,
+  type BiomassSourceDraft,
 } from "../services/biomassCollectionService";
 import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
 
@@ -56,36 +68,49 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   const [busy, setBusy] = useState(false);
   const [capturing, setCapturing] = useState<"loaded" | "unloaded" | null>(null);
   const [collection, setCollection] = useState<BiomassCollectionView | null>(null);
-  const [options, setOptions] = useState<BiomassCollectionOptions>({ farmers: [], producers: [] });
+  const [sites, setSites] = useState<BiomassDropSite[]>([]);
+  const [sitesLoading, setSitesLoading] = useState(true);
+  const [farmerNames, setFarmerNames] = useState<BiomassFarmerName[]>([]);
+  const [farmerNamesState, setFarmerNamesState] = useState<"idle" | "loading" | "ready">("idle");
+  const [fieldsByFarmer, setFieldsByFarmer] = useState<
+    Record<string, ApplicationFarmFieldOption[]>
+  >({});
+  const [fieldsLoadingId, setFieldsLoadingId] = useState<string | null>(null);
+  const [sources, setSources] = useState<BiomassSourceDraft[]>([]);
+  const [usedAcres, setUsedAcres] = useState<Record<string, number>>({});
   const [tractorNumber, setTractorNumber] = useState("");
+  const sourcesRef = useRef<BiomassSourceDraft[]>([]);
+  const sourceSaveGen = useRef(0);
+  const farmerNamesRef = useRef<BiomassFarmerName[]>([]);
+  const fieldsRef = useRef<Record<string, ApplicationFarmFieldOption[]>>({});
 
   const loadingEditable = collection?.status === "draft";
   const unloadingEditable = collection?.status === "loaded";
 
-  const farmerOptions = useMemo(
+  const siteOptions = useMemo(
     () =>
-      options.farmers.map((farmer) => ({
-        value: farmer.id,
-        label: farmer.farmer_name,
-        hint: [farmer.village, farmer.cluster_name].filter(Boolean).join(" · "),
+      sites.map((site) => ({
+        value: site.id,
+        label: site.siteName,
+        hint: site.producerName ?? undefined,
       })),
-    [options.farmers],
-  );
-
-  const producerOptions = useMemo(
-    () =>
-      options.producers.map((producer) => ({
-        value: producer.id,
-        label: producer.name,
-        hint: producer.producer_code ?? undefined,
-      })),
-    [options.producers],
+    [sites],
   );
 
   const reload = useCallback(async () => {
-    const view = toBiomassCollectionView(await getBiomassCollection(collectionId));
+    const view = await getBiomassCollectionView(collectionId);
     setCollection(view);
     return view;
+  }, [collectionId]);
+
+  function rememberSources(next: BiomassSourceDraft[]) {
+    sourcesRef.current = next;
+    setSources(next);
+  }
+
+  useEffect(() => {
+    setOpenBiomassCollectionId(collectionId);
+    return () => setOpenBiomassCollectionId(null);
   }, [collectionId]);
 
   useEffect(() => {
@@ -94,15 +119,28 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
     async function init() {
       try {
         const view = await reload();
-        if (!cancelled) setTractorNumber(view.tractorNumber ?? "");
-        const loaded = await loadBiomassCollectionOptions();
-        if (!cancelled) setOptions(loaded);
+        const initial = view.sources.length > 0 ? view.sources : [newBiomassSourceDraft()];
+        if (!cancelled) {
+          setTractorNumber(view.tractorNumber ?? "");
+          rememberSources(initial);
+        }
+        if (!cancelled) setLoading(false);
+        const [loadedSites, used] = await Promise.all([
+          loadBiomassDropSites().catch(() => [] as BiomassDropSite[]),
+          loadCollectedAcres(collectionId).catch(() => ({}) as Record<string, number>),
+        ]);
+        if (cancelled) return;
+        setSites(loadedSites);
+        setSitesLoading(false);
+        setUsedAcres(used);
+        for (const source of view.sources) {
+          if (source.farmId) void ensureFarmerFields(source.farmId);
+        }
       } catch (err) {
+        if (!cancelled) setSitesLoading(false);
         Alert.alert(
-          "Farms and sites",
-          err instanceof Error
-            ? `${err.message}\nConnect to the internet once to load your farms and production sites.`
-            : "Could not load farms and production sites.",
+          "Could not open this trip",
+          err instanceof Error ? err.message : "Could not open this biomass collection.",
         );
       } finally {
         if (!cancelled) setLoading(false);
@@ -133,7 +171,8 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
               tractorNumber: tractorValue.current,
             });
           }
-          const view = toBiomassCollectionView(await getBiomassCollection(collectionId));
+          await saveBiomassSources(collectionId, sourcesRef.current);
+          const view = await getBiomassCollectionView(collectionId);
           if (
             biomassIsUnfinished(view) &&
             !biomassDraftHasContent(view) &&
@@ -178,8 +217,96 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
     }, 450);
   }
 
+  function rememberFarmerNames(next: BiomassFarmerName[]) {
+    farmerNamesRef.current = next;
+    setFarmerNames(next);
+  }
+
+  function rememberFields(farmId: string, fields: ApplicationFarmFieldOption[]) {
+    fieldsRef.current = { ...fieldsRef.current, [farmId]: fields };
+    setFieldsByFarmer(fieldsRef.current);
+  }
+
+  async function ensureFarmerNames() {
+    if (farmerNamesRef.current.length > 0 && farmerNamesState === "ready") return;
+    if (farmerNamesRef.current.length === 0) {
+      const cached = await readCachedBiomassFarmerNames();
+      if (cached.length > 0) rememberFarmerNames(cached);
+    }
+    if (farmerNamesRef.current.length === 0) setFarmerNamesState("loading");
+    try {
+      rememberFarmerNames(await loadBiomassFarmerNames());
+      setFarmerNamesState("ready");
+    } catch (err) {
+      if (farmerNamesRef.current.length > 0) {
+        setFarmerNamesState("ready");
+        return;
+      }
+      setFarmerNamesState("idle");
+      Alert.alert(
+        "Farmers",
+        err instanceof Error ? err.message : "Could not load farmers for your clusters.",
+      );
+    }
+  }
+
+  async function ensureFarmerFields(farmId: string) {
+    if (!farmId || fieldsRef.current[farmId]) return fieldsRef.current[farmId] ?? [];
+    setFieldsLoadingId(farmId);
+    try {
+      const fields = await loadBiomassFarmerFields(farmId);
+      rememberFields(farmId, fields);
+      return fields;
+    } catch (err) {
+      Alert.alert(
+        "Farms",
+        err instanceof Error ? err.message : "Could not load this farmer's farms.",
+      );
+      return [];
+    } finally {
+      setFieldsLoadingId((current) => (current === farmId ? null : current));
+    }
+  }
+
+  function selectedFields(drafts: BiomassSourceDraft[] = sourcesRef.current) {
+    return drafts
+      .map((source) => {
+        if (!source.farmId || !source.farmFieldId) return null;
+        const fields = fieldsRef.current[source.farmId] ?? [];
+        const field = fields.find((item) => item.id === source.farmFieldId);
+        if (!field) return null;
+        const named = farmerNamesRef.current.find((item) => item.id === source.farmId);
+        return {
+          farmer: {
+            id: source.farmId,
+            farmer_name: named?.farmer_name ?? source.farmName ?? "Farmer",
+            fields,
+          },
+          field,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item != null);
+  }
+
+  async function persistSources(next: BiomassSourceDraft[]) {
+    const gen = ++sourceSaveGen.current;
+    rememberSources(next);
+    try {
+      await saveBiomassSources(collectionId, next);
+      if (gen !== sourceSaveGen.current) return;
+      await reload();
+    } catch (err) {
+      if (gen !== sourceSaveGen.current) return;
+      Alert.alert(
+        "Save failed",
+        err instanceof Error ? err.message : "Could not save this farm on this phone.",
+      );
+    }
+  }
+
   async function capture(kind: "loaded" | "unloaded") {
-    if (kind === "loaded" && (!collection?.farmId || !collection?.farmFieldId)) {
+    const chosen = selectedFields();
+    if (kind === "loaded" && chosen.length === 0) {
       Alert.alert(
         "Select a farm",
         "Choose the farmer and the farm plot before taking the loaded photo.",
@@ -193,13 +320,9 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
       if (!photo) return;
 
       if (kind === "loaded") {
-        const farmer = options.farmers.find((item) => item.id === collection?.farmId);
-        const field = farmer?.fields.find((item) => item.id === collection?.farmFieldId);
         const check = checkLoadedPhotoNearFarm({
-          farmName: field
-            ? `${farmer?.farmer_name ?? collection?.farmName} (${field.field_code})`
-            : collection?.farmName,
-          boundaries: field ? [field.boundary] : [],
+          farmName: chosen.map((item) => `${item.farmer.farmer_name} (${item.field.field_code})`).join(", "),
+          boundaries: chosen.map((item) => item.field.boundary),
           latitude: photo.metadata.latitude,
           longitude: photo.metadata.longitude,
         });
@@ -226,13 +349,11 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   async function handleSaveLoaded() {
-    const farmer = options.farmers.find((item) => item.id === collection?.farmId);
-    const field = farmer?.fields.find((item) => item.id === collection?.farmFieldId);
+    await saveBiomassSources(collectionId, sourcesRef.current);
+    const chosen = selectedFields();
     const check = checkLoadedPhotoNearFarm({
-      farmName: field
-        ? `${farmer?.farmer_name ?? collection?.farmName} (${field.field_code})`
-        : collection?.farmName,
-      boundaries: field ? [field.boundary] : [],
+      farmName: chosen.map((item) => `${item.farmer.farmer_name} (${item.field.field_code})`).join(", "),
+      boundaries: chosen.map((item) => item.field.boundary),
       latitude: collection?.loadedPhotoMetadata?.latitude,
       longitude: collection?.loadedPhotoMetadata?.longitude,
     });
@@ -290,31 +411,24 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   const submitted = collection.status === "submitted" || collection.status === "synced";
-  const selectedFarmer = options.farmers.find((farmer) => farmer.id === collection.farmId) ?? null;
-  const selectedField =
-    selectedFarmer?.fields.find((field) => field.id === collection.farmFieldId) ?? null;
+  const chosenFields = selectedFields(sources);
   const loadedDistance = collection.loadedPhotoMetadata
     ? describeFarmPhotoDistance(
-        selectedField
+        chosenFields.length
           ? nearestBoundaryDistanceMeters(
               {
                 latitude: collection.loadedPhotoMetadata.latitude,
                 longitude: collection.loadedPhotoMetadata.longitude,
               },
-              [selectedField.boundary],
+              chosenFields.map((item) => item.field.boundary),
             )
           : null,
         {
           hasGps: Number.isFinite(collection.loadedPhotoMetadata.latitude),
-          hasBoundary: (selectedField?.boundary.length ?? 0) >= 3,
+          hasBoundary: chosenFields.some((item) => item.field.boundary.length >= 3),
         },
       )
     : null;
-  const fieldOptions = (selectedFarmer?.fields ?? []).map((field) => ({
-    value: field.id,
-    label: field.field_code,
-    hint: formatApplicationAcres(field.area_acres),
-  }));
 
   return (
     <ScreenShell>
@@ -328,68 +442,174 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
             </Text>
           </View>
 
-          <FormPicker
-            label="Farmer *"
-            value={collection.farmId ?? ""}
-            options={farmerOptions}
-            searchable
-            searchPlaceholder="Search farmer or village"
-            enabled={loadingEditable}
-            onValueChange={(farmerId) => {
-              const farmer = options.farmers.find((item) => item.id === farmerId);
-              void save({
-                farmId: farmerId || null,
-                farmName: farmer?.farmer_name ?? null,
-                farmFieldId: null,
-                fieldCode: null,
-                loadedPhotoLocalUri: null,
-                loadedPhotoMetadata: null,
+          {sources.map((source, index) => {
+            const named = farmerNames.find((item) => item.id === source.farmId) ?? null;
+            const farmerFields = source.farmId ? fieldsByFarmer[source.farmId] ?? [] : [];
+            const field = farmerFields.find((item) => item.id === source.farmFieldId) ?? null;
+            const farmerChoices = farmerNames.map((item) => ({
+              value: item.id,
+              label: item.farmer_name,
+              hint: [item.village, item.cluster_name].filter(Boolean).join(" · ") || undefined,
+            }));
+            if (source.farmId && !farmerChoices.some((item) => item.value === source.farmId)) {
+              farmerChoices.unshift({
+                value: source.farmId,
+                label: source.farmName || "Farmer",
+                hint: undefined,
               });
-            }}
-          />
-          <FormPicker
-            label="Farm plot *"
-            value={collection.farmFieldId ?? ""}
-            options={fieldOptions}
-            searchable
-            searchPlaceholder="Search farm plot"
-            enabled={loadingEditable && Boolean(selectedFarmer)}
-            onValueChange={(fieldId) => {
-              const field = selectedFarmer?.fields.find((item) => item.id === fieldId);
-              const next = {
-                farmFieldId: fieldId || null,
-                fieldCode: field?.field_code ?? null,
-              };
-              if (collection.loadedPhotoMetadata && field) {
-                const check = checkLoadedPhotoNearFarm({
-                  farmName: `${selectedFarmer?.farmer_name ?? collection.farmName} (${field.field_code})`,
-                  boundaries: [field.boundary],
-                  latitude: collection.loadedPhotoMetadata.latitude,
-                  longitude: collection.loadedPhotoMetadata.longitude,
-                });
-                if (check.ok === false) {
-                  Alert.alert(
-                    check.title,
-                    `${check.message}\n\nThe loaded photo was cleared. Take it again at this farm.`,
-                  );
-                  void save({
-                    ...next,
-                    loadedPhotoLocalUri: null,
-                    loadedPhotoMetadata: null,
-                  });
-                  return;
-                }
-              }
-              void save(next);
-            }}
-          />
-          <Text style={styles.metaLine}>
-            {farmerOptions.length === 0
-              ? "No onboarded farm with a mapped boundary is on this phone. Draw the farm plot, then connect once so it can be selected."
-              : selectedField
-                ? `This farm is ${formatApplicationAcres(selectedField.area_acres)}.`
-                : "Select the farmer, then the farm plot."}
-          </Text>
+            }
+            const fieldOptions = farmerFields.map((item) => ({
+              value: item.id,
+              label: item.field_code,
+              hint: formatApplicationAcres(item.area_acres),
+            }));
+            const siblingAcres = sources.reduce((sum, other, otherIndex) => {
+              if (otherIndex === index || other.farmFieldId !== source.farmFieldId) return sum;
+              return sum + (parseBiomassQuantity(other.acresText) ?? 0);
+            }, 0);
+            const used = field ? (usedAcres[field.id] ?? 0) + siblingAcres : 0;
+            const left = field ? Math.max(field.area_acres - used, 0) : 0;
+            const enteredAcres = parseBiomassQuantity(source.acresText);
+            const acreLimit =
+              field && enteredAcres != null
+                ? biomassAcresLimitMessage({
+                    farmLabel: `${named?.farmer_name ?? source.farmName ?? "This farm"} (${field.field_code})`,
+                    areaAcres: field.area_acres,
+                    alreadyUsedAcres: used,
+                    nextAcres: enteredAcres,
+                  })
+                : null;
+            return (
+              <View key={source.id} style={styles.sourceCard}>
+                <View style={styles.stepHeader}>
+                  <Text style={styles.sourceTitle}>Farm {index + 1}</Text>
+                  {loadingEditable && sources.length > 1 ? (
+                    <Pressable
+                      style={styles.removeButton}
+                      onPress={() => {
+                        const next = sources.filter((item) => item.id !== source.id);
+                        void persistSources(next.length ? next : [newBiomassSourceDraft()]);
+                      }}
+                    >
+                      <Text style={styles.removeText}>Remove</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                <FormPicker
+                  label="Farmer *"
+                  value={source.farmId ?? ""}
+                  options={farmerChoices}
+                  searchable
+                  searchPlaceholder="Search farmer or village"
+                  enabled={loadingEditable}
+                  loading={farmerNamesState === "loading" && farmerNames.length === 0}
+                  emptyText="No farmers are linked to your clusters."
+                  onOpen={() => {
+                    void ensureFarmerNames();
+                  }}
+                  onValueChange={(farmerId) => {
+                    const nextFarmer = farmerNames.find((item) => item.id === farmerId);
+                    if (farmerId) void ensureFarmerFields(farmerId);
+                    const next = sources.map((item) =>
+                      item.id === source.id
+                        ? {
+                            ...item,
+                            farmId: farmerId || null,
+                            farmName: nextFarmer?.farmer_name ?? null,
+                            farmFieldId: null,
+                            fieldCode: null,
+                            acresText: "",
+                            biomassText: "",
+                          }
+                        : item,
+                    );
+                    void persistSources(next);
+                  }}
+                />
+                <FormPicker
+                  label="Farm *"
+                  value={source.farmFieldId ?? ""}
+                  options={fieldOptions}
+                  searchable
+                  searchPlaceholder="Search farm"
+                  enabled={loadingEditable && Boolean(source.farmId)}
+                  loading={fieldsLoadingId === source.farmId}
+                  emptyText="This farmer has no mapped farm."
+                  onOpen={() => {
+                    if (source.farmId) void ensureFarmerFields(source.farmId);
+                  }}
+                  onValueChange={(fieldId) => {
+                    const nextField = farmerFields.find((item) => item.id === fieldId);
+                    const duplicate = sources.some(
+                      (item) => item.id !== source.id && item.farmFieldId && item.farmFieldId === fieldId,
+                    );
+                    if (duplicate) {
+                      Alert.alert(
+                        "Farm already added",
+                        "Increase the acres on the farm already in this trip.",
+                      );
+                      return;
+                    }
+                    const next = sources.map((item) =>
+                      item.id === source.id
+                        ? {
+                            ...item,
+                            farmFieldId: fieldId || null,
+                            fieldCode: nextField?.field_code ?? null,
+                          }
+                        : item,
+                    );
+                    void persistSources(next);
+                  }}
+                />
+                <Text style={styles.valueLine}>
+                  {field
+                    ? `${formatBiomassAcres(used)} of ${formatBiomassAcres(field.area_acres)} already collected. ${formatBiomassAcres(left)} left.`
+                    : "Select the farmer, then the farm."}
+                </Text>
+                {acreLimit ? <Text style={styles.errorLine}>{acreLimit}</Text> : null}
+                <FormInput
+                  label="Acres collected *"
+                  placeholder="e.g. 2"
+                  value={source.acresText}
+                  keyboardType="decimal-pad"
+                  editable={loadingEditable && Boolean(field)}
+                  onChangeText={(text) => {
+                    const next = sources.map((item) =>
+                      item.id === source.id ? { ...item, acresText: text } : item,
+                    );
+                    rememberSources(next);
+                  }}
+                  onBlur={() => {
+                    void persistSources(sourcesRef.current);
+                  }}
+                />
+                <FormInput
+                  label="Estimated biomass (tonnes)"
+                  placeholder="Optional, e.g. 1.5"
+                  value={source.biomassText}
+                  keyboardType="decimal-pad"
+                  editable={loadingEditable && Boolean(field)}
+                  onChangeText={(text) => {
+                    const next = sources.map((item) =>
+                      item.id === source.id ? { ...item, biomassText: text } : item,
+                    );
+                    rememberSources(next);
+                  }}
+                  onBlur={() => {
+                    void persistSources(sourcesRef.current);
+                  }}
+                />
+              </View>
+            );
+          })}
+          {loadingEditable ? (
+            <PrimaryButton
+              title="Add another farm"
+              variant="outline"
+              onPress={() => rememberSources([...sources, newBiomassSourceDraft()])}
+            />
+          ) : null}
 
           <FormInput
             label="Tractor number"
@@ -460,25 +680,32 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
           {collection.status === "draft" ? (
             <Text style={styles.metaLine}>
               Save the loaded trip first. Then open it again when the tractor reaches the
-              production site.
+              dropping site.
             </Text>
           ) : (
             <>
               <FormPicker
-                label="Production site *"
-                value={collection.producerId ?? ""}
-                options={producerOptions}
+                label="Dropping site *"
+                value={collection.producerSiteId ?? ""}
+                options={siteOptions}
                 searchable
-                searchPlaceholder="Search production site"
+                searchPlaceholder="Search dropping site"
+                loading={sitesLoading}
                 enabled={unloadingEditable}
-                onValueChange={(producerId) => {
-                  const producer = options.producers.find((item) => item.id === producerId);
+                onValueChange={(siteId) => {
+                  const site = sites.find((item) => item.id === siteId);
                   void save({
-                    producerId: producerId || null,
-                    producerName: producer?.name ?? null,
+                    producerSiteId: siteId || null,
+                    producerId: site?.producerId ?? null,
+                    producerName: site?.siteName ?? null,
                   });
                 }}
               />
+              <Text style={styles.metaLine}>
+                {siteOptions.length === 0
+                  ? "No dropping sites are linked to your cluster. The producer linked to that cluster needs its sites added first."
+                  : "These are the dropping sites on the producer linked to your cluster."}
+              </Text>
 
               <TractorNotice />
               <PyrolysisPhotoSlot
@@ -573,6 +800,38 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: typeScale.heading,
     color: colors.brunswick,
+  },
+  sourceCard: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  sourceTitle: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.text,
+  },
+  valueLine: {
+    fontFamily: fonts.regular,
+    fontSize: typeScale.body,
+    color: colors.text,
+  },
+  errorLine: {
+    fontFamily: fonts.regular,
+    fontSize: typeScale.body,
+    color: colors.error,
+  },
+  removeButton: {
+    minHeight: 48,
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+  },
+  removeText: {
+    fontFamily: fonts.medium,
+    fontSize: typeScale.body,
+    color: colors.error,
   },
   stepOpen: {
     fontFamily: fonts.medium,

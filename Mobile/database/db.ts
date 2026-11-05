@@ -25,7 +25,11 @@ function isDatabaseLockedError(err: unknown): boolean {
     parts.push(current instanceof Error ? current.message : String(current));
     current = current instanceof Error ? current.cause : undefined;
   }
-  return /database is locked|SQLITE_BUSY|finalizeAsync/i.test(parts.join("\n"));
+  // expo-sqlite reports every failed statement as a finalizeAsync rejection,
+  // including UNIQUE constraint failures. Matching that wrapper retries the
+  // insert, and the retry then fails because the first attempt already wrote
+  // the row. Only a real lock should be retried.
+  return /database is locked|SQLITE_BUSY|SQLITE_LOCKED|database is busy/i.test(parts.join("\n"));
 }
 
 /**
@@ -173,6 +177,7 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "application_entries", "field_code", "TEXT");
   await addColumnIfMissing(db, "biomass_collections", "farm_field_id", "TEXT");
   await addColumnIfMissing(db, "biomass_collections", "field_code", "TEXT");
+  await addColumnIfMissing(db, "biomass_collections", "producer_site_id", "TEXT");
 
   // Farmers Network profile fields (v3) — safe on devices that already have farmers.
   await addColumnIfMissing(db, "farmers", "farmer_code", "TEXT");
@@ -187,6 +192,7 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "farmers", "farmer_photo_uri", "TEXT");
   await addColumnIfMissing(db, "farmers", "farmer_photo_url", "TEXT");
   await addColumnIfMissing(db, "farmers", "cluster_id", "TEXT");
+  await addColumnIfMissing(db, "directory_farmers", "cluster_id", "TEXT");
   await addColumnIfMissing(db, "farmers", "cluster_village_id", "TEXT");
   await addColumnIfMissing(db, "farmers", "cluster_name", "TEXT");
 

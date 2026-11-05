@@ -34,6 +34,10 @@ import FormPicker from "../components/FormPicker";
 import FormDateField from "../components/FormDateField";
 import PrimaryButton from "../components/PrimaryButton";
 import FarmerPicker from "../components/FarmerPicker";
+import SupervisorClusterPicker, {
+  asksWhichCluster,
+  useAssignedClusters,
+} from "../components/SupervisorClusterPicker";
 import PolygonMapperModal from "../components/PolygonMapperModal";
 import { openMapPickerIfOnline } from "../components/LocationPickerModal";
 import {
@@ -111,6 +115,7 @@ function fileNameFromUri(uri: string): string {
 export default function FieldFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
   const fieldId = route.params?.fieldId ?? null;
+  const assignedClusters = useAssignedClusters();
   const [loading, setLoading] = useState(false);
   const [land, setLand] = useState({ cap: 0, used: 0, remaining: 0 });
   const [existingFields, setExistingFields] = useState<FarmField[]>([]);
@@ -491,9 +496,24 @@ export default function FieldFormScreen({ route, navigation }) {
           Enter acres, then draw the farm on the map.
         </Text>
 
+        {!fieldId && !paramFarmerId && asksWhichCluster(assignedClusters.role) ? (
+          <SupervisorClusterPicker
+            clusters={assignedClusters.clusters}
+            value={assignedClusters.clusterId}
+            onChange={assignedClusters.setClusterId}
+          />
+        ) : null}
         <FarmerPicker
           value={farmerId}
           onChange={setSelectedFarmerId}
+          clusterId={
+            !fieldId &&
+            !paramFarmerId &&
+            !assignedClusters.loading &&
+            asksWhichCluster(assignedClusters.role)
+              ? assignedClusters.clusterId
+              : undefined
+          }
         />
 
         {farmerId ? (

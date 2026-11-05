@@ -27,6 +27,10 @@ import {
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
+import {
+  assertSupervisorCannotEnter,
+  clusterPeerIds,
+} from '../farms/farm-visibility';
 
 type MixRegistry = 'csi' | 'rainbow';
 
@@ -157,14 +161,9 @@ export class MixingEntriesService {
       return this.loadEntries(true, {});
     }
 
-    if (user.role === 'supervisor') {
-      const allowedEntryIds = await this.getAllowedEntryIds(user);
-      if (allowedEntryIds.length === 0) return [];
-      return this.loadEntries(true, { ids: allowedEntryIds });
-    }
-
     this.assertMobileAccess(user);
-    return this.loadEntries(false, { operatorId: user.id });
+    const peers = await clusterPeerIds(this.supabase, user);
+    return this.loadEntries(true, { operatorIds: peers ?? undefined });
   }
 
   async getEntry(
@@ -177,18 +176,9 @@ export class MixingEntriesService {
       return entry;
     }
 
-    if (user.role === 'supervisor') {
-      const allowedEntryIds = await this.getAllowedEntryIds(user);
-      if (!allowedEntryIds.includes(id)) {
-        throw new NotFoundException('Mixing entry not found.');
-      }
-      const entry = await this.findEntry(id, true);
-      if (!entry) throw new NotFoundException('Mixing entry not found.');
-      return entry;
-    }
-
     this.assertMobileAccess(user);
-    const entry = await this.findEntry(id, false, user.id);
+    const peers = await clusterPeerIds(this.supabase, user);
+    const entry = await this.findEntry(id, true, peers ?? undefined);
     if (!entry) throw new NotFoundException('Mixing entry not found.');
     return entry;
   }
@@ -271,6 +261,7 @@ export class MixingEntriesService {
     payload: CreateMixingEntryPayload,
   ): Promise<MixingEntryRecord> {
     this.assertMobileAccess(user);
+    assertSupervisorCannotEnter(user, 'mixing');
     this.validateCreatePayload(payload);
 
     const allowedKontikkiIds = await this.getAllowedKontikkiIds(user);
@@ -467,32 +458,6 @@ export class MixingEntriesService {
     return new Set(overview.kontikkis.map((row) => row.id));
   }
 
-  private async getAllowedEntryIds(user: AuthenticatedUser): Promise<string[]> {
-    const allowedKontikkiIds = await this.getAllowedKontikkiIds(user);
-    if (allowedKontikkiIds.size === 0) {
-      return [];
-    }
-
-    const entryIds: string[] = [];
-    for (const tables of MIX_TABLES) {
-      const { data: batches, error: batchError } = await this.supabase
-        .from(tables.batches)
-        .select('id')
-        .in('kontikki_id', Array.from(allowedKontikkiIds));
-      if (batchError) throw new BadRequestException(batchError.message);
-      const batchIds = (batches ?? []).map((row) => row.id as string);
-      if (batchIds.length === 0) continue;
-      const { data: links, error: linkError } = await this.supabase
-        .from(tables.links)
-        .select('mixing_entry_id')
-        .in('pyrolysis_batch_id', batchIds);
-      if (linkError) throw new BadRequestException(linkError.message);
-      entryIds.push(...(links ?? []).map((row) => row.mixing_entry_id as string));
-    }
-
-    return [...new Set(entryIds)];
-  }
-
   private async assertPyrolysisBatchesAllowed(
     batchIds: string[],
     allowedKontikkiIds: Set<string>,
@@ -646,7 +611,7 @@ export class MixingEntriesService {
 
   private async loadEntries(
     portal: boolean,
-    options: { operatorId?: string; ids?: string[] },
+    options: { operatorIds?: string[]; ids?: string[] },
   ): Promise<MixingEntryRecord[] | MixingEntryPortalRecord[]> {
     const lists = await Promise.all(
       MIX_TABLES.map((tables) => this.fetchRegistryEntries(tables, portal, options)),
@@ -659,10 +624,10 @@ export class MixingEntriesService {
   private async findEntry(
     id: string,
     portal: boolean,
-    operatorId?: string,
+    operatorIds?: string[],
   ): Promise<MixingEntryRecord | MixingEntryPortalRecord | null> {
     const rows = await this.loadEntries(portal, {
-      operatorId,
+      operatorIds,
       ids: [id],
     });
     return rows.find((row) => row.id === id) ?? null;
@@ -671,13 +636,15 @@ export class MixingEntriesService {
   private async fetchRegistryEntries(
     tables: MixTables,
     portal: boolean,
-    options: { operatorId?: string; ids?: string[] },
+    options: { operatorIds?: string[]; ids?: string[] },
   ): Promise<Array<MixingEntryRecord | MixingEntryPortalRecord>> {
     let query = this.supabase
       .from(tables.entries)
       .select(entrySelect(tables, portal))
       .order('started_at', { ascending: false });
-    if (options.operatorId) query = query.eq('operator_id', options.operatorId);
+    if (options.operatorIds && options.operatorIds.length > 0) {
+      query = query.in('operator_id', options.operatorIds);
+    }
     if (options.ids) query = query.in('id', options.ids);
     const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);

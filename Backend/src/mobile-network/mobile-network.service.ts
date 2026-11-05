@@ -100,6 +100,7 @@ export interface MobileDirectoryFarmer {
   district: string | null;
   mobile_number: string | null;
   created_by: string | null;
+  cluster_id: string | null;
 }
 
 export interface MobileDirectoryFarm {
@@ -326,10 +327,11 @@ export class MobileNetworkService {
       district: string | null;
       mobile_number: string | null;
       created_by: string | null;
+      cluster_id: string | null;
     }>((from, to) => {
       let query = this.supabase
         .from('farms')
-        .select('id, farmer_name, village, district, mobile_number, created_by')
+        .select('id, farmer_name, village, district, mobile_number, created_by, cluster_id')
         .order('farmer_name', { ascending: true })
         .range(from, to);
 
@@ -347,6 +349,7 @@ export class MobileNetworkService {
       district: row.district ?? null,
       mobile_number: row.mobile_number ?? null,
       created_by: row.created_by ?? null,
+      cluster_id: row.cluster_id ?? null,
     }));
   }
 

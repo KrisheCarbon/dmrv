@@ -18,6 +18,7 @@ export type PhoneDirectoryPayload = {
     district: string | null;
     mobile_number: string | null;
     created_by: string | null;
+    cluster_id: string | null;
   }>;
   farms: Array<{
     id: string;
@@ -40,6 +41,7 @@ export type PhoneFarmerSummary = {
   district: string | null;
   mobile_number: string;
   created_by: string | null;
+  cluster_id: string | null;
   sync_status: string;
   uploadStatus: string;
   sync_error: string | null;
@@ -127,6 +129,7 @@ async function fetchDirectoryFromExistingRoutes(): Promise<PhoneDirectoryPayload
       district: row.district ?? null,
       mobile_number: row.mobile_number ?? null,
       created_by: row.created_by ?? null,
+      cluster_id: row.cluster_id ?? null,
     })),
     farms: (fields ?? []).map((field) => ({
       id: field.id,
@@ -185,6 +188,7 @@ async function runDirectorySync() {
         district: farmer.district ?? null,
         mobile_number: farmer.mobile_number ?? null,
         created_by: farmer.created_by ?? null,
+        cluster_id: farmer.cluster_id ?? null,
         updated_at: now,
       });
       await db.runAsync(sql, args);
@@ -241,6 +245,7 @@ type LocalFarmerRow = {
   district: string | null;
   mobile_number: string | null;
   created_by: string | null;
+  cluster_id: string | null;
   sync_status: string;
   sync_error: string | null;
   farmer_code: string | null;
@@ -266,7 +271,8 @@ async function readPhoneFarmers(): Promise<PhoneFarmerSummary[]> {
       district: string | null;
       mobile_number: string | null;
       created_by: string | null;
-    }>("SELECT id, farmer_name, village, district, mobile_number, created_by FROM directory_farmers ORDER BY farmer_name COLLATE NOCASE"),
+      cluster_id: string | null;
+    }>("SELECT id, farmer_name, village, district, mobile_number, created_by, cluster_id FROM directory_farmers ORDER BY farmer_name COLLATE NOCASE"),
     db.getAllAsync<{ farmer_id: string; n: number }>(
       "SELECT farmer_id, COUNT(*) AS n FROM directory_farms GROUP BY farmer_id",
     ),
@@ -275,7 +281,7 @@ async function readPhoneFarmers(): Promise<PhoneFarmerSummary[]> {
     ),
     db.getAllAsync<LocalFarmerRow>(
       `SELECT id, server_id, farmer_name, village, district, mobile_number, created_by,
-              sync_status, sync_error, farmer_code, farmer_photo_uri, farmer_photo_url
+              cluster_id, sync_status, sync_error, farmer_code, farmer_photo_uri, farmer_photo_url
        FROM farmers`,
     ),
   ]);
@@ -311,6 +317,7 @@ async function readPhoneFarmers(): Promise<PhoneFarmerSummary[]> {
       district: source ? source.district : row.district,
       mobile_number: (source ? source.mobile_number : row.mobile_number) || "",
       created_by: row.created_by ?? local?.created_by ?? null,
+      cluster_id: row.cluster_id ?? local?.cluster_id ?? null,
       sync_status: local?.sync_status ?? "synced",
       uploadStatus: local?.sync_status ?? "synced",
       sync_error: local?.sync_error ?? null,
@@ -331,6 +338,7 @@ async function readPhoneFarmers(): Promise<PhoneFarmerSummary[]> {
       district: local.district,
       mobile_number: local.mobile_number || "",
       created_by: local.created_by,
+      cluster_id: local.cluster_id,
       sync_status: local.sync_status,
       uploadStatus: local.sync_status,
       sync_error: local.sync_error,

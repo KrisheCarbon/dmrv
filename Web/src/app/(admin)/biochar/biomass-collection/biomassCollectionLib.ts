@@ -85,6 +85,12 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
     record.id,
     record.farm_name,
     record.field_code,
+    ...(record.sources ?? []).flatMap((source) => [
+      source.farm_name,
+      source.field_code,
+      source.acres,
+      source.biomass_tonnes,
+    ]),
     formatApplicationAcres(record.farm_area_acres),
     record.producer_name,
     record.tractor_number,

@@ -45,8 +45,11 @@ export interface BiomassCollectionRecord {
   field_code?: string | null;
   /** Acres of the selected farm plot, from its mapped polygon. */
   farm_area_acres?: number | null;
+  sources?: BiomassCollectionSource[];
   producer_id?: string | null;
   producer_name?: string | null;
+  /** Dropping site on the producer where the load was unloaded. */
+  producer_site_id?: string | null;
   tractor_number?: string | null;
   loaded_at: string;
   loaded_photo_url: string;
@@ -63,6 +66,21 @@ export interface BiomassCollectionRecord {
   updated_at?: string;
 }
 
+/** One farm a tractor load was collected from. A trip can include several. */
+export interface BiomassCollectionSource {
+  id?: string;
+  farm_id: string;
+  farm_name?: string | null;
+  farm_field_id: string;
+  field_code?: string | null;
+  /** Acres of this farm plot used for this collection. */
+  acres: number;
+  /** Estimated biomass taken from those acres, in tonnes. Empty when not entered. */
+  biomass_tonnes: number | null;
+  /** Mapped area of the plot, when the server has it. */
+  area_acres?: number | null;
+}
+
 export interface CreateBiomassCollectionPayload {
   farm_id: string;
   farm_name?: string | null;
@@ -70,6 +88,7 @@ export interface CreateBiomassCollectionPayload {
   field_code?: string | null;
   producer_id: string;
   producer_name?: string | null;
+  producer_site_id?: string | null;
   tractor_number?: string | null;
   loaded_at: string;
   loaded_photo_url: string;
@@ -77,6 +96,51 @@ export interface CreateBiomassCollectionPayload {
   unloaded_at: string;
   unloaded_photo_url: string;
   unloaded_photo_metadata?: FieldPhotoMetadata | null;
+  /** Farms in this load. The first one is also stored on the collection row. */
+  sources?: BiomassCollectionSource[];
+}
+
+/** Positive number with at most two decimal places, or null. */
+export function parseBiomassQuantity(raw: string | number | null | undefined): number | null {
+  const text = String(raw ?? "").trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return null;
+  const value = Number(text);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+export function formatBiomassAcres(acres: number): string {
+  if (!Number.isFinite(acres) || acres < 0) return "0.00 acres";
+  return `${acres.toFixed(2)} acres`;
+}
+
+export function formatBiomassTonnes(tonnes: number | null | undefined): string {
+  if (tonnes == null || !Number.isFinite(tonnes) || tonnes <= 0) return "";
+  return `${tonnes.toFixed(2)} t`;
+}
+
+/**
+ * Acres still available on a farm after earlier collections.
+ * `alreadyUsedAcres` is every other collection plus the other farms lines
+ * on this trip, and does not include the line being checked.
+ */
+export function biomassAcresLimitMessage(input: {
+  farmLabel: string;
+  areaAcres: number;
+  alreadyUsedAcres: number;
+  nextAcres: number;
+}): string | null {
+  const area = Number(input.areaAcres);
+  const used = Number.isFinite(input.alreadyUsedAcres) ? Math.max(input.alreadyUsedAcres, 0) : 0;
+  const next = Number(input.nextAcres);
+  const label = input.farmLabel.trim() || "This farm";
+  if (!Number.isFinite(area) || area <= 0) {
+    return `${label} has no mapped area, so acres cannot be entered.`;
+  }
+  if (!Number.isFinite(next) || next <= 0) return null;
+  const left = area - used;
+  if (next <= left + 0.0001) return null;
+  return `${label} is ${formatBiomassAcres(area)}. ${formatBiomassAcres(used)} are already collected. ${formatBiomassAcres(Math.max(left, 0))} can still be collected, and this entry is ${formatBiomassAcres(next)}.`;
 }
 
 function finiteCoord(value: unknown): number | null {

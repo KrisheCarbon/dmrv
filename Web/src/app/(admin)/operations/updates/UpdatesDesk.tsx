@@ -283,7 +283,7 @@ export default function UpdatesDesk({
       ) : (
         <p className="text-sm text-[var(--text-secondary)]">
           You can read updates from the bell at the top right. Sending is limited to
-          admins, managers, and supervisors.
+          admins.
         </p>
       )}
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,11 @@ import LocationPickerModal, {
   openMapPickerIfOnline,
 } from "../components/LocationPickerModal";
 import VillagePicker from "../components/VillagePicker";
+import SupervisorClusterPicker, {
+  asksWhichCluster,
+} from "../components/SupervisorClusterPicker";
 import { getStoredAuthUser } from "../services/auth";
+import { getUserProfile } from "../services/userProfile";
 import {
   checkMobileOnServer,
   farmerToFormData,
@@ -132,6 +136,8 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
   const [mapOpen, setMapOpen] = useState(false);
   const [villages, setVillages] = useState<ClusterVillageRecord[]>([]);
   const [villagesLoading, setVillagesLoading] = useState(true);
+  const [role, setRole] = useState<string | null>(null);
+  const [chosenClusterId, setChosenClusterId] = useState("");
   const [existingCrops, setExistingCrops] = useState<FarmerCrop[]>([]);
   const {
     value: form,
@@ -144,6 +150,35 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
   function setField(key: string, value: string | number | boolean | null) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
+
+  useEffect(() => {
+    getUserProfile()
+      .then((profile) => setRole(profile?.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+
+  const clusters = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const village of villages) {
+      if (!village.cluster_id) continue;
+      names.set(village.cluster_id, village.cluster_name || "Cluster");
+    }
+    return [...names.entries()].map(([id, name]) => ({ id, name }));
+  }, [villages]);
+
+  useEffect(() => {
+    if (clusters.length === 1) setChosenClusterId(clusters[0].id);
+  }, [clusters]);
+
+  useEffect(() => {
+    if (form.cluster_id && !chosenClusterId) setChosenClusterId(form.cluster_id);
+  }, [form.cluster_id, chosenClusterId]);
+
+  const visibleVillages = asksWhichCluster(role)
+    ? chosenClusterId
+      ? villages.filter((village) => village.cluster_id === chosenClusterId)
+      : []
+    : villages;
 
   useEffect(() => {
     let cancelled = false;
@@ -510,11 +545,38 @@ export default function NewFarmerOnboardingScreen({ navigation, route }) {
           onChangeText={(t) => setField("address", t)}
           multiline
         />
+        {asksWhichCluster(role) ? (
+          <SupervisorClusterPicker
+            clusters={clusters}
+            value={chosenClusterId}
+            onChange={(id) => {
+              setChosenClusterId(id);
+              setForm((prev) =>
+                prev.cluster_id === id
+                  ? prev
+                  : {
+                      ...prev,
+                      cluster_id: "",
+                      cluster_village_id: "",
+                      cluster_name: "",
+                      village: "",
+                      mandal: "",
+                      district: "",
+                      state: "",
+                    },
+              );
+            }}
+          />
+        ) : null}
         <VillagePicker
-          villages={villages}
+          villages={visibleVillages}
           valueId={form.cluster_village_id}
           loading={villagesLoading}
-          emptyText="No cluster villages assigned yet. Ask an admin to add you to a cluster."
+          emptyText={
+            asksWhichCluster(role) && clusters.length > 1 && !chosenClusterId
+              ? "Choose which cluster this farmer is in."
+              : "No cluster villages assigned yet. Ask an admin to add you to a cluster."
+          }
           onChange={(village) => {
             setForm((prev) => ({
               ...prev,

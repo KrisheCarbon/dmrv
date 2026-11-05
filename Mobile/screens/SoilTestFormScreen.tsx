@@ -21,6 +21,10 @@ import FormPicker from "../components/FormPicker";
 import FormInput from "../components/FormInput";
 import PrimaryButton from "../components/PrimaryButton";
 import FarmerPicker from "../components/FarmerPicker";
+import SupervisorClusterPicker, {
+  asksWhichCluster,
+  useAssignedClusters,
+} from "../components/SupervisorClusterPicker";
 import {
   listFieldsForFarmer,
   saveSoilTestLocal,
@@ -70,6 +74,7 @@ function isSupervisorRole(role: string) {
 
 export default function SoilTestFormScreen({ route, navigation }) {
   const paramFarmerId = route.params?.farmerId ?? "";
+  const assignedClusters = useAssignedClusters();
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [farmerFields, setFarmerFields] = useState<FarmField[]>([]);
@@ -542,7 +547,27 @@ export default function SoilTestFormScreen({ route, navigation }) {
           </View>
         ) : null}
 
-        <FarmerPicker value={farmerId} onChange={changeFarmer} />
+        {!paramFarmerId && asksWhichCluster(assignedClusters.role) ? (
+          <SupervisorClusterPicker
+            clusters={assignedClusters.clusters}
+            value={assignedClusters.clusterId}
+            onChange={(id) => {
+              assignedClusters.setClusterId(id);
+              changeFarmer("");
+            }}
+          />
+        ) : null}
+        <FarmerPicker
+          value={farmerId}
+          onChange={changeFarmer}
+          clusterId={
+            !paramFarmerId &&
+            !assignedClusters.loading &&
+            asksWhichCluster(assignedClusters.role)
+              ? assignedClusters.clusterId
+              : undefined
+          }
+        />
 
         {farmerId && farmsLoading ? (
           <Text style={styles.hint}>Loading this farmer's farms…</Text>

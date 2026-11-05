@@ -60,6 +60,7 @@ export const SCHEMA_STATEMENTS: string[] = [
     district TEXT,
     mobile_number TEXT,
     created_by TEXT,
+    cluster_id TEXT,
     updated_at INTEGER NOT NULL
   );`,
 

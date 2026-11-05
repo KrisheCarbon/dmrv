@@ -8,6 +8,14 @@ import {
 } from "./locationCache";
 import { getCurrentIST } from "./trustedtime";
 import { savePhotoToGallery } from "./permissions";
+import {
+  assertRealLocationFix,
+  isUsingMockLocation,
+  LocationUnavailableError,
+  MockLocationError,
+} from "../utils/mockLocation";
+
+export { LocationUnavailableError, MockLocationError };
 
 const APPLICATION_VIDEO_DIR = `${FileSystem.documentDirectory}application-videos/`;
 
@@ -73,16 +81,6 @@ export function formatWatermarkGps(latitude: number, longitude: number): string 
   return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
 }
 
-/** Thrown when GPS could not be resolved in time for a photo watermark. */
-export class LocationUnavailableError extends Error {
-  constructor() {
-    super(
-      "Could not get your location. Make sure GPS/location is turned on, then try again.",
-    );
-    this.name = "LocationUnavailableError";
-  }
-}
-
 const LOCATION_WAIT_TIMEOUT_MS = 12000;
 const LOCATION_POLL_INTERVAL_MS = 300;
 
@@ -105,33 +103,42 @@ async function locationForCapture(): Promise<LocationValue | null> {
 
   void startLocationCache();
 
-  const cached = getLocationForPhotoCapture();
-  if (cached) return cached;
-
   const deadline = Date.now() + LOCATION_WAIT_TIMEOUT_MS;
+  let liveChecked = false;
 
   const freshFix = Location.getCurrentPositionAsync({
     accuracy: Location.Accuracy.Balanced,
   })
-    .then((position) => ({
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-    }))
-    .catch(() => null);
+    .then((position) => {
+      liveChecked = true;
+      assertRealLocationFix(position);
+      return {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      };
+    })
+    .catch((err) => {
+      liveChecked = true;
+      if (err instanceof MockLocationError) throw err;
+      return null;
+    });
 
   while (Date.now() < deadline) {
-    const fromCache = getLocationForPhotoCapture();
-    if (fromCache) return fromCache;
-
     const remaining = deadline - Date.now();
     const race = await Promise.race([
       freshFix,
-      sleep(Math.min(LOCATION_POLL_INTERVAL_MS, Math.max(remaining, 0))).then(() => "poll" as const),
+      sleep(Math.min(LOCATION_POLL_INTERVAL_MS, Math.max(remaining, 0))).then(
+        () => "poll" as const,
+      ),
     ]);
 
-    if (race && race !== "poll") return race;
+    if (race && race !== "poll") {
+      return getLocationForPhotoCapture() ?? race;
+    }
+    if (liveChecked) break;
   }
 
+  if (isUsingMockLocation()) throw new MockLocationError();
   return getLocationForPhotoCapture();
 }
 
@@ -145,10 +152,14 @@ async function preciseLocationForCapture(): Promise<
 > {
   const fix = await Promise.race([
     Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }).catch(
-      () => null,
+      (err) => {
+        if (err instanceof MockLocationError) throw err;
+        return null;
+      },
     ),
     sleep(LOCATION_WAIT_TIMEOUT_MS).then(() => null),
   ]);
+  assertRealLocationFix(fix);
   if (!fix) return null;
   return {
     lat: fix.coords.latitude,
@@ -168,8 +179,9 @@ export async function captureFieldPhotoFromCamera(options?: {
   }
 
   // Warm up the GPS fix before opening the camera so it's likely ready by
-  // the time the user snaps the photo.
-  void locationForCapture();
+  // the time the user snaps the photo. A fake-GPS rejection is handled
+  // again after the shutter, once the caller can show it.
+  void locationForCapture().catch(() => undefined);
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["images"],
@@ -182,8 +194,9 @@ export async function captureFieldPhotoFromCamera(options?: {
 
   const asset = result.assets[0];
   const precise = options?.preciseLocation ? await preciseLocationForCapture() : null;
-  const location =
-    precise ?? getLocationForPhotoCapture() ?? (await locationForCapture());
+  // Always confirm the live fix. A cached point from before Flying GPS was
+  // switched on must not be written onto the photo.
+  const location = precise ?? (await locationForCapture());
 
   if (!location) {
     throw new LocationUnavailableError();
@@ -216,6 +229,7 @@ export async function captureApplicationVideo(options?: {
   }
 
   await locationForCapture();
+  if (isUsingMockLocation()) throw new MockLocationError();
 
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ["videos"],
@@ -227,7 +241,8 @@ export async function captureApplicationVideo(options?: {
   if (result.canceled || !result.assets[0]) return null;
 
   const asset = result.assets[0];
-  const location = getLocationForPhotoCapture() ?? (await locationForCapture());
+  const location = await locationForCapture();
+  if (isUsingMockLocation()) throw new MockLocationError();
   if (options?.requireLocation && !location) {
     throw new LocationUnavailableError();
   }

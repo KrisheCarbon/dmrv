@@ -56,7 +56,9 @@ import KilnDashboardScreen from "./screens/KilnDashboardScreen";
 import KilnSavedBatchesScreen from "./screens/KilnSavedBatchesScreen";
 import KilnSensorSettingsScreen from "./screens/KilnSensorSettingsScreen";
 import PhotoWatermarkProcessor from "./components/PhotoWatermarkProcessor";
+import DeveloperOptionsBlock from "./components/DeveloperOptionsBlock";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { isDeveloperOptionsEnabled } from "./modules/developer-options";
 
 import type { ComponentType } from "react";
 
@@ -185,6 +187,9 @@ function MainStack() {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [developerOptionsOn, setDeveloperOptionsOn] = useState(
+    () => !__DEV__ && isDeveloperOptionsEnabled(),
+  );
 
   const [fontsLoaded] = useFonts({
     SatoshiRegular: require("./assets/Satoshi_Complete/Fonts/OTF/Satoshi-Regular.otf"),
@@ -266,7 +271,43 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  if (!fontsLoaded || loading) {
+  useEffect(() => {
+    if (__DEV__) return;
+
+    function refresh(nextState: AppStateStatus) {
+      if (nextState !== "active") return;
+      setDeveloperOptionsOn(isDeveloperOptionsEnabled());
+    }
+
+    const subscription = AppState.addEventListener("change", refresh);
+    return () => subscription.remove();
+  }, []);
+
+  if (!fontsLoaded) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: colors.white,
+          paddingHorizontal: 32
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.brunswick} />
+      </View>
+    );
+  }
+
+  if (developerOptionsOn) {
+    return (
+      <SafeAreaProvider>
+        <DeveloperOptionsBlock />
+      </SafeAreaProvider>
+    );
+  }
+
+  if (loading) {
     return (
       <View
         style={{

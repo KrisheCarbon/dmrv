@@ -13,6 +13,7 @@ import { ScreenShell } from "../components/ScreenHeader";
 import DraftEntryCard from "../components/DraftEntryCard";
 import ReviewStatusBadge from "../components/ReviewStatusBadge";
 import { getStoredAuthUser } from "../services/auth";
+import { getUserProfile } from "../services/userProfile";
 import {
   deletePyrolysisDraftSession,
   getSessionKontikkis,
@@ -27,6 +28,11 @@ import {
 } from "../services/syncService";
 import type { PyrolysisSession } from "../database/types";
 import { colors, fonts, spacing, radius } from "../constants/theme";
+import ClusterRecordList from "../components/ClusterRecordList";
+import {
+  listClusterPyrolysisCards,
+  type ClusterRecordCard,
+} from "../services/clusterRecords";
 import { summarizeReviewStatuses } from "../utils/reviewStatus";
 
 type SyncTone = "neutral" | "warning" | "success" | "danger";
@@ -132,6 +138,8 @@ export default function PyrolysisDashboardScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingSessionIds, setSyncingSessionIds] = useState<Set<string>>(new Set());
+  const [clusterRows, setClusterRows] = useState<ClusterRecordCard[]>([]);
+  const [canEnter, setCanEnter] = useState(true);
 
   // Reads everything from local SQLite only — no network calls — so the
   // dashboard renders immediately from whatever is already on the device.
@@ -139,6 +147,12 @@ export default function PyrolysisDashboardScreen({ navigation }) {
     try {
       const user = await getStoredAuthUser();
       if (!user) return;
+      const profile = await getUserProfile().catch(() => null);
+      const role = profile?.role ?? "";
+      setCanEnter(role !== "supervisor");
+      if (role === "supervisor" || role === "climapreneur") {
+        void listClusterPyrolysisCards(user.id).then(setClusterRows).catch(() => undefined);
+      }
       const rows = await listPyrolysisSessions(user.id);
       const kept = [];
       const entries = [];
@@ -238,13 +252,15 @@ export default function PyrolysisDashboardScreen({ navigation }) {
     <ScreenShell>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Pyrolysis</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => navigation.navigate("PyrolysisSelectKontikkis")}
-          accessibilityLabel="Start new batch"
-        >
-          <Text style={styles.addBtnText}>+</Text>
-        </TouchableOpacity>
+        {canEnter ? (
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => navigation.navigate("PyrolysisSelectKontikkis")}
+            accessibilityLabel="Start new batch"
+          >
+            <Text style={styles.addBtnText}>+</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {loading && sessions.length === 0 ? (
@@ -268,12 +284,19 @@ export default function PyrolysisDashboardScreen({ navigation }) {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No batches yet</Text>
-              <Text style={styles.emptyText}>
-                Tap + to select kontikkis and start a new pyrolysis batch.
-              </Text>
-            </View>
+            clusterRows.length > 0 ? null : (
+              <View style={styles.empty}>
+                <Text style={styles.emptyTitle}>No batches yet</Text>
+                <Text style={styles.emptyText}>
+                  {canEnter
+                    ? "Tap + to select kontikkis and start a new pyrolysis batch."
+                    : "Kiln runs from your cluster show here. Supervisors can view them, and do not start new ones."}
+                </Text>
+              </View>
+            )
+          }
+          ListFooterComponent={
+            <ClusterRecordList title="In this cluster" rows={clusterRows} />
           }
           renderItem={({ item }) => {
             const sample = sessionSamples[item.id];

@@ -2001,6 +2001,7 @@ export interface BiomassCollection {
   farmFieldId: string | null;
   fieldCode: string | null;
   producerId: string | null;
+  producerSiteId: string | null;
   producerName: string | null;
   tractorNumber: string | null;
   loadedPhotoLocalUri: string | null;
@@ -2026,6 +2027,7 @@ interface BiomassCollectionRowRaw {
   farm_field_id: string | null;
   field_code: string | null;
   producer_id: string | null;
+  producer_site_id: string | null;
   producer_name: string | null;
   tractor_number: string | null;
   loaded_photo_local_uri: string | null;
@@ -2052,6 +2054,7 @@ export function rowToBiomassCollection(row: BiomassCollectionRowRaw): BiomassCol
     farmFieldId: row.farm_field_id,
     fieldCode: row.field_code,
     producerId: row.producer_id,
+    producerSiteId: row.producer_site_id ?? null,
     producerName: row.producer_name,
     tractorNumber: row.tractor_number,
     loadedPhotoLocalUri: row.loaded_photo_local_uri,

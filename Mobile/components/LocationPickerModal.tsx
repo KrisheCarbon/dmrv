@@ -19,6 +19,7 @@ import {
   readDeviceCoordinate,
   type MapOpenCoordinate
 } from "../utils/location";
+import { MockLocationError } from "../utils/mockLocation";
 import {
   buildMapboxPickerHtml,
   getMapboxToken,
@@ -67,7 +68,20 @@ export default function LocationPickerModal({
       setLocationNote("");
       setMapSeed(null);
 
-      const coord = await getInitialMapCoordinate();
+      let coord: MapOpenCoordinate;
+      try {
+        coord = await getInitialMapCoordinate();
+      } catch (err) {
+        if (cancelled) return;
+        setPin(null);
+        setLocationNote(
+          err instanceof MockLocationError
+            ? err.message
+            : "Couldn't read your GPS, so the map was not opened on a default place. Turn location on and tap Try again."
+        );
+        setLoading(false);
+        return;
+      }
 
       if (cancelled) return;
 
@@ -197,6 +211,12 @@ export default function LocationPickerModal({
             ? `movePin(${user.longitude}, ${user.latitude}, false);`
             : ""
         } true;`
+      );
+    } catch (err) {
+      setLocationNote(
+        err instanceof MockLocationError
+          ? err.message
+          : "Allow location access, then tap the target to see where you are."
       );
     } finally {
       setLocatingUser(false);

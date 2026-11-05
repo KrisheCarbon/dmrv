@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import LocationPicker from "@/components/maps/Locationpicker";
 import FarmerPortrait from "@/components/FarmerPortrait";
@@ -151,6 +151,16 @@ export default function FarmForm({
   );
   const [villages, setVillages] = useState<ClusterVillageRecord[]>([]);
   const [villagesLoading, setVillagesLoading] = useState(true);
+  const clusters = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const village of villages) {
+      if (!village.cluster_id) continue;
+      names.set(village.cluster_id, village.cluster_name || "Cluster");
+    }
+    return [...names.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [villages]);
   const [form, setForm] = useState<FarmerFormState>(() =>
     data
       ? farmToFormState(data)
@@ -177,6 +187,18 @@ export default function FarmForm({
           crops: [],
         },
   );
+  const visibleVillages =
+    clusters.length > 1
+      ? form.cluster_id
+        ? villages.filter((village) => village.cluster_id === form.cluster_id)
+        : []
+      : villages;
+
+  useEffect(() => {
+    if (clusters.length !== 1) return;
+    const onlyId = clusters[0].id;
+    setForm((prev) => (prev.cluster_id === onlyId ? prev : { ...prev, cluster_id: onlyId }));
+  }, [clusters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -517,13 +539,46 @@ export default function FarmForm({
           />
         </div>
 
+        {clusters.length > 1 ? (
+          <div className="space-y-1.5">
+            <label className={labelClass}>Which cluster is this for? *</label>
+            <select
+              className={inputClass}
+              value={form.cluster_id}
+              onChange={(e) => {
+                const id = e.target.value;
+                setForm((prev) => ({
+                  ...prev,
+                  cluster_id: id,
+                  cluster_village_id: "",
+                  village: "",
+                  mandal: "",
+                  district: "",
+                  state: "",
+                }));
+              }}
+            >
+              <option value="">Choose a cluster</option>
+              {clusters.map((cluster) => (
+                <option key={cluster.id} value={cluster.id}>
+                  {cluster.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         <div className="space-y-1.5">
           <label className={labelClass}>Village *</label>
           <ClusterVillagePicker
-            villages={villages}
+            villages={visibleVillages}
             valueId={form.cluster_village_id}
             loading={villagesLoading}
-            emptyText="No cluster villages yet. Create a cluster and add villages first."
+            emptyText={
+              clusters.length > 1 && !form.cluster_id
+                ? "Choose which cluster this farmer is in."
+                : "No cluster villages yet. Create a cluster and add villages first."
+            }
             onChange={(village) => {
               if (!village) {
                 setForm({

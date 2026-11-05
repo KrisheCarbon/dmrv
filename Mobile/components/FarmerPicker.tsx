@@ -23,6 +23,11 @@ type FarmerPickerProps = {
   required?: boolean;
   /** When true, only farmers with an active farm whose boundary is mapped. */
   requireFields?: boolean;
+  /**
+   * Limit the list to one cluster. An empty string means a cluster still
+   * has to be chosen, so the list stays empty.
+   */
+  clusterId?: string;
 };
 
 /**
@@ -34,6 +39,7 @@ export default function FarmerPicker({
   onChange,
   required = true,
   requireFields = false,
+  clusterId,
 }: FarmerPickerProps) {
   const [options, setOptions] = useState<FormPickerOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +53,7 @@ export default function FarmerPicker({
       try {
         const farmers = await listPhoneFarmers();
         const mapped = farmers
+          .filter((farmer) => (clusterId === undefined ? true : farmer.cluster_id === clusterId))
           .filter((farmer) => (requireFields ? farmer.hasFarms : true))
           .map((farmer) => {
             const village = farmer.village ? ` · ${farmer.village}` : "";
@@ -71,7 +78,7 @@ export default function FarmerPicker({
     setError(farmerLoadError(lastError));
     setOptions([]);
     setLoading(false);
-  }, [requireFields]);
+  }, [requireFields, clusterId]);
 
   useEffect(() => {
     void load();
@@ -110,15 +117,19 @@ export default function FarmerPicker({
         <Text style={styles.emptyTitle}>
           {error
             ? "Could not load farmers"
-            : requireFields
-              ? "No farmers with mapped farms yet"
-              : "No farmers onboarded yet"}
+            : clusterId === ""
+              ? "Choose a cluster first"
+              : requireFields
+                ? "No farmers with mapped farms yet"
+                : "No farmers onboarded yet"}
         </Text>
         <Text style={styles.hint}>
           {error ||
-            (requireFields
-              ? "Register the farmer, then add the farm and draw its boundary under Farms onboarding. A soil sample can only be taken inside a mapped farm."
-              : "Add a farmer under New Farmer first, then come back to link farms, soil, or consent.")}
+            (clusterId === ""
+              ? "Pick which cluster this entry is for. Then the farmers in that cluster are listed here."
+              : requireFields
+                ? "Register the farmer, then add the farm and draw its boundary under Farms onboarding. A soil sample can only be taken inside a mapped farm."
+                : "Add a farmer under New Farmer first, then come back to link farms, soil, or consent.")}
         </Text>
         {error ? (
           <Pressable onPress={() => void load()} style={styles.retry}>

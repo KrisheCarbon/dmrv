@@ -4,6 +4,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   BIOMASS_COLLECTION_TRACTOR_NOTICE,
+  formatBiomassAcres,
+  formatBiomassTonnes,
   type BiomassCollectionRecord,
   type FieldPhotoMetadata,
 } from "@krishecarbon/shared";
@@ -185,7 +187,12 @@ export default function BiomassCollectionPanel({
                   : "text-2xl font-semibold tracking-tight text-neutral-950"
               }
             >
-              {data.farm_name ?? "Farm not set"} → {data.producer_name ?? "Site not set"}
+              {(data.sources?.length
+                ? data.sources.length === 1
+                  ? data.sources[0].farm_name
+                  : `${data.sources[0].farm_name ?? "Farm"} + ${data.sources.length - 1} more`
+                : data.farm_name) ?? "Farm not set"}{" "}
+              → {data.producer_name ?? "Site not set"}
             </h2>
             <p className="mt-0.5 text-xs text-neutral-500">
               {formatDateTime(data.loaded_at)} · {data.operator_name ?? "Unknown"}
@@ -228,6 +235,35 @@ export default function BiomassCollectionPanel({
       >
         <section className="rounded-xl border border-neutral-200 bg-white px-4 py-3">
           <dl>
+            {data.sources && data.sources.length > 0 ? (
+              <DetailRow label="Farms">
+                <ul className="space-y-2">
+                  {data.sources.map((source) => (
+                    <li key={source.id ?? `${source.farm_field_id}-${source.acres}`}>
+                      {source.farm_id && source.farm_name ? (
+                        <Link
+                          href={`/network/farmers/${source.farm_id}`}
+                          className="font-medium text-brand-dark hover:underline"
+                        >
+                          {source.farm_name}
+                        </Link>
+                      ) : (
+                        source.farm_name ?? "Farmer"
+                      )}
+                      {source.field_code ? ` · ${source.field_code}` : ""}
+                      {` · ${formatBiomassAcres(source.acres)} collected`}
+                      {source.area_acres != null
+                        ? ` of ${formatBiomassAcres(source.area_acres)}`
+                        : ""}
+                      {formatBiomassTonnes(source.biomass_tonnes)
+                        ? ` · ${formatBiomassTonnes(source.biomass_tonnes)}`
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
+              </DetailRow>
+            ) : (
+              <>
             <DetailRow label="Farmer">
               {data.farm_id && data.farm_name ? (
                 <Link
@@ -242,6 +278,8 @@ export default function BiomassCollectionPanel({
             </DetailRow>
             <DetailRow label="Plot">{data.field_code ?? "—"}</DetailRow>
             <DetailRow label="Farm area">{formatApplicationAcres(data.farm_area_acres)}</DetailRow>
+              </>
+            )}
             <DetailRow label="Production site">{data.producer_name ?? "—"}</DetailRow>
             <DetailRow label="Tractor number">{data.tractor_number?.trim() || "—"}</DetailRow>
             <DetailRow label="From farm">

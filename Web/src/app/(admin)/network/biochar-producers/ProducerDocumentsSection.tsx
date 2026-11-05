@@ -11,6 +11,7 @@ import {
   fileNameFromBiocharProducerDocPath,
   uploadBiocharProducerDoc,
 } from "@/lib/uploadBiocharProducerDocs";
+import { unwrapQuery } from "@/lib/queryResult";
 import { updateProducer } from "./actions";
 
 interface ProducerDocumentsSectionProps {
@@ -106,7 +107,10 @@ export default function ProducerDocumentsSection({
       }
 
       if (Object.keys(patch).length > 0) {
-        await updateProducer(producerId, patch);
+        unwrapQuery(
+          await updateProducer(producerId, patch),
+          "Failed to save documents",
+        );
       }
 
       setSaved(true);

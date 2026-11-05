@@ -25,7 +25,7 @@ export async function updateProducer(
   id: string,
   payload: Partial<ProducerSavePayload>,
 ) {
-  return backendFetch<BiocharProducerDetail>(`/biochar-producers/${id}`, {
+  return backendQuery<BiocharProducerDetail>(`/biochar-producers/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });

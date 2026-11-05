@@ -98,15 +98,11 @@ export class UpdatesService {
 
   async sent(user: AuthenticatedUser): Promise<SentUpdate[]> {
     this.assertCanSend(user);
-    let query = this.supabase
+    const query = this.supabase
       .from('updates')
       .select(UPDATE_COLUMNS)
       .order('created_at', { ascending: false })
       .limit(INBOX_LIMIT);
-
-    if (user.role === 'supervisor') {
-      query = query.eq('created_by', user.id);
-    }
 
     const { data, error } = await query;
     if (error) this.throwDb(error.message);
@@ -236,7 +232,7 @@ export class UpdatesService {
   private assertCanSend(user: AuthenticatedUser) {
     if (!canSendUpdates(user.role)) {
       throw new ForbiddenException(
-        'Only admins, managers, and supervisors can send updates.',
+        'Only admins can send updates.',
       );
     }
   }

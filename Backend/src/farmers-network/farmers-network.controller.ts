@@ -127,6 +127,15 @@ export class SoilTestsController {
     return this.farmersNetwork.createSoilTest(user, body);
   }
 
+  @Patch(':id')
+  update(
+    @AuthUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: Partial<SoilTestUpsertPayload>,
+  ) {
+    return this.farmersNetwork.updateSoilTest(user, id, body);
+  }
+
   @Patch(':id/submit')
   submit(
     @AuthUser() user: AuthenticatedUser,

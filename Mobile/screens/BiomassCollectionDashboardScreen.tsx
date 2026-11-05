@@ -12,21 +12,25 @@ import {
 import {
   describeFarmPhotoDistance,
   formatApplicationAcres,
+  formatBiomassAcres,
   nearestBoundaryDistanceMeters,
+  parseBiomassQuantity,
   type ApplicationFarmerOption,
 } from "@krishecarbon/shared";
 import { ScreenShell } from "../components/ScreenHeader";
 import DraftEntryCard from "../components/DraftEntryCard";
 import { getStoredAuthUser } from "../services/auth";
+import { getUserProfile } from "../services/userProfile";
 import {
   biomassDraftHasContent,
   biomassDraftSubtitle,
+  biomassFarmTitle,
   biomassIsUnfinished,
   createBiomassCollectionLocal,
   deleteBiomassDraft,
-  listBiomassCollections,
-  loadBiomassCollectionOptions,
-  toBiomassCollectionView,
+  getOpenBiomassCollectionId,
+  listBiomassCollectionViews,
+  loadFarmersForCollection,
   type BiomassCollectionView,
 } from "../services/biomassCollectionService";
 import {
@@ -36,6 +40,8 @@ import {
   subscribeSyncEvents,
 } from "../services/syncService";
 import { colors, fonts, spacing, radius, typeScale } from "../constants/theme";
+import ClusterRecordList from "../components/ClusterRecordList";
+import { listClusterBiomassCards, type ClusterRecordCard } from "../services/clusterRecords";
 
 function stageLabel(item: BiomassCollectionView) {
   if (item.status === "draft") return "Loading at farm";
@@ -52,12 +58,18 @@ function syncLabel(item: BiomassCollectionView, syncing: boolean) {
 }
 
 function ringsFor(item: BiomassCollectionView, farmers: ApplicationFarmerOption[]) {
+  const rings = item.sources
+    .map((source) => {
+      const farmer = farmers.find((entry) => entry.id === source.farmId);
+      return farmer?.fields.find((field) => field.id === source.farmFieldId)?.boundary;
+    })
+    .filter((ring): ring is NonNullable<typeof ring> => Boolean(ring && ring.length >= 3));
+  if (rings.length > 0) return rings;
   const farmer = farmers.find((entry) => entry.id === item.farmId);
   if (!farmer) return [];
   const plot = farmer.fields.find((field) => field.id === item.farmFieldId);
   if (plot) return [plot.boundary];
-  if (item.farmFieldId) return [];
-  return farmer.fields.map((field) => field.boundary);
+  return [];
 }
 
 function distanceLabel(item: BiomassCollectionView, farmers: ApplicationFarmerOption[]) {
@@ -99,7 +111,7 @@ function CollectionCard({
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
       <View style={styles.cardTop}>
-        <Text style={styles.cardTitle}>{item.farmName || "Farm not set"}</Text>
+        <Text style={styles.cardTitle}>{biomassFarmTitle(item)}</Text>
         <Text style={styles.cardStage}>{stageLabel(item)}</Text>
       </View>
       <Text style={styles.cardMeta}>
@@ -158,16 +170,22 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [clusterRows, setClusterRows] = useState<ClusterRecordCard[]>([]);
 
   const loadData = useCallback(async () => {
     try {
       const user = await getStoredAuthUser();
       if (!user) return;
-      const rows = await listBiomassCollections(user.id);
-      const views = rows.map(toBiomassCollectionView);
+      const profile = await getUserProfile().catch(() => null);
+      const role = profile?.role ?? "";
+      if (role === "supervisor" || role === "climapreneur") {
+        void listClusterBiomassCards(user.id).then(setClusterRows).catch(() => undefined);
+      }
+      const views = await listBiomassCollectionViews(user.id);
       const kept: BiomassCollectionView[] = [];
       for (const item of views) {
         if (
+          item.id !== getOpenBiomassCollectionId() &&
           biomassIsUnfinished(item) &&
           !biomassDraftHasContent(item) &&
           !item.serverId &&
@@ -179,12 +197,15 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
         kept.push(item);
       }
       setItems(kept);
-      try {
-        const options = await loadBiomassCollectionOptions();
-        setFarmers(options.farmers);
-      } catch {
-        setFarmers([]);
-      }
+      void loadFarmersForCollection({
+        sources: kept.flatMap((item) => item.sources),
+        farmId: null,
+        farmName: null,
+        farmFieldId: null,
+        fieldCode: null,
+      })
+        .then(setFarmers)
+        .catch(() => setFarmers([]));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -266,14 +287,17 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>No biomass trips yet</Text>
-              <Text style={styles.emptyText}>
-                Tap + when a tractor is loaded at a farm. Select the farmer and the farm plot,
-                photograph the load, then the unloading at the production site.
-              </Text>
-            </View>
+            clusterRows.length > 0 ? null : (
+              <View style={styles.empty}>
+                <Text style={styles.emptyTitle}>No biomass trips yet</Text>
+                <Text style={styles.emptyText}>
+                  Tap + when a tractor is loaded. Add each farm, the acres collected, and the
+                  biomass, then photograph the load and the unloading at the production site.
+                </Text>
+              </View>
+            )
           }
+          ListFooterComponent={<ClusterRecordList title="In this cluster" rows={clusterRows} />}
           renderItem={({ item }) =>
             biomassIsUnfinished(item) ? (
               <DraftEntryCard
@@ -298,6 +322,22 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
               syncing={syncingIds.has(item.id) || isBiomassCollectionSyncing(item.id)}
               distance={distanceLabel(item, farmers)}
               plotLabel={(() => {
+                const lines = item.sources
+                  .map((source) => {
+                    const farmer = farmers.find((entry) => entry.id === source.farmId);
+                    const plot = farmer?.fields.find((field) => field.id === source.farmFieldId);
+                    const acres = parseBiomassQuantity(source.acresText);
+                    if (!source.farmName && !source.fieldCode) return null;
+                    return [
+                      source.farmName,
+                      source.fieldCode ?? plot?.field_code,
+                      acres != null ? formatBiomassAcres(acres) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                  })
+                  .filter((line): line is string => Boolean(line));
+                if (lines.length > 0) return lines.join("\n");
                 const farmer = farmers.find((entry) => entry.id === item.farmId);
                 const plot = farmer?.fields.find((field) => field.id === item.farmFieldId) ?? null;
                 if (!plot && !item.fieldCode) return null;

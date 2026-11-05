@@ -33,6 +33,7 @@ import {
   farmVisibilityFilter,
   seesEveryFarm,
 } from '../farms/farm-visibility';
+import { historyForPatch } from '../farms/edit-history';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -536,6 +537,19 @@ export class FarmersNetworkService {
       if (payload[key] !== undefined) patch[key] = payload[key];
     }
 
+    const { data: current, error: readError } = await this.supabase
+      .from('farm_fields')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (readError) throw new BadRequestException(readError.message);
+    const history = historyForPatch(
+      (current as Record<string, unknown> | null) ?? null,
+      patch,
+      user.id,
+    );
+    if (history) patch.edit_history = history;
+
     const { data, error } = await this.supabase
       .from('farm_fields')
       .update(patch)
@@ -1038,6 +1052,77 @@ export class FarmersNetworkService {
     return this.getSoilTest(user, data.id);
   }
 
+  async updateSoilTest(
+    user: AuthenticatedUser,
+    id: string,
+    payload: Partial<SoilTestUpsertPayload>,
+  ): Promise<SoilTestRecord> {
+    this.assertMobile(user);
+    const existing = await this.getSoilTest(user, id);
+    if (payload.farm_id && payload.farm_id !== existing.farm_id) {
+      await this.getFarm(user, payload.farm_id);
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (payload.sample_date !== undefined) patch.sample_date = payload.sample_date;
+    if (payload.sample_lat !== undefined) patch.sample_lat = payload.sample_lat;
+    if (payload.sample_lng !== undefined) patch.sample_lng = payload.sample_lng;
+    if (payload.sample_photo_url !== undefined) {
+      patch.sample_photo_url = payload.sample_photo_url || null;
+    }
+    if (payload.sample_sites !== undefined) {
+      patch.sample_sites = parseSoilSampleSites(payload.sample_sites);
+    }
+    if (payload.info_sheet_photo_url !== undefined) {
+      patch.info_sheet_photo_url = payload.info_sheet_photo_url || null;
+    }
+    if (payload.info_sheet_lat !== undefined) patch.info_sheet_lat = payload.info_sheet_lat;
+    if (payload.info_sheet_lng !== undefined) patch.info_sheet_lng = payload.info_sheet_lng;
+    if (payload.last_crop !== undefined) patch.last_crop = payload.last_crop?.trim() || null;
+    if (payload.next_crop !== undefined) patch.next_crop = payload.next_crop?.trim() || null;
+    if (payload.farm_id !== undefined) patch.farm_id = payload.farm_id;
+
+    let extraPrevious: Record<string, unknown> | undefined;
+    if (payload.field_ids) {
+      const { data: links, error: linkReadError } = await this.supabase
+        .from('soil_test_fields')
+        .select('farm_field_id')
+        .eq('soil_test_id', id);
+      if (linkReadError) throw new BadRequestException(linkReadError.message);
+      const before = (links ?? [])
+        .map((row) => String(row.farm_field_id))
+        .sort();
+      const after = [...payload.field_ids].sort();
+      if (JSON.stringify(before) !== JSON.stringify(after)) {
+        extraPrevious = { field_ids: before };
+      }
+    }
+
+    if (Object.keys(patch).length > 0 || extraPrevious) {
+      patch.updated_at = new Date().toISOString();
+      await this.applySoilPatch(id, patch, user.id, extraPrevious);
+    }
+
+    if (extraPrevious && payload.field_ids) {
+      const { error: deleteError } = await this.supabase
+        .from('soil_test_fields')
+        .delete()
+        .eq('soil_test_id', id);
+      if (deleteError) throw new BadRequestException(deleteError.message);
+      if (payload.field_ids.length > 0) {
+        const { error: insertError } = await this.supabase.from('soil_test_fields').insert(
+          payload.field_ids.map((fieldId) => ({
+            soil_test_id: id,
+            farm_field_id: fieldId,
+          })),
+        );
+        if (insertError) throw new BadRequestException(insertError.message);
+      }
+    }
+
+    return this.getSoilTest(user, id);
+  }
+
   async submitSoilTest(
     user: AuthenticatedUser,
     id: string,
@@ -1053,15 +1138,14 @@ export class FarmersNetworkService {
       throw new ForbiddenException('Only the collector can submit this sample.');
     }
 
-    const { error } = await this.supabase
-      .from('soil_tests')
-      .update({
+    await this.applySoilPatch(
+      id,
+      {
         submitted_to_supervisor_id: supervisorId,
         status: 'submitted',
-      })
-      .eq('id', id);
-
-    if (error) throw new BadRequestException(error.message);
+      },
+      user.id,
+    );
     return this.getSoilTest(user, id);
   }
 
@@ -1088,18 +1172,17 @@ export class FarmersNetworkService {
     const status =
       decision === 'accept' ? 'accepted' : decision === 'reject' ? 'rejected' : 'stored';
 
-    const { error } = await this.supabase
-      .from('soil_tests')
-      .update({
+    await this.applySoilPatch(
+      id,
+      {
         status: existing.status === 'reported' ? existing.status : status,
         submitted_to_supervisor_id: existing.submitted_to_supervisor_id || user.id,
         received_at: new Date().toISOString(),
         received_by: user.id,
         receive_photo_url: receivePhotoUrl || existing.receive_photo_url || null,
-      })
-      .eq('id', id);
-
-    if (error) throw new BadRequestException(error.message);
+      },
+      user.id,
+    );
     return this.getSoilTest(user, id);
   }
 
@@ -1121,16 +1204,15 @@ export class FarmersNetworkService {
       throw new ForbiddenException('This sample was submitted to another supervisor.');
     }
 
-    const { error } = await this.supabase
-      .from('soil_tests')
-      .update({
+    await this.applySoilPatch(
+      id,
+      {
         status: existing.status === 'reported' ? existing.status : 'accepted',
         received_at: new Date().toISOString(),
         received_by: user.id,
-      })
-      .eq('id', id);
-
-    if (error) throw new BadRequestException(error.message);
+      },
+      user.id,
+    );
     return this.getSoilTest(user, id);
   }
 
@@ -1160,16 +1242,40 @@ export class FarmersNetworkService {
     });
     if (reportError) throw new BadRequestException(reportError.message);
 
-    const { error } = await this.supabase
-      .from('soil_tests')
-      .update({
+    await this.applySoilPatch(
+      id,
+      {
         status: 'reported',
         received_at: test.received_at || new Date().toISOString(),
         received_by: test.received_by || user.id,
-      })
-      .eq('id', id);
-    if (error) throw new BadRequestException(error.message);
+      },
+      user.id,
+    );
 
     return this.getSoilTest(user, id);
+  }
+
+  private async applySoilPatch(
+    id: string,
+    patch: Record<string, unknown>,
+    userId: string,
+    extraPrevious?: Record<string, unknown>,
+  ) {
+    const { data: current, error: readError } = await this.supabase
+      .from('soil_tests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (readError) throw new BadRequestException(readError.message);
+    const next = { ...patch };
+    const history = historyForPatch(
+      (current as Record<string, unknown> | null) ?? null,
+      next,
+      userId,
+      extraPrevious,
+    );
+    if (history) next.edit_history = history;
+    const { error } = await this.supabase.from('soil_tests').update(next).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
   }
 }
