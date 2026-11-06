@@ -1,13 +1,10 @@
 import { createAwsDataClient } from "@/lib/awsDataClient";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { getPortalAccessToken } from "@/lib/portalToken";
 
 export async function serverData() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  const token = await getPortalAccessToken();
+  if (!token) {
     throw new Error("You must be signed in.");
   }
-  return createAwsDataClient(session.access_token);
+  return createAwsDataClient(token);
 }

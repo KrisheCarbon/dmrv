@@ -7,7 +7,6 @@ import FileDrop from "@/components/FileDrop";
 import LocationPicker from "@/components/maps/Locationpicker";
 import MultiSelectDropdown from "@/components/MultiSelectDropdown";
 import { fetchOwnProfile } from "@/lib/awsDataBrowser";
-import { supabase } from "@/lib/supabase";
 import { canAccessNetwork, type UserRole } from "@/lib/roles";
 import type { LocationValue } from "@/types";
 import {
@@ -86,13 +85,8 @@ export default function OperationsTrainingsPage() {
 
   useEffect(() => {
     async function init() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const profile = await fetchOwnProfile<{ role?: UserRole }>();
-        if (profile?.role) setRole(profile.role);
-      }
+      const profile = await fetchOwnProfile<{ role?: UserRole }>();
+      if (profile?.role) setRole(profile.role);
       await load();
     }
     void init();

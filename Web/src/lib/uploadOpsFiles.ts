@@ -1,5 +1,5 @@
+import { fetchOwnProfile } from "@/lib/awsDataBrowser";
 import { uploadStorageObject } from "@/lib/privateStorage";
-import { supabase } from "@/lib/supabase";
 
 export const TRAINING_SESSION_BUCKET = "training-sessions";
 export const INSPECTION_BUCKET = "inspections";
@@ -28,10 +28,8 @@ export async function uploadOpsFiles(
   allowed: readonly string[],
 ): Promise<UploadedOpsFile[]> {
   if (files.length === 0) return [];
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("You must be signed in.");
+  const profile = await fetchOwnProfile<{ id?: string }>();
+  if (!profile?.id) throw new Error("You must be signed in.");
 
   const uploaded: UploadedOpsFile[] = [];
   for (const file of files) {
@@ -46,7 +44,7 @@ export async function uploadOpsFiles(
       );
     }
     const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "file";
-    const path = `${user.id}/${crypto.randomUUID()}/${kind}/${clean}`;
+    const path = `${profile.id}/${crypto.randomUUID()}/${kind}/${clean}`;
     await uploadStorageObject(bucket, path, file, contentType);
     uploaded.push({
       kind,

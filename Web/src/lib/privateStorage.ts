@@ -1,4 +1,5 @@
 import { storageRefFromValue, storedObjectUrl } from "@krishecarbon/shared";
+import { readCognitoIdToken } from "@/lib/cognitoSession";
 import { getBackendUrl } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
 
@@ -26,15 +27,17 @@ export function storagePathFromValue(
 }
 
 async function storageApi<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  const cognito = readCognitoIdToken();
+  const supabaseToken = cognito
+    ? null
+    : (await supabase.auth.getSession()).data.session?.access_token;
+  const token = cognito ?? supabaseToken;
+  if (!token) {
     throw new Error("You must be signed in.");
   }
 
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${session.access_token}`);
+  headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }

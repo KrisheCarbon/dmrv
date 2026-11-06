@@ -1,15 +1,12 @@
 import { canViewVerificationReports } from "@krishecarbon/shared";
 import { getBackendUrl } from "@/lib/env";
 import { fetchPortalProfile } from "@/lib/portalRole";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { getPortalAccessToken } from "@/lib/portalToken";
 
 export async function GET() {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const token = await getPortalAccessToken();
 
-  if (!user) {
+  if (!token) {
     return new Response("You must be signed in.", { status: 401 });
   }
 
@@ -21,18 +18,10 @@ export async function GET() {
     });
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
-    return new Response("You must be signed in.", { status: 401 });
-  }
-
   let response: Response;
   try {
     response = await fetch(`${getBackendUrl()}/verification-reports/csi`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     });
   } catch {

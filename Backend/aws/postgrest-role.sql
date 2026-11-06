@@ -22,3 +22,19 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO web_anon;
 
 GRANT web_anon TO krishecarbon;
+
+-- Migration 065 creates auth.uid() when this database is not Supabase.
+-- Apply that migration first when the function is not here yet.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'auth'
+      AND p.proname = 'uid'
+  ) THEN
+    GRANT USAGE ON SCHEMA auth TO web_anon;
+    GRANT EXECUTE ON FUNCTION auth.uid() TO web_anon;
+  END IF;
+END $$;

@@ -15,7 +15,7 @@ import { getSignupRedirect, getSiteUrl } from "@/lib/siteUrl";
 import { getServiceRoleKey, supabaseUrl } from "@/lib/env";
 import { sendPasswordResetEmail } from "@/lib/passwordReset";
 import { serverData } from "@/lib/awsData";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { fetchPortalProfile } from "@/lib/portalRole";
 import type { CreateUserResult, UserFormData } from "@/types";
 import { contactEmail, isPhoneLoginEmail, phoneLoginEmail } from "./contact";
 
@@ -39,21 +39,7 @@ async function rows() {
 }
 
 async function getActorRole(): Promise<UserRole> {
-  const supabase = await createServerSupabaseClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    throw new Error("You must be signed in.");
-  }
-
-  const { data: profile } = await (await rows())
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const profile = await fetchPortalProfile();
 
   if (!profile?.role || !canManageUsers(profile.role) || !isUserRole(profile.role)) {
     throw new Error("You do not have permission to manage users.");

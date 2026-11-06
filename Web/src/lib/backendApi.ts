@@ -1,5 +1,5 @@
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
 import { getBackendUrl } from "@/lib/env";
+import { getPortalAccessToken } from "@/lib/portalToken";
 import type { QueryResult } from "@/lib/queryResult";
 
 export type { QueryResult };
@@ -16,26 +16,11 @@ function parseApiError(body: unknown, status: number, path: string): string {
 }
 
 async function getAccessToken(): Promise<string> {
-  const supabase = await createServerSupabaseClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
+  const token = await getPortalAccessToken();
+  if (!token) {
     throw new Error("You must be signed in.");
   }
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
-  }
-
-  return session.access_token;
+  return token;
 }
 
 export async function backendFetch<T>(

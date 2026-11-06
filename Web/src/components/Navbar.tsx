@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { clearCognitoIdToken } from "@/lib/cognitoSession";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import NotificationMenu from "@/components/NotificationMenu";
@@ -16,6 +17,7 @@ export default function Navbar({ initials, displayName }: NavbarProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   async function handleLogout() {
+    clearCognitoIdToken();
     await supabase.auth.signOut();
     router.push("/auth");
   }

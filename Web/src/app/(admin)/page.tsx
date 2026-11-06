@@ -6,7 +6,7 @@ import DashboardSensorData from "@/components/sensor/DashboardSensorData";
 import { getDashboardSectionsForRole } from "@/lib/nav-helpers";
 import { canAccessNetwork, formatRoleLabel, isDmrvViewer } from "@/lib/roles";
 import { fetchPortalProfile } from "@/lib/portalRole";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { getPortalAccessToken } from "@/lib/portalToken";
 
 /** Sample placeholders until live MRV / payout data is wired up. */
 const DASHBOARD_PLACEHOLDER_METRICS = {
@@ -19,13 +19,9 @@ const DASHBOARD_PLACEHOLDER_METRICS = {
 } as const;
 
 export default async function Home() {
-  const supabase = await createServerSupabaseClient();
+  const token = await getPortalAccessToken();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (!token) {
     redirect("/auth");
   }
 

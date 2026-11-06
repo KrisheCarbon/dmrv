@@ -112,18 +112,19 @@ function AuthForm() {
 
     try {
       const loginEmail = await resolvePasswordLoginEmail(supabase, email);
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password,
+      const response = await fetch("/api/auth/cognito", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password }),
       });
+      const body = (await response.json().catch(() => null)) as { message?: string } | null;
 
-      if (signInError) {
-        setError(signInError.message);
+      if (!response.ok) {
+        setError(body?.message || "Unable to sign in");
         setLoading(false);
         return;
       }
 
-      await supabase.auth.getSession();
       router.replace("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign in");

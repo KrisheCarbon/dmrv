@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { canAccessWebPortal } from "@krishecarbon/shared";
 import { fetchPortalProfile } from "@/lib/portalRole";
-import { createServerSupabaseClient } from "@/lib/supabaseServer";
+import { getPortalAccessToken } from "@/lib/portalToken";
 
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
@@ -13,17 +13,12 @@ export default async function AdminLayout({
 }: {
   children: ReactNode;
 }) {
-  const supabase = await createServerSupabaseClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/auth");
+  const token = await getPortalAccessToken();
+  if (!token) redirect("/auth");
 
   const profile = await fetchPortalProfile();
 
-  if (!profile || profile.id !== user.id || !canAccessWebPortal(profile.role)) {
+  if (!profile || !canAccessWebPortal(profile.role)) {
     redirect("/auth");
   }
 
@@ -33,7 +28,7 @@ export default async function AdminLayout({
 
   const initials =
     (profile.first_name?.[0] ?? "") + (profile.last_name?.[0] ?? "") ||
-    user.email?.[0]?.toUpperCase() ||
+    profile.email?.[0]?.toUpperCase() ||
     "U";
 
   return (

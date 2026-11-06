@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
 import FileDrop from "@/components/FileDrop";
 import { fetchOwnProfile } from "@/lib/awsDataBrowser";
-import { supabase } from "@/lib/supabase";
 import { canAccessNetwork, type UserRole } from "@/lib/roles";
 import {
   DOC_TYPES,
@@ -75,13 +74,8 @@ export default function OperationsInspectionsPage() {
 
   useEffect(() => {
     async function init() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        const profile = await fetchOwnProfile<{ role?: UserRole }>();
-        if (profile?.role) setRole(profile.role);
-      }
+      const profile = await fetchOwnProfile<{ role?: UserRole }>();
+      if (profile?.role) setRole(profile.role);
       await load();
     }
     void init();
