@@ -270,7 +270,7 @@ export default function FarmerDetailPage() {
   const loadSoil = useCallback(async () => {
     if (!id) return;
     const result = await listSoilTests(id);
-    setSoilTests(result.data ?? []);
+    setSoilTests((result.data ?? []).filter((test) => test.farm_id === id));
     setSoilLoaded(true);
     if (result.error) setError(result.error);
   }, [id]);

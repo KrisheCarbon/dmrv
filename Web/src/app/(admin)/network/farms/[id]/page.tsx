@@ -48,7 +48,7 @@ export default function FarmDetailPage() {
         listSoilTests(id),
       ]);
       setFields(fieldResult.data ?? []);
-      setSoilTests(soilResult.data ?? []);
+      setSoilTests((soilResult.data ?? []).filter((test) => test.farm_id === id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load farm");
       setData(null);

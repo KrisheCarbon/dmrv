@@ -747,13 +747,26 @@ export class FarmersNetworkService {
     // Soil samples carry dig-site GPS inside the farm; dMRV viewers do not see them.
     if (isDmrvViewer(user.role)) return [];
     if (options?.farmId) await this.getFarm(user, options.farmId);
-    const farmIds = options?.farmId
-      ? [options.farmId]
-      : await this.visibleFarmIds(user);
+
+    // A farmer or farm page asks for one farmer. Return only that farmer's
+    // samples. Samples the viewer collected or received for other farmers
+    // stay on the network list, not on every farmer page.
+    if (options?.farmId) {
+      const farmId = options.farmId;
+      const rows = await fetchAllPages<Record<string, unknown>>((from, to) =>
+        this.supabase
+          .from('soil_tests')
+          .select(SOIL_TEST_SELECT)
+          .eq('farm_id', farmId)
+          .order('sample_date', { ascending: false })
+          .range(from, to),
+      );
+      return rows.map((row) => this.mapSoilTest(row));
+    }
+
+    const farmIds = await this.visibleFarmIds(user);
     const collectorIds =
-      !options?.farmId && user.role === 'supervisor'
-        ? await this.supervisedCollectorIds(user.id)
-        : [];
+      user.role === 'supervisor' ? await this.supervisedCollectorIds(user.id) : [];
 
     const load = (chunk: string[] | null) =>
       fetchAllPages<Record<string, unknown>>((from, to) => {
