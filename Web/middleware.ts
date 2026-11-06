@@ -22,6 +22,11 @@ function isPublicRoute(pathname: string): boolean {
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
   const pathname = req.nextUrl.pathname;
+
+  // Password sign-in has no session yet. The route checks the password itself.
+  if (pathname === "/api/auth/cognito") {
+    return res;
+  }
   const cognitoToken = req.cookies.get(COGNITO_ID_COOKIE)?.value;
   if (isCognitoTokenCurrent(cognitoToken)) {
     return cognitoGate(req, res, pathname, cognitoToken as string);
