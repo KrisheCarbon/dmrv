@@ -47,9 +47,12 @@ export interface BiomassCollectionRecord {
   farm_area_acres?: number | null;
   sources?: BiomassCollectionSource[];
   producer_id?: string | null;
+  /** Biochar producer this load was unloaded under. */
   producer_name?: string | null;
   /** Dropping site on the producer where the load was unloaded. */
   producer_site_id?: string | null;
+  /** Name of that production site. The producer name is not a site. */
+  site_name?: string | null;
   tractor_number?: string | null;
   loaded_at: string;
   loaded_photo_url: string;

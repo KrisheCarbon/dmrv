@@ -192,7 +192,7 @@ export default function BiomassCollectionPanel({
                   ? data.sources[0].farm_name
                   : `${data.sources[0].farm_name ?? "Farm"} + ${data.sources.length - 1} more`
                 : data.farm_name) ?? "Farm not set"}{" "}
-              → {data.producer_name ?? "Site not set"}
+              → {data.site_name ?? "Site not set"}
             </h2>
             <p className="mt-0.5 text-xs text-neutral-500">
               {formatDateTime(data.loaded_at)} · {data.operator_name ?? "Unknown"}
@@ -280,7 +280,12 @@ export default function BiomassCollectionPanel({
             <DetailRow label="Farm area">{formatApplicationAcres(data.farm_area_acres)}</DetailRow>
               </>
             )}
-            <DetailRow label="Production site">{data.producer_name ?? "—"}</DetailRow>
+            <DetailRow label="Production site">
+              {data.producer_name ? (
+                <div className="text-xs text-neutral-500">{data.producer_name}</div>
+              ) : null}
+              <div>{data.site_name ?? "—"}</div>
+            </DetailRow>
             <DetailRow label="Tractor number">{data.tractor_number?.trim() || "—"}</DetailRow>
             <DetailRow label="From farm">
               {distance.distanceM == null ? (

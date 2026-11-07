@@ -2,11 +2,18 @@
 
 import type { KeyboardEvent } from "react";
 
+export interface ListFilterOption {
+  value: string;
+  label: string;
+  /** Groups this option under a heading, such as a producer name. */
+  group?: string;
+}
+
 export interface ListFilterSelect {
   id: string;
   label: string;
   value: string;
-  options: { value: string; label: string }[];
+  options: ListFilterOption[];
   onChange: (value: string) => void;
 }
 
@@ -25,6 +32,36 @@ interface ListToolbarProps {
 
 const selectClassName =
   "rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-brand-dark focus:outline-none focus:ring-1 focus:ring-brand-dark";
+
+function FilterOptions({ options }: { options: ListFilterOption[] }) {
+  const ungrouped = options.filter((option) => !option.group);
+  const groups: { label: string; options: ListFilterOption[] }[] = [];
+  for (const option of options) {
+    if (!option.group) continue;
+    const existing = groups.find((group) => group.label === option.group);
+    if (existing) existing.options.push(option);
+    else groups.push({ label: option.group, options: [option] });
+  }
+
+  return (
+    <>
+      {ungrouped.map((option) => (
+        <option key={option.value || "all"} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+      {groups.map((group) => (
+        <optgroup key={group.label} label={group.label}>
+          {group.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
+  );
+}
 
 export default function ListToolbar({
   searchDraft,
@@ -115,11 +152,7 @@ export default function ListToolbar({
               value={filter.value}
               onChange={(event) => filter.onChange(event.target.value)}
             >
-              {filter.options.map((option) => (
-                <option key={option.value || "all"} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              <FilterOptions options={filter.options} />
             </select>
           </label>
         ))}

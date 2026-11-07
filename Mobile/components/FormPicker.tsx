@@ -22,6 +22,8 @@ export type FormPickerOption = {
   label: string;
   /** Small helper text shown next to the option, e.g. a biomass rate hint. */
   hint?: string;
+  /** Section heading. Options that share a group are listed under it. */
+  group?: string;
 };
 
 type FormPickerProps = {
@@ -66,7 +68,7 @@ export default function FormPicker({
     const needle = query.trim().toLowerCase();
     if (!needle) return options;
     return options.filter((option) =>
-      `${option.label} ${option.hint ?? ""}`.toLowerCase().includes(needle),
+      `${option.group ?? ""} ${option.label} ${option.hint ?? ""}`.toLowerCase().includes(needle),
     );
   }, [options, query]);
 
@@ -176,9 +178,14 @@ export default function FormPicker({
                   </Text>
                 )
               }
-              renderItem={({ item }) => {
+              renderItem={({ item, index }) => {
                 const selected = item.value === value;
+                const showGroup =
+                  Boolean(item.group) &&
+                  (index === 0 || filteredOptions[index - 1]?.group !== item.group);
                 return (
+                  <View>
+                    {showGroup ? <Text style={styles.groupLabel}>{item.group}</Text> : null}
                   <Pressable
                     style={({ pressed }) => [
                       styles.option,
@@ -202,6 +209,7 @@ export default function FormPicker({
                     </View>
                     {selected ? <Text style={styles.check}>✓</Text> : null}
                   </Pressable>
+                  </View>
                 );
               }}
             />
@@ -316,6 +324,14 @@ const styles = StyleSheet.create({
   listFill: {
     flex: 1,
     minHeight: 0,
+  },
+  groupLabel: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: 2,
+    fontFamily: fonts.medium,
+    fontSize: typeScale.label,
+    color: colors.textSecondary,
   },
   option: {
     minHeight: 48,

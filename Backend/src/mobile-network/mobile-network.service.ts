@@ -652,8 +652,8 @@ export class MobileNetworkService {
     return rows.flatMap((row) => {
       const id = row.id as string | null;
       const producerId = row.biochar_producer_id as string | null;
-      const siteName = (row.site_name as string | null)?.trim();
-      if (!id || !producerId || !siteName) return [];
+      const siteName = (row.site_name as string | null)?.trim() || "Unnamed site";
+      if (!id || !producerId) return [];
       const producerRaw = row.biochar_producer as
         | { name?: string | null }
         | Array<{ name?: string | null }>

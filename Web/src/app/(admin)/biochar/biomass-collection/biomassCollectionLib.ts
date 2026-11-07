@@ -18,6 +18,8 @@ export interface BiomassCollectionTableRow extends DbRow {
   field_code: string;
   farm_acres: string;
   producer_name: string;
+  producer_site_id: string;
+  site_name: string;
   tractor_number: string;
   operator_name: string;
   distance_label: string;
@@ -93,6 +95,7 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
     ]),
     formatApplicationAcres(record.farm_area_acres),
     record.producer_name,
+    record.site_name,
     record.tractor_number,
     record.operator_name,
     record.loaded_at,

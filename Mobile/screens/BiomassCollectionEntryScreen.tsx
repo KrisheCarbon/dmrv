@@ -89,11 +89,17 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
 
   const siteOptions = useMemo(
     () =>
-      sites.map((site) => ({
-        value: site.id,
-        label: site.siteName,
-        hint: site.producerName ?? undefined,
-      })),
+      [...sites]
+        .sort((a, b) => {
+          const byProducer = (a.producerName ?? "").localeCompare(b.producerName ?? "");
+          if (byProducer !== 0) return byProducer;
+          return a.siteName.localeCompare(b.siteName);
+        })
+        .map((site) => ({
+          value: site.id,
+          label: site.siteName,
+          group: site.producerName ?? "Producer",
+        })),
     [sites],
   );
 
@@ -685,11 +691,11 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
           ) : (
             <>
               <FormPicker
-                label="Dropping site *"
+                label="Production site *"
                 value={collection.producerSiteId ?? ""}
                 options={siteOptions}
                 searchable
-                searchPlaceholder="Search dropping site"
+                searchPlaceholder="Search production site"
                 loading={sitesLoading}
                 enabled={unloadingEditable}
                 onValueChange={(siteId) => {
@@ -703,8 +709,8 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
               />
               <Text style={styles.metaLine}>
                 {siteOptions.length === 0
-                  ? "No dropping sites are linked to your cluster. The producer linked to that cluster needs its sites added first."
-                  : "These are the dropping sites on the producer linked to your cluster."}
+                  ? "No production sites are linked to your cluster. Add the sites on that producer first."
+                  : "These are the production sites under the producer linked to your cluster."}
               </Text>
 
               <TractorNotice />

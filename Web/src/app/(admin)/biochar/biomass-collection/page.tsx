@@ -60,6 +60,8 @@ export default function BiomassCollectionPage() {
             field_code: record.field_code ?? "—",
             farm_acres: formatApplicationAcres(record.farm_area_acres),
             producer_name: record.producer_name ?? "—",
+            producer_site_id: record.producer_site_id ?? "",
+            site_name: record.site_name ?? "—",
             tractor_number: record.tractor_number?.trim() || "—",
             operator_name: record.operator_name ?? "Unknown",
             distance_label: distance.short,
@@ -86,19 +88,29 @@ export default function BiomassCollectionPage() {
     load();
   }, [load]);
 
-  const siteOptions = useMemo(
-    () =>
-      Array.from(new Set(rows.map((row) => row.producer_name).filter((name) => name !== "—")))
-        .sort()
-        .map((name) => ({ value: name, label: name })),
-    [rows],
-  );
+  const siteOptions = useMemo(() => {
+    const byProducer = new Map<string, Map<string, string>>();
+    for (const row of rows) {
+      if (!row.producer_site_id || row.site_name === "—") continue;
+      const producer = row.producer_name !== "—" ? row.producer_name : "Producer";
+      const sites = byProducer.get(producer) ?? new Map<string, string>();
+      sites.set(row.producer_site_id, row.site_name);
+      byProducer.set(producer, sites);
+    }
+    return [...byProducer.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .flatMap(([producer, sites]) =>
+        [...sites.entries()]
+          .sort((a, b) => a[1].localeCompare(b[1]))
+          .map(([value, label]) => ({ value, label, group: producer })),
+      );
+  }, [rows]);
 
   const filteredRows = useMemo(
     () =>
       rows.filter(
         (row) =>
-          (!siteFilter || row.producer_name === siteFilter) &&
+          (!siteFilter || row.producer_site_id === siteFilter) &&
           matchesAllSearchTerms(searchFilters, row.search_index),
       ),
     [rows, searchFilters, siteFilter],
@@ -177,7 +189,18 @@ export default function BiomassCollectionPage() {
           },
           { key: "field_code", label: "Plot" },
           { key: "farm_acres", label: "Farm acres" },
-          { key: "producer_name", label: "Production site" },
+          {
+            key: "site_name",
+            label: "Production site",
+            render: (_value, row) => (
+              <div className="min-w-0">
+                {row.producer_name !== "—" ? (
+                  <div className="text-xs text-neutral-500">{row.producer_name}</div>
+                ) : null}
+                <div>{row.site_name}</div>
+              </div>
+            ),
+          },
           { key: "tractor_number", label: "Tractor" },
           {
             key: "distance_label",

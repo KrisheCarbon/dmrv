@@ -122,6 +122,7 @@ export class BiomassCollectionsService {
     if (error) throw new BadRequestException(error.message);
     const records = (data ?? []).map((row) => this.mapRow(row));
     await this.attachSources(records);
+    await this.attachSiteNames(records);
     return this.withFarmDistances(records);
   }
 
@@ -139,6 +140,7 @@ export class BiomassCollectionsService {
     if (!data) throw new NotFoundException('Biomass collection not found.');
     const mapped = this.mapRow(data);
     await this.attachSources([mapped]);
+    await this.attachSiteNames([mapped]);
     const [record] = await this.withFarmDistances([mapped]);
     if (!record) throw new NotFoundException('Biomass collection not found.');
     return record;
@@ -502,6 +504,7 @@ export class BiomassCollectionsService {
       producer_id: (row.producer_id as string) ?? null,
       producer_site_id: (row.producer_site_id as string) ?? null,
       producer_name: (row.producer_name as string) ?? null,
+      site_name: null,
       tractor_number: (row.tractor_number as string) ?? null,
       loaded_at: String(row.loaded_at),
       loaded_photo_url: String(row.loaded_photo_url),
@@ -516,6 +519,65 @@ export class BiomassCollectionsService {
       created_at: row.created_at as string | undefined,
       updated_at: row.updated_at as string | undefined,
     };
+  }
+
+  /**
+   * A trip is unloaded at one production site. Older rows stored the producer
+   * name in producer_name, and later rows stored the site name there. Replace
+   * both with the producer and the site that actually belong together.
+   */
+  private async attachSiteNames(records: BiomassCollectionRecord[]) {
+    const siteIds = [
+      ...new Set(records.map((record) => record.producer_site_id).filter((id): id is string => Boolean(id))),
+    ];
+    const producerIds = [
+      ...new Set(records.map((record) => record.producer_id).filter((id): id is string => Boolean(id))),
+    ];
+
+    const sites = new Map<string, { name: string | null; producerId: string | null }>();
+    for (let offset = 0; offset < siteIds.length; offset += 80) {
+      const chunk = siteIds.slice(offset, offset + 80);
+      const { data, error } = await this.supabase
+        .from('producer_sites')
+        .select('id, site_name, biochar_producer_id')
+        .in('id', chunk);
+      if (error) throw new BadRequestException(error.message);
+      for (const row of data ?? []) {
+        sites.set(String(row.id), {
+          name: (row.site_name as string | null)?.trim() || null,
+          producerId: (row.biochar_producer_id as string | null) ?? null,
+        });
+        if (row.biochar_producer_id) producerIds.push(String(row.biochar_producer_id));
+      }
+    }
+
+    const producers = new Map<string, string>();
+    const uniqueProducerIds = [...new Set(producerIds)];
+    for (let offset = 0; offset < uniqueProducerIds.length; offset += 80) {
+      const chunk = uniqueProducerIds.slice(offset, offset + 80);
+      const { data, error } = await this.supabase
+        .from('biochar_producers')
+        .select('id, name')
+        .in('id', chunk);
+      if (error) throw new BadRequestException(error.message);
+      for (const row of data ?? []) {
+        const name = (row.name as string | null)?.trim();
+        if (name) producers.set(String(row.id), name);
+      }
+    }
+
+    for (const record of records) {
+      const site = record.producer_site_id ? sites.get(record.producer_site_id) : undefined;
+      const producerId = site?.producerId ?? record.producer_id;
+      const producerName = producerId ? producers.get(producerId) ?? null : null;
+      if (site) {
+        record.site_name = site.name || record.producer_name;
+        record.producer_name = producerName;
+      } else if (producerName) {
+        record.producer_name = producerName;
+        record.site_name = null;
+      }
+    }
   }
 
   private seesEveryCollection(user: AuthenticatedUser) {
