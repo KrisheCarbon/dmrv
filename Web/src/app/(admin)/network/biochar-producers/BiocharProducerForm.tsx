@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import LocationPicker from "@/components/maps/Locationpicker";
+import SiteBoundaryMap from "@/components/maps/SiteBoundaryMap";
 import SignedStorageLink from "@/components/SignedStorageLink";
 import { BIOCHAR_PRODUCER_DOCS_BUCKET, ORGANIZATION_DOCUMENT_ACCEPT } from "@/lib/privateStorage";
 import { browserData } from "@/lib/awsDataBrowser";
@@ -1317,7 +1318,8 @@ function ProjectSitesSection({
     const hasEmptyDraft =
       draftSites.length === 1 &&
       !draftSites[0].site_name.trim() &&
-      !draftSites[0].site_location;
+      !draftSites[0].site_location &&
+      draftSites[0].boundaryPoints.length === 0;
     onDraftChange(
       hasEmptyDraft ? [site] : [site, ...draftSites],
     );
@@ -1345,7 +1347,7 @@ function ProjectSitesSection({
             Project sites{required ? " *" : ""}
           </h3>
           <p className="mt-1 text-sm text-slate-500">
-            Save each site locally, then submit the producer once at the bottom.
+            Draw each site as a polygon. A kiln run is accepted only inside that boundary. Save each site, then submit the producer once at the bottom.
           </p>
         </div>
         
@@ -1397,6 +1399,10 @@ function ProjectSitesSection({
                     (location
                       ? `${location.lat}, ${location.lng}`
                       : "No location")}
+                  {" · "}
+                  {site.boundaryPoints.length >= 3
+                    ? `${site.boundaryPoints.length} boundary corners`
+                    : "Boundary not drawn"}
                 </p>
               </div>
             );
@@ -1437,6 +1443,23 @@ function ProjectSitesSection({
                   updateDraft(site.clientId, { site_name: e.target.value })
                 }
               />
+              <div className="space-y-1">
+                <label className={labelClass}>Site boundary *</label>
+                <p className="text-sm text-slate-500">
+                  Tap the map to trace the site. The kiln must run inside this polygon.
+                </p>
+                <SiteBoundaryMap
+                  points={site.boundaryPoints}
+                  focus={
+                    site.site_location
+                      ? { lat: site.site_location.lat, lng: site.site_location.lng }
+                      : null
+                  }
+                  onChange={(boundaryPoints) =>
+                    updateDraft(site.clientId, { boundaryPoints })
+                  }
+                />
+              </div>
               <div className="space-y-1">
                 <label className={labelClass}>Site location *</label>
                 <LocationPicker

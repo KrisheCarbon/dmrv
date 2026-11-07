@@ -325,6 +325,7 @@ export interface ProducerSite extends DbRow {
   site_name?: string | null;
   site_model?: ProducerSiteModel;
   site_location?: LocationValue | null;
+  boundary_geojson?: string | Record<string, unknown> | null;
   partner_organization_id?: string | null;
   is_individual_contributor?: boolean;
   is_from_krishe?: boolean;
@@ -426,6 +427,7 @@ export interface ProducerSiteDraft extends AffiliationFields {
   id?: string;
   site_name: string;
   site_location: LocationValue | null;
+  boundaryPoints: { latitude: number; longitude: number }[];
   site_manager_name: string;
   site_manager_email: string;
   site_manager_mobile: string;

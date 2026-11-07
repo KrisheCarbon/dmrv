@@ -14,6 +14,7 @@ import {
 } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { normalizeSiteBoundary } from './site-boundary';
 import {
   blockedSiteRemovalMessage,
   isBiomassSiteReferenceError,
@@ -68,6 +69,7 @@ export interface ProducerSitePayload extends AffiliationPayload {
   id?: string | null;
   site_name: string;
   site_location: LocationPayload;
+  boundary_geojson?: Record<string, unknown> | string | null;
   site_manager_name: string;
   site_manager_email: string;
   site_manager_mobile: string;
@@ -114,6 +116,7 @@ const PRODUCER_SELECT = `
     site_name,
     site_model,
     site_location,
+    boundary_geojson,
     partner_organization_id,
     is_individual_contributor,
     is_from_krishe,
@@ -520,6 +523,16 @@ export class BiocharProducersService {
     return data.operation_model as ProducerSiteModel;
   }
 
+  private requireSiteBoundary(value: unknown): Record<string, unknown> {
+    const boundary = normalizeSiteBoundary(value);
+    if (!boundary) {
+      throw new BadRequestException(
+        'Draw the project site boundary. A site needs at least three corners.',
+      );
+    }
+    return boundary;
+  }
+
   private siteColumns(
     operationModel: ProducerSiteModel,
     site: ProducerSitePayload,
@@ -528,6 +541,7 @@ export class BiocharProducersService {
       site_name: site.site_name.trim(),
       site_model: operationModel,
       site_location: site.site_location,
+      boundary_geojson: this.requireSiteBoundary(site.boundary_geojson),
       site_manager_name: site.site_manager_name.trim(),
       site_manager_email: site.site_manager_email.trim(),
       site_manager_mobile: site.site_manager_mobile.trim(),

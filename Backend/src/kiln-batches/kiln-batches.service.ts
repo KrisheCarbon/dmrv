@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -10,6 +11,7 @@ import { canAccessNetwork, isDmrvViewer } from '@krishecarbon/shared';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { MobileNetworkService } from '../mobile-network/mobile-network.service';
+import { kilnRunFitsProjectSites } from '../biochar-producers/site-boundary';
 import {
   KilnBatchParseError,
   KilnBatchParserService,
@@ -79,6 +81,8 @@ export class KilnBatchesService {
         alreadySynced: true,
       };
     }
+
+    await this.assertInsideProjectSite(kontikki.biochar_producer_id, batch);
 
     const startTime = new Date(batch.start_time_utc);
     const endedAt = new Date(startTime.getTime() + batch.duration_seconds * 1000);
@@ -325,6 +329,45 @@ export class KilnBatchesService {
     }
 
     return kontikki;
+  }
+
+  /**
+   * Hub producers register fixed project sites. A kiln run for one of those
+   * producers is stored only when its GPS falls inside a drawn site polygon.
+   * A mobile-only producer has no fixed site, so that check does not apply.
+   */
+  private async assertInsideProjectSite(
+    producerId: string | null | undefined,
+    batch: RawEspBatch,
+  ) {
+    if (!producerId) return;
+
+    const { data: producer, error: producerError } = await this.supabase
+      .from('biochar_producers')
+      .select('operation_model')
+      .eq('id', producerId)
+      .maybeSingle();
+
+    if (producerError) {
+      throw new BadRequestException(producerError.message);
+    }
+
+    const model = producer?.operation_model;
+    if (model !== 'hub' && model !== 'both') return;
+
+    const { data: sites, error: sitesError } = await this.supabase
+      .from('producer_sites')
+      .select('site_name, boundary_geojson')
+      .eq('biochar_producer_id', producerId);
+
+    if (sitesError) {
+      throw new BadRequestException(sitesError.message);
+    }
+
+    const result = kilnRunFitsProjectSites(batch, sites ?? []);
+    if (!result.ok) {
+      throw new BadRequestException(result.message);
+    }
   }
 
   private moduleIdsMatch(left: string, right: string): boolean {

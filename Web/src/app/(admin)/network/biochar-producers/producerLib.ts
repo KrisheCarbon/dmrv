@@ -1,3 +1,7 @@
+import {
+  boundaryPointsToGeojson,
+  parseBoundaryGeojson,
+} from "@krishecarbon/shared";
 import type {
   AffiliationFields,
   BiocharProducerClass,
@@ -118,6 +122,7 @@ export function createEmptySiteDraft(): ProducerSiteDraft {
     clientId: crypto.randomUUID(),
     site_name: "",
     site_location: null,
+    boundaryPoints: [],
     site_manager_name: "",
     site_manager_email: "",
     site_manager_mobile: "",
@@ -131,6 +136,7 @@ export function siteToDraft(site: ProducerSite): ProducerSiteDraft {
     id: site.id,
     site_name: site.site_name ?? "",
     site_location: site.site_location ?? null,
+    boundaryPoints: parseBoundaryGeojson(site.boundary_geojson),
     site_manager_name: site.site_manager_name ?? "",
     site_manager_email: site.site_manager_email ?? "",
     site_manager_mobile: site.site_manager_mobile ?? "",
@@ -151,6 +157,7 @@ export function isLocationComplete(
 export function isSiteComplete(site: ProducerSiteDraft): boolean {
   return (
     Boolean(site.site_name.trim()) &&
+    site.boundaryPoints.length >= 3 &&
     isLocationComplete(site.site_location) &&
     Boolean(site.site_manager_name.trim()) &&
     Boolean(site.site_manager_email.trim()) &&
@@ -192,7 +199,7 @@ export function validateProducerSites(
   if (sites.length === 0) return "Add at least one project site.";
   const incomplete = sites.find((site) => !isSiteComplete(site));
   if (incomplete) {
-    return "Each project site needs a name, location, site manager details, and affiliation.";
+    return "Each project site needs a name, a drawn boundary, a location, site manager details, and affiliation.";
   }
   return null;
 }
@@ -300,6 +307,7 @@ export interface ProducerSitePayload {
   id?: string;
   site_name: string;
   site_location: LocationValue;
+  boundary_geojson: Record<string, unknown> | null;
   site_manager_name: string;
   site_manager_email: string;
   site_manager_mobile: string;
@@ -336,6 +344,9 @@ function siteDraftToPayload(site: ProducerSiteDraft): ProducerSitePayload {
     ...(site.id ? { id: site.id } : {}),
     site_name: site.site_name.trim(),
     site_location: site.site_location!,
+    boundary_geojson: JSON.parse(
+      boundaryPointsToGeojson(site.boundaryPoints) ?? "null",
+    ) as Record<string, unknown> | null,
     site_manager_name: site.site_manager_name.trim(),
     site_manager_email: site.site_manager_email.trim(),
     site_manager_mobile: site.site_manager_mobile.trim(),

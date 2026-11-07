@@ -5,6 +5,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import DataTable from "@/components/table/DataTable";
+import SiteBoundaryMap from "@/components/maps/SiteBoundaryMap";
+import { parseBoundaryGeojson } from "@krishecarbon/shared";
 import ProducerDocumentsSection from "../ProducerDocumentsSection";
 import { deleteProducer, getProducer } from "../actions";
 import { unwrapQuery } from "@/lib/queryResult";
@@ -345,6 +347,18 @@ export default function BiocharProducerViewPage() {
                         (location
                           ? `${location.lat}, ${location.lng}`
                           : "—")}
+                    </DetailRow>
+                    <DetailRow label="Site boundary">
+                      {parseBoundaryGeojson(site.boundary_geojson).length >= 3 ? (
+                        <div className="mt-2 max-w-xl">
+                          <SiteBoundaryMap
+                            readOnly
+                            points={parseBoundaryGeojson(site.boundary_geojson)}
+                          />
+                        </div>
+                      ) : (
+                        "Not drawn yet. Edit this producer and trace the site before the next kiln run."
+                      )}
                     </DetailRow>
                     <DetailRow label="Site manager">
                       {site.site_manager_name ?? "—"}
