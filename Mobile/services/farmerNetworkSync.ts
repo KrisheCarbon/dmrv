@@ -7,6 +7,7 @@ import type {
 } from "@krishecarbon/shared";
 import { soilSampleSitesForApi } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
+import { serverUploadedAt, stampUploadedAt } from "../database/uploadStamp";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import { farmFieldToRow } from "../database/types";
 import { backendFetch } from "./backendApi";
@@ -122,6 +123,7 @@ export async function syncFarmField(localId: string, operation: string): Promise
       field.id,
     ],
   );
+  await stampUploadedAt(db, "farm_fields", field.id, serverUploadedAt(remote));
 }
 
 export async function syncFarmerConsent(localId: string): Promise<void> {
@@ -176,6 +178,7 @@ export async function syncFarmerConsent(localId: string): Promise<void> {
      WHERE id = ?`,
     [remote.id, JSON.stringify(uploaded), "synced", Date.now(), row.id],
   );
+  await stampUploadedAt(db, "farmer_consents", row.id, serverUploadedAt(remote));
 }
 
 export async function syncSoilTest(localId: string, operation: string): Promise<void> {
@@ -287,6 +290,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
         test.id,
       ],
     );
+    await stampUploadedAt(db, "soil_tests", test.id, serverUploadedAt(remote));
     return;
   }
 
@@ -355,6 +359,7 @@ export async function syncSoilTest(localId: string, operation: string): Promise<
      WHERE id = ?`,
     [samplePhotoUrl, receivePhotoUrl, "synced", Date.now(), test.id],
   );
+  await stampUploadedAt(db, "soil_tests", test.id, null);
 }
 
 function boundaryText(value: FarmFieldRecord["boundary_geojson"]): string | null {

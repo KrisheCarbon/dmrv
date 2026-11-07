@@ -13,6 +13,7 @@ import {
   type RainbowBiomassLoad,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
+import { stampUploadedAt } from "../database/uploadStamp";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import {
   pyrolysisBatchToRow,
@@ -932,6 +933,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     const apiRecord = batchToApiRecord(localBatch, payload);
     apiRecord.id = serverBatchId;
     apiRecord.submission_status = "submitted";
+    let serverUploadedAtValue: string | null = null;
 
     try {
         const uploadedSession = await backendFetch<PyrolysisSessionRecord>(
@@ -952,6 +954,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
           },
         );
         const uploadedBatch = uploadedSession.batches.find((row) => row.id === serverBatchId);
+        serverUploadedAtValue = uploadedBatch?.uploaded_at ?? null;
         if (uploadedBatch?.generated_batch_code) {
           await db.runAsync(
             "UPDATE pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
@@ -964,6 +967,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
           `/pyrolysis-sessions/${serverId}`,
         );
         const locked = current.batches.find((row) => row.id === serverBatchId);
+        serverUploadedAtValue = locked?.uploaded_at ?? serverUploadedAtValue;
         if (locked?.generated_batch_code) {
           await db.runAsync(
             "UPDATE pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
@@ -978,6 +982,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
       "UPDATE pyrolysis_batches SET server_id = ?, sync_status = ?, sync_error = NULL, review_status = COALESCE(review_status, ?), updated_at = ? WHERE id = ?",
       [serverBatchId, "synced", "pending", Date.now(), localBatch.id],
     );
+    await stampUploadedAt(db, "pyrolysis_batches", localBatch.id, serverUploadedAtValue);
   }
 
   const submittedRainbow = rainbowBatches.filter((batch) => batch.submissionStatus === "submitted");
@@ -1004,6 +1009,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     const refreshed = await loadRainbowDraft(localBatch.id);
     const apiRecord = toRainbowApiRecord(refreshed);
     apiRecord.submission_status = "submitted";
+    let serverUploadedAtValue: string | null = null;
 
     try {
         const uploadedSession = await backendFetch<PyrolysisSessionRecord>(
@@ -1025,6 +1031,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
         const uploadedBatch = (uploadedSession.rainbow_batches ?? []).find(
           (row) => row.id === serverBatchId,
         );
+        serverUploadedAtValue = uploadedBatch?.uploaded_at ?? null;
         if (uploadedBatch?.generated_batch_code) {
           await db.runAsync(
             "UPDATE rainbow_pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
@@ -1037,6 +1044,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
           `/pyrolysis-sessions/${serverId}`,
         );
         const locked = (current.rainbow_batches ?? []).find((row) => row.id === serverBatchId);
+        serverUploadedAtValue = locked?.uploaded_at ?? serverUploadedAtValue;
         if (locked?.generated_batch_code) {
           await db.runAsync(
             "UPDATE rainbow_pyrolysis_batches SET generated_batch_code = ? WHERE id = ?",
@@ -1049,6 +1057,7 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
       "UPDATE rainbow_pyrolysis_batches SET server_id = ?, sync_status = ?, sync_error = NULL, review_status = COALESCE(review_status, ?), updated_at = ? WHERE id = ?",
       [serverBatchId, "synced", "pending", Date.now(), localBatch.id],
     );
+    await stampUploadedAt(db, "rainbow_pyrolysis_batches", localBatch.id, serverUploadedAtValue);
   }
 
   const hasRemainingDrafts =
@@ -1070,4 +1079,5 @@ export async function syncPyrolysisBatch(session: PyrolysisSession) {
     "UPDATE pyrolysis_sessions SET server_id = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
     [serverId, "synced", Date.now(), session.id],
   );
+  await stampUploadedAt(db, "pyrolysis_sessions", session.id, serverSession.uploaded_at ?? null);
 }

@@ -1,4 +1,5 @@
 import { getDb } from '../../database/db';
+import { stampUploadedAt } from '../../database/uploadStamp';
 import { rowToEncryptedBatch, type EncryptedBatch } from '../../database/types';
 import { parseKilnBatchBytes } from '../../utils/kilnBatch';
 import { backendFetch } from '../backendApi';
@@ -122,6 +123,7 @@ export async function syncEncryptedKilnBatches(): Promise<{
       }
     } else {
       await db.runAsync("UPDATE encrypted_batches SET is_synced = 1 WHERE id = ?", [record.id]);
+      await stampUploadedAt(db, "encrypted_batches", record.id, null);
       pushed += 1;
     }
   }
@@ -156,4 +158,5 @@ export async function syncSingleEncryptedBatch(batch: EncryptedBatch) {
 
   const db = await getDb();
   await db.runAsync("UPDATE encrypted_batches SET is_synced = 1 WHERE id = ?", [batch.id]);
+  await stampUploadedAt(db, "encrypted_batches", batch.id, null);
 }

@@ -6,7 +6,7 @@ import {
   getLocationForPhotoCapture,
   startLocationCache,
 } from "./locationCache";
-import { getCurrentIST } from "./trustedtime";
+import { clockSnapshot, getCurrentIST } from "./trustedtime";
 import { savePhotoToGallery } from "./permissions";
 import {
   assertRealLocationFix,
@@ -203,15 +203,19 @@ export async function captureFieldPhotoFromCamera(options?: {
   }
 
   const capturedAt = currentTimestamp();
+  const clock = clockSnapshot();
 
   const metadata: FieldPhotoMetadata = {
     captured_at: capturedAt,
     latitude: location.lat,
     longitude: location.lng,
     address: location.address ?? null,
-    device_time_iso: new Date().toISOString(),
+    device_time_iso: clock.device_time_iso,
     exif: asset.exif ? toPostgresJson(asset.exif as Record<string, unknown>) : null,
     accuracy_m: precise?.accuracy ?? null,
+    time_source: clock.time_source,
+    clock_skew_detected: clock.clock_skew_detected,
+    device_clock_offset_ms: clock.device_clock_offset_ms,
   };
 
   return { uri: asset.uri, metadata };
@@ -247,14 +251,18 @@ export async function captureApplicationVideo(options?: {
     throw new LocationUnavailableError();
   }
   const capturedAt = currentTimestamp();
+  const clock = clockSnapshot();
 
   const metadata: FieldPhotoMetadata = {
     captured_at: capturedAt,
     latitude: location?.lat ?? 0,
     longitude: location?.lng ?? 0,
     address: location?.address ?? null,
-    device_time_iso: new Date().toISOString(),
+    device_time_iso: clock.device_time_iso,
     exif: null,
+    time_source: clock.time_source,
+    clock_skew_detected: clock.clock_skew_detected,
+    device_clock_offset_ms: clock.device_clock_offset_ms,
   };
 
   const persistedUri = await persistApplicationVideo(asset.uri);

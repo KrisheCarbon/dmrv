@@ -10,6 +10,7 @@ import {
 } from "@krishecarbon/shared";
 import { getStoredAuthUser } from "./auth";
 import { getDb } from "../database/db";
+import { serverUploadedAt, stampUploadedAt } from "../database/uploadStamp";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import {
   rowToBiomassCollection,
@@ -917,4 +918,5 @@ export async function syncBiomassCollection(row: BiomassCollection) {
      WHERE id = ?`,
     [created.id, "synced", "synced", Date.now(), row.id],
   );
+  await stampUploadedAt(db, "biomass_collections", row.id, serverUploadedAt(created));
 }

@@ -8,10 +8,12 @@ import type {
 } from "@krishecarbon/shared";
 import { canAccessWebPortal } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
+import { serverUploadedAt, stampUploadedAt } from "../database/uploadStamp";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import { farmerToRow, rowToFarmer, syncQueueItemToRow, type Farmer } from "../database/types";
 import { getFarmerByIdLocal, CLUSTER_FARMER_WHERE } from "./farmerService";
 import { backendFetch, clearBackendUrlCache } from "./backendApi";
+import { syncTrustedClock } from "./clockSync";
 import { getPyrolysisSession, syncPyrolysisBatch } from "./pyrolysisService";
 import { getMixingEntry, syncMixingEntry } from "./mixingService";
 import { getApplicationEntry, syncApplicationEntry } from "./applicationService";
@@ -309,6 +311,7 @@ async function runSyncQueue() {
     }
 
     const userId = session.user.id;
+    await syncTrustedClock();
     let result = { synced: 0, failed: 0 };
 
     const db = await getDb();
@@ -850,6 +853,7 @@ async function syncCreateFarmer(
     "UPDATE farmers SET server_id = ?, sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
     [data.id, "synced", Date.now(), farmer.id],
   );
+  await stampUploadedAt(db, "farmers", farmer.id, serverUploadedAt(data));
 
   onProgress?.(100);
 }
@@ -869,7 +873,7 @@ async function syncUpdateFarmer(
   const farmerPhotoUrl = await resolveFarmerPhotoUrl(farmer);
   const payload = farmerToApiPayload({ ...farmer, farmerPhotoUrl });
 
-  await backendFetch<FarmerRow>(`/farms/${farmer.serverId}`, {
+  const updated = await backendFetch<FarmerRow>(`/farms/${farmer.serverId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -881,6 +885,7 @@ async function syncUpdateFarmer(
     "UPDATE farmers SET sync_status = ?, sync_error = NULL, updated_at = ? WHERE id = ?",
     ["synced", Date.now(), farmer.id],
   );
+  await stampUploadedAt(db, "farmers", farmer.id, serverUploadedAt(updated));
 
   onProgress?.(100);
 }

@@ -195,6 +195,8 @@ export interface RainbowPyrolysisBatchRecord {
   submission_status?: "draft" | "submitted";
   review_status?: string | null;
   reviewer_notes?: string | null;
+  /** Server time when this kiln run was first submitted. */
+  uploaded_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }

@@ -9,6 +9,7 @@ import { colors } from "./constants/theme";
 import { supabase } from "./services/supabase";
 import { assertActiveAccount } from "./services/auth";
 import { getDb } from "./database/db";
+import { syncTrustedClock } from "./services/clockSync";
 import { initISTClock } from "./services/trustedtime";
 import { startSyncListener,
   stopSyncListener,
@@ -212,6 +213,7 @@ export default function App() {
 
       if (nextSession) {
         initISTClock();
+        void syncTrustedClock();
         void startLocationCache();
         startSyncListener();
         processSyncQueue();
@@ -234,6 +236,7 @@ export default function App() {
 
       if (newSession) {
         initISTClock();
+        void syncTrustedClock();
         void startLocationCache();
         startSyncListener();
         processSyncQueue();

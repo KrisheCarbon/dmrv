@@ -1,7 +1,6 @@
-import * as SQLite from "expo-sqlite";
+import type * as SQLite from "expo-sqlite";
+import { openAppDatabase } from "./encryption";
 import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema";
-
-const DB_NAME = "dmrv.db";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -139,7 +138,7 @@ function serializeDbMethods(db: SQLite.SQLiteDatabase): SQLite.SQLiteDatabase {
 }
 
 async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
-  const db = await SQLite.openDatabaseAsync(DB_NAME);
+  const db = await openAppDatabase();
   // Set the wait before any other statement. Migration runs before the
   // queue above exists, so a lock here used to fail the open forever.
   await withLockRetry(() => db.execAsync("PRAGMA busy_timeout = 10000;"));
@@ -275,6 +274,23 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_photo_metadata_json", "TEXT");
   await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_not_used", "INTEGER NOT NULL DEFAULT 0");
   await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_collected_at", "TEXT");
+
+  for (const table of [
+    "farmers",
+    "farm_fields",
+    "farmer_consents",
+    "soil_tests",
+    "soil_reports",
+    "biomass_collections",
+    "mixing_entries",
+    "application_entries",
+    "pyrolysis_sessions",
+    "pyrolysis_batches",
+    "rainbow_pyrolysis_batches",
+    "encrypted_batches",
+  ]) {
+    await addColumnIfMissing(db, table, "uploaded_at", "TEXT");
+  }
 
   return serializeDbMethods(db);
 }

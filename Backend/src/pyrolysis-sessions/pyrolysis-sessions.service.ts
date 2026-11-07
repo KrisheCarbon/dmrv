@@ -282,6 +282,7 @@ export class PyrolysisSessionsService {
       current_step: data.current_step as PyrolysisSessionRecord['current_step'],
       batches,
       rainbow_batches: rainbowBatches,
+      uploaded_at: (data.uploaded_at as string | null) ?? null,
       created_at: data.created_at as string | undefined,
       updated_at: data.updated_at as string | undefined,
     };
@@ -533,6 +534,7 @@ export class PyrolysisSessionsService {
       moisture_saved_at: (row.moisture_saved_at as string) ?? null,
       pyrolysis_saved_at: (row.pyrolysis_saved_at as string) ?? null,
       yield_saved_at: (row.yield_saved_at as string) ?? null,
+      uploaded_at: (row.uploaded_at as string | null) ?? null,
       created_at: row.created_at as string | undefined,
       updated_at: row.updated_at as string | undefined,
     };
@@ -588,11 +590,20 @@ export class PyrolysisSessionsService {
 
   private async readSessionRow(sessionId: string) {
     for (const table of this.sessionTables) {
-      const { data, error } = await this.supabase
+      const columns =
+        'id, operator_id, status, current_step, created_at, updated_at, uploaded_at';
+      let { data, error } = await this.supabase
         .from(table)
-        .select('id, operator_id, status, current_step, created_at, updated_at')
+        .select(columns)
         .eq('id', sessionId)
         .maybeSingle();
+      if (error && /uploaded_at/i.test(error.message)) {
+        ({ data, error } = await this.supabase
+          .from(table)
+          .select('id, operator_id, status, current_step, created_at, updated_at')
+          .eq('id', sessionId)
+          .maybeSingle());
+      }
       if (error) throw new BadRequestException(error.message);
       if (data) return data;
     }
@@ -913,6 +924,7 @@ export class PyrolysisSessionsService {
         submission_status: ((row.submission_status as string) ?? 'draft') as
           | 'draft'
           | 'submitted',
+        uploaded_at: (row.uploaded_at as string | null) ?? null,
         created_at: row.created_at as string | undefined,
         updated_at: row.updated_at as string | undefined,
       };
@@ -1071,7 +1083,6 @@ export class PyrolysisSessionsService {
       batchId,
       payload.submission_status === 'submitted',
     );
-
     if (payload.moisture) {
       for (let index = 0; index < payload.moisture.length; index += 1) {
         const reading = payload.moisture[index];

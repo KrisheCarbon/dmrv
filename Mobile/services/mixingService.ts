@@ -8,6 +8,7 @@ import {
 } from "@krishecarbon/shared";
 import type { CreateMixingEntryPayload } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
+import { serverUploadedAt, stampUploadedAt } from "../database/uploadStamp";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import {
   mixingEntryToRow,
@@ -567,4 +568,5 @@ export async function syncMixingEntry(entry: MixingEntry) {
       entry.id,
     ],
   );
+  await stampUploadedAt(db, "mixing_entries", entry.id, serverUploadedAt(created));
 }

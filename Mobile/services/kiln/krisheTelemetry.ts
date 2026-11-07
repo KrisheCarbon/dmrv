@@ -5,6 +5,7 @@ import { base64ToBytes } from "../../utils/kilnBase64";
 import { getKilnSensorSettings } from "./kilnSensorSettings";
 import { queueKilnBatch } from "./batchService";
 import { syncEncryptedKilnBatches } from "./kilnSyncService";
+import { observeGnssTime } from "../clockSync";
 import { processSyncQueue } from "../syncService";
 
 export interface KrisheSample {
@@ -89,7 +90,7 @@ export function parseKrisheTelemetry(jsonText: string): KrisheSample | null {
 
   const batchId = typeof json.batch_id === "string" ? json.batch_id.trim() : "";
 
-  return {
+  const sample: KrisheSample = {
     receivedAt: Date.now(),
     state: typeof json.state === "string" && json.state.trim() ? json.state.trim() : "IDLE",
     top: numberField("top"),
@@ -114,6 +115,8 @@ export function parseKrisheTelemetry(jsonText: string): KrisheSample | null {
     firmware: "",
     wifiActive: false,
   };
+  observeGnssTime(sample.utcEpoch);
+  return sample;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -148,7 +151,7 @@ export function wifiStatusToSample(body: unknown): KrisheSample | null {
   const batchRaw = kiln.batch_id;
   const batchId = typeof batchRaw === "string" ? batchRaw : "";
 
-  return {
+  const sample: KrisheSample = {
     receivedAt: Date.now(),
     state: typeof kiln.state === "string" && kiln.state.trim() ? kiln.state.trim() : "IDLE",
     top: num(temperature, "top_c"),
@@ -173,6 +176,8 @@ export function wifiStatusToSample(body: unknown): KrisheSample | null {
     firmware: typeof device?.firmware === "string" ? device.firmware : "",
     wifiActive: flagOf(system, "wifi"),
   };
+  observeGnssTime(sample.utcEpoch);
+  return sample;
 }
 
 function chartPoint(sample: KrisheSample): LiveChartPoint {

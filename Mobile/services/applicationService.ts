@@ -9,6 +9,7 @@ import {
   type GeoPoint,
 } from "@krishecarbon/shared";
 import { getDb } from "../database/db";
+import { serverUploadedAt, stampUploadedAt } from "../database/uploadStamp";
 import { buildInsert, buildUpdate, generateId } from "../database/sqlHelpers";
 import {
   applicationEntryToRow,
@@ -554,4 +555,5 @@ export async function syncApplicationEntry(entry: ApplicationEntry) {
       entry.id,
     ],
   );
+  await stampUploadedAt(db, "application_entries", entry.id, serverUploadedAt(created));
 }

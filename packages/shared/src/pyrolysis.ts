@@ -51,6 +51,22 @@ export interface FieldPhotoMetadata {
   exif?: Record<string, unknown> | null;
   /** GPS accuracy radius in metres, when a fresh fix was taken. */
   accuracy_m?: number | null;
+  /**
+   * Lowercase SHA-256 of the file after GPS and time were written into it.
+   * The hash is of the stored bytes, so it is kept here and not inside the file.
+   */
+  sha256?: string | null;
+  /**
+   * 64-bit difference hash of the camera photo, taken before the watermark.
+   * Sixteen lowercase hex characters. Used to find a near-duplicate scene.
+   */
+  dhash?: string | null;
+  /** device = phone clock. server = anchored after login. gnss = kiln GPS clock. */
+  time_source?: "device" | "server" | "gnss" | null;
+  /** True when the phone clock disagreed with the server or kiln GPS by more than 3 minutes. */
+  clock_skew_detected?: boolean | null;
+  /** Phone clock minus the trusted clock, in milliseconds, at capture. */
+  device_clock_offset_ms?: number | null;
 }
 
 export interface MoistureReading {
@@ -174,6 +190,8 @@ export interface PyrolysisBatchRecord extends PyrolysisBatchFlatRow {
    * Only "submitted" kontikkis are synced/reviewed; "draft" ones remain
    * local-only and keep the kontikki reserved for this session. */
   submission_status?: PyrolysisSubmissionStatus;
+  /** Server time when this kiln run was first submitted. */
+  uploaded_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -185,6 +203,7 @@ export interface PyrolysisSessionRecord {
   current_step: PyrolysisStep;
   batches: PyrolysisBatchRecord[];
   rainbow_batches?: RainbowPyrolysisBatchRecord[];
+  uploaded_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
