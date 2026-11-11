@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/table/DataTable";
 import TemperatureTimeChart from "@/components/charts/TemperatureTimeChart";
 import { getKilnBatch, listKilnBatches } from "./actions";
+import LiveSensors from "./LiveSensors";
 import type { KilnBatchDetail, KilnBatchSummary, KilnBatchTableRow } from "@/types";
 import type { DataTableColumn } from "@/types";
 
@@ -109,8 +110,10 @@ export default function SensorDataPage() {
     <div className="space-y-8">
       <PageHeader
         title="Sensor data"
-        description="Temperature recordings synced from kiln sensors. KriSHE Carbon nodes include top, middle, and bottom zones. A recording also appears on the production batch when the kiln and the time match that run."
+        description="Live MQTT sensors, with every raw reading and a graph that updates as data arrives. Batch recordings from the kiln app are below."
       />
+
+      <LiveSensors />
 
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -6,6 +6,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isDmrvViewer } from '@krishecarbon/shared';
 
@@ -31,6 +32,7 @@ export class SupabaseAuthGuard implements CanActivate {
     @Inject(SUPABASE_AUTH_CLIENT) private readonly authClient: SupabaseClient,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     @Inject(CognitoTokenService) private readonly cognitoTokens: CognitoTokenService,
+    @Inject(ConfigService) private readonly config: ConfigService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -42,6 +44,12 @@ export class SupabaseAuthGuard implements CanActivate {
     }
 
     const token = authHeader.slice('Bearer '.length);
+    const awsProfile = await this.profileFromAws(token);
+    if (awsProfile) {
+      this.attach(request, awsProfile);
+      return true;
+    }
+
     const identity = await this.identify(token);
     const profile = await this.profileFor(identity);
 
@@ -49,6 +57,49 @@ export class SupabaseAuthGuard implements CanActivate {
       await this.linkCognitoSubject(profile, identity.subject);
     }
 
+    this.attach(request, profile);
+    return true;
+  }
+
+  /** Local API confirms the Cognito login against the AWS API, not Supabase. */
+  private async profileFromAws(token: string): Promise<UserProfile | null> {
+    const base = this.config.get<string>('AWS_PROFILE_API')?.trim();
+    if (!base) return null;
+
+    const cognito = await this.cognitoTokens.verify(token);
+    if (!cognito) {
+      throw new UnauthorizedException('Invalid or expired session');
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${base.replace(/\/$/, '')}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+    } catch {
+      throw new UnauthorizedException('User profile not found');
+    }
+
+    if (!response.ok) {
+      throw new UnauthorizedException('Invalid or expired session');
+    }
+
+    const body = (await response.json().catch(() => null)) as {
+      id?: string;
+      role?: string;
+    } | null;
+    if (!body?.id || !body?.role) {
+      throw new UnauthorizedException('User profile not found');
+    }
+
+    return { id: body.id, role: body.role, auth_subject: cognito.subject };
+  }
+
+  private attach(
+    request: { method?: string; authUser?: AuthenticatedUser },
+    profile: UserProfile,
+  ): void {
     const authUser: AuthenticatedUser = {
       id: profile.id,
       role: profile.role,
@@ -61,7 +112,6 @@ export class SupabaseAuthGuard implements CanActivate {
     }
 
     request.authUser = authUser;
-    return true;
   }
 
   private async identify(token: string): Promise<VerifiedIdentity> {

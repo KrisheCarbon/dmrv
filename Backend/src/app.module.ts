@@ -20,6 +20,7 @@ import { MixingEntriesModule } from './mixing-entries/mixing-entries.module';
 import { ApplicationEntriesModule } from './application-entries/application-entries.module';
 import { BiomassCollectionsModule } from './biomass-collections/biomass-collections.module';
 import { KilnBatchesModule } from './kiln-batches/kiln-batches.module';
+import { SensorReadingsModule } from './sensor-readings/sensor-readings.module';
 import { TrainingsModule } from './trainings/trainings.module';
 import { FarmersNetworkModule } from './farmers-network/farmers-network.module';
 import { ClustersModule } from './clusters/clusters.module';
@@ -52,6 +53,7 @@ import { DashboardController } from './dashboard/dashboard.controller';
     ApplicationEntriesModule,
     BiomassCollectionsModule,
     KilnBatchesModule,
+    SensorReadingsModule,
     TrainingsModule,
     FarmersNetworkModule,
     ClustersModule,

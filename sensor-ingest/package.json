@@ -1,0 +1,13 @@
+{
+  "name": "@krishecarbon/sensor-ingest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Landing API for partner sensor JSON. Separate from the main backend.",
+  "main": "src/handler.js",
+  "scripts": {
+    "test": "node --test src/handler.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

@@ -47,3 +47,12 @@ export function getBackendUrl(): string {
 
   return configured;
 }
+
+/** Sensor readings stay on the local API. Everything else uses the AWS API. */
+export function getSensorApiUrl(): string {
+  const configured = process.env.SENSOR_API_URL?.trim();
+  if (configured && process.env.NODE_ENV !== "production") {
+    return configured.replace(/\/$/, "");
+  }
+  return getBackendUrl();
+}

@@ -4,9 +4,9 @@ import type { QueryResult } from "@/lib/queryResult";
 
 export type { QueryResult };
 
-function parseApiError(body: unknown, status: number, path: string): string {
+function parseApiError(body: unknown, status: number, path: string, baseUrl: string): string {
   if (status === 404) {
-    return `API ${path} was not found on ${getBackendUrl()}. The running backend is missing this route.`;
+    return `API ${path} was not found on ${baseUrl}. The running backend is missing this route.`;
   }
   if (body && typeof body === "object" && "message" in body) {
     const message = (body as { message: string | string[] }).message;
@@ -26,6 +26,7 @@ async function getAccessToken(): Promise<string> {
 export async function backendFetch<T>(
   path: string,
   init: RequestInit = {},
+  baseUrl = getBackendUrl(),
 ): Promise<T> {
   const token = await getAccessToken();
   const headers = new Headers(init.headers);
@@ -39,14 +40,14 @@ export async function backendFetch<T>(
   let response: Response;
 
   try {
-    response = await fetch(`${getBackendUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...init,
       headers,
       cache: "no-store",
     });
   } catch {
     throw new Error(
-      `Cannot reach the backend at ${getBackendUrl()}. Make sure it is running (npm run dev:backend).`,
+      `Cannot reach the backend at ${baseUrl}. Make sure it is running (npm run dev:backend).`,
     );
   }
 
@@ -65,7 +66,7 @@ export async function backendFetch<T>(
   const body: unknown = JSON.parse(text);
 
   if (!response.ok) {
-    throw new Error(parseApiError(body, response.status, path));
+    throw new Error(parseApiError(body, response.status, path, baseUrl));
   }
 
   return body as T;
