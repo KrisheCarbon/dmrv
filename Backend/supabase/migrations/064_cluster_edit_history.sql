@@ -10,3 +10,5 @@ alter table farm_fields
 
 alter table soil_tests
   add column if not exists edit_history jsonb not null default '[]'::jsonb;
+
+notify pgrst, 'reload schema';

@@ -26,7 +26,7 @@ import {
   farmVisibilityFilter,
   seesEveryFarm,
 } from './farm-visibility';
-import { historyForPatch } from './edit-history';
+import { historyForPatch, writeKeepingEnteredValues } from './edit-history';
 
 const FARM_SELECT = '*, cluster:clusters(id, name)';
 
@@ -338,12 +338,9 @@ export class FarmsService {
     );
     if (history) patch.edit_history = history;
 
-    const { data, error } = await this.supabase
-      .from('farms')
-      .update(patch)
-      .eq('id', id)
-      .select(FARM_SELECT)
-      .single();
+    const { data, error } = await writeKeepingEnteredValues(patch, (body) =>
+      this.supabase.from('farms').update(body).eq('id', id).select(FARM_SELECT).single(),
+    );
 
     if (error) {
       throw new BadRequestException(error.message);

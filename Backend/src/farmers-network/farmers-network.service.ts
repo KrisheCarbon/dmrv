@@ -33,7 +33,7 @@ import {
   farmVisibilityFilter,
   seesEveryFarm,
 } from '../farms/farm-visibility';
-import { historyForPatch } from '../farms/edit-history';
+import { historyForPatch, writeKeepingEnteredValues } from '../farms/edit-history';
 import { fetchAllPages } from '../supabase/fetch-all-pages';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
@@ -550,12 +550,14 @@ export class FarmersNetworkService {
     );
     if (history) patch.edit_history = history;
 
-    const { data, error } = await this.supabase
-      .from('farm_fields')
-      .update(patch)
-      .eq('id', id)
-      .select(FIELD_SELECT)
-      .single();
+    const { data, error } = await writeKeepingEnteredValues(patch, (body) =>
+      this.supabase
+        .from('farm_fields')
+        .update(body)
+        .eq('id', id)
+        .select(FIELD_SELECT)
+        .single(),
+    );
 
     if (error) throw new BadRequestException(error.message);
     return this.mapField(data as Record<string, unknown>);
@@ -1288,7 +1290,9 @@ export class FarmersNetworkService {
       extraPrevious,
     );
     if (history) next.edit_history = history;
-    const { error } = await this.supabase.from('soil_tests').update(next).eq('id', id);
+    const { error } = await writeKeepingEnteredValues(next, (body) =>
+      this.supabase.from('soil_tests').update(body).eq('id', id),
+    );
     if (error) throw new BadRequestException(error.message);
   }
 }
