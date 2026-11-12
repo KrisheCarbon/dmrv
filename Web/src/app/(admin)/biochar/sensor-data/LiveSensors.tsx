@@ -104,7 +104,7 @@ export default function LiveSensors() {
         const data = await listLiveSensors();
         if (cancelled) return;
         setSensors(data.sensors);
-        setError(null);
+        setError(data.error);
         setSelectedId((current) => {
           if (current && data.sensors.some((sensor) => sensor.device_id === current)) return current;
           return data.sensors[0]?.device_id ?? null;
@@ -139,7 +139,7 @@ export default function LiveSensors() {
         const data = await getLiveSensorReadings(selectedId as string);
         if (cancelled) return;
         setDetail(data);
-        setError(null);
+        setError(data.error);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load readings");
@@ -219,7 +219,7 @@ export default function LiveSensors() {
             </div>
           ) : sensors.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
-              No sensor readings stored yet.
+              {error ? "Sensor readings could not be loaded." : "No sensor readings stored yet."}
             </div>
           ) : (
             sensors.map((sensor) => {

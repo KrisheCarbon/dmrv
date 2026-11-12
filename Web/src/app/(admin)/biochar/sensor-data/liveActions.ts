@@ -26,18 +26,41 @@ export interface SensorReadingDetail {
   readings: SensorReadingRow[];
 }
 
-export async function listLiveSensors() {
-  return backendFetch<{ sensors: LiveSensor[]; live_within_seconds: number }>(
-    "/sensor-readings",
-    {},
-    getSensorApiUrl(),
-  );
+export async function listLiveSensors(): Promise<
+  { sensors: LiveSensor[]; live_within_seconds: number } & { error: string | null }
+> {
+  try {
+    const data = await backendFetch<{ sensors: LiveSensor[]; live_within_seconds: number }>(
+      "/sensor-readings",
+      {},
+      getSensorApiUrl(),
+    );
+    return { ...data, error: null };
+  } catch (err) {
+    return {
+      sensors: [],
+      live_within_seconds: 30,
+      error: err instanceof Error ? err.message : "Failed to load sensors",
+    };
+  }
 }
 
-export async function getLiveSensorReadings(deviceId: string) {
-  return backendFetch<SensorReadingDetail>(
-    `/sensor-readings/${encodeURIComponent(deviceId)}`,
-    {},
-    getSensorApiUrl(),
-  );
+export async function getLiveSensorReadings(
+  deviceId: string,
+): Promise<SensorReadingDetail & { error: string | null }> {
+  try {
+    const data = await backendFetch<SensorReadingDetail>(
+      `/sensor-readings/${encodeURIComponent(deviceId)}`,
+      {},
+      getSensorApiUrl(),
+    );
+    return { ...data, error: null };
+  } catch (err) {
+    return {
+      device_id: deviceId,
+      total: 0,
+      readings: [],
+      error: err instanceof Error ? err.message : "Failed to load readings",
+    };
+  }
 }
