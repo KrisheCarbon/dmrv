@@ -110,7 +110,7 @@ export default function SensorDataPage() {
     <div className="space-y-8">
       <PageHeader
         title="Sensor data"
-        description="Live MQTT sensors, with every raw reading and a graph that updates as data arrives. Batch recordings from the kiln app are below."
+        description="Every stored reading for a sensor, filtered by date and time. Times are India Standard Time. Batch recordings from the kiln app are below."
       />
 
       <LiveSensors />

@@ -145,6 +145,8 @@ export async function getProductionHardwareReadings(
   }
 }
 
+const READINGS_PER_REQUEST = 3000;
+
 async function loadWindowReadings(
   deviceId: string,
   from: string,
@@ -163,6 +165,64 @@ async function loadWindowReadings(
   };
 }
 
+function windowChunks(from: string, to: string, readingCount?: number): Array<[string, string]> {
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return [[from, to]];
+  const parts = Math.max(1, Math.ceil((readingCount ?? READINGS_PER_REQUEST) / READINGS_PER_REQUEST));
+  if (parts === 1) return [[from, to]];
+  const step = Math.max(1, Math.ceil((end - start + 1) / parts));
+  const chunks: Array<[string, string]> = [];
+  for (let cursor = start; cursor <= end; cursor += step) {
+    const chunkEnd = Math.min(cursor + step - 1, end);
+    chunks.push([new Date(cursor).toISOString(), new Date(chunkEnd).toISOString()]);
+  }
+  return chunks;
+}
+
+async function loadRange(
+  deviceId: string,
+  from: string,
+  to: string,
+  readingCount?: number,
+): Promise<SensorReadingDetail> {
+  const chunks = windowChunks(from, to, readingCount);
+  if (chunks.length === 1) return loadWindowReadings(deviceId, chunks[0][0], chunks[0][1]);
+
+  const seen = new Set<string>();
+  const readings: SensorReadingRow[] = [];
+  let resolvedId = deviceId;
+  const pages: SensorReadingDetail[] = new Array(chunks.length);
+  let next = 0;
+
+  async function worker() {
+    while (next < chunks.length) {
+      const index = next;
+      next += 1;
+      const [chunkFrom, chunkTo] = chunks[index];
+      pages[index] = await loadWindowReadings(deviceId, chunkFrom, chunkTo);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, () => worker()));
+
+  for (const page of pages) {
+    resolvedId = page.device_id || resolvedId;
+    for (const reading of page.readings) {
+      if (seen.has(reading.id)) continue;
+      seen.add(reading.id);
+      readings.push(reading);
+    }
+  }
+
+  readings.sort((a, b) => {
+    const byTime = Date.parse(a.received_at) - Date.parse(b.received_at);
+    return byTime || a.id.localeCompare(b.id);
+  });
+
+  return { device_id: resolvedId, total: readings.length, readings };
+}
+
 async function loadDeviceReadings(deviceId: string, from: string, to: string): Promise<SensorReadingDetail> {
   const direct = await loadWindowReadings(deviceId, from, to);
   if (direct.readings.length > 0) return direct;
@@ -178,13 +238,12 @@ async function loadDeviceReadings(deviceId: string, from: string, to: string): P
 
 export async function getLiveSensorReadings(
   deviceId: string,
+  range?: { from: string; to: string; readingCount?: number },
 ): Promise<SensorReadingDetail & { error: string | null }> {
   try {
-    const data = await backendFetch<SensorReadingDetail>(
-      `/sensor-readings/${encodeURIComponent(deviceId)}`,
-      {},
-      getSensorApiUrl(),
-    );
+    const data = range?.from && range?.to
+      ? await loadRange(deviceId, range.from, range.to, range.readingCount)
+      : await loadWindowReadings(deviceId, new Date(0).toISOString(), new Date().toISOString());
     return { ...data, error: null };
   } catch (err) {
     return {

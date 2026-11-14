@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -20,20 +20,78 @@ import {
 } from "./liveActions";
 
 const POLL_MS = 5_000;
-const SERIES_COLORS = ["#0f766e", "#b45309", "#1d4ed8", "#be123c", "#6d28d9", "#0369a1"];
+const TABLE_PAGE = 100;
+const CHART_POINTS = 1500;
+const IST = "Asia/Kolkata";
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const SERIES_COLORS = [
+  "var(--series-top)",
+  "var(--series-middle)",
+  "var(--series-bottom)",
+  "var(--brand-dark)",
+  "var(--status-success)",
+];
 const AXIS = { fontSize: 12, fill: "var(--text-secondary)" };
+
+type AppliedRange = {
+  key: string;
+  from: string;
+  to: string;
+  followLive: boolean;
+  readingCount?: number;
+};
 
 function formatWhen(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  return date.toLocaleString("en-IN", { timeZone: IST });
 }
 
-function formatClock(value: string) {
+function formatClock(value: string, spanMs: number) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (spanMs > 24 * 60 * 60 * 1000) {
+    return date.toLocaleString("en-IN", {
+      timeZone: IST,
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return date.toLocaleTimeString("en-IN", {
+    timeZone: IST,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function toDatetimeLocal(iso: string) {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "";
+  const ist = new Date(ms + IST_OFFSET_MS);
+  const year = ist.getUTCFullYear();
+  const month = String(ist.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(ist.getUTCDate()).padStart(2, "0");
+  const hour = String(ist.getUTCHours()).padStart(2, "0");
+  const minute = String(ist.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+function fromDatetimeLocal(value: string, endOfMinute: boolean) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const utc = Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]),
+    Number(match[5]),
+  ) - IST_OFFSET_MS + (endOfMinute ? 59_999 : 0);
+  if (!Number.isFinite(utc)) return null;
+  return new Date(utc).toISOString();
 }
 
 function flatten(payload: Record<string, unknown> | null | undefined) {
@@ -87,14 +145,52 @@ function seriesKeys(rows: SensorReadingRow[]) {
   return preferred.length > 0 ? preferred : all;
 }
 
+function estimatedCount(sensor: LiveSensor, from: string, to: string) {
+  const storedStart = Date.parse(sensor.first_at);
+  const storedEnd = Math.max(storedStart, Date.parse(sensor.last_at));
+  const span = storedEnd - storedStart;
+  const requested = Date.parse(to) - Date.parse(from);
+  if (!Number.isFinite(span) || span < 60_000 || !Number.isFinite(requested) || requested <= 0) {
+    return sensor.reading_count;
+  }
+  return Math.max(1, Math.ceil(sensor.reading_count * Math.min(1, requested / span)));
+}
+
+function sampleReadings(rows: SensorReadingRow[], maxPoints: number) {
+  if (rows.length <= maxPoints) return rows;
+  const last = rows.length - 1;
+  const seen = new Set<number>();
+  const indexes: number[] = [];
+  for (let i = 0; i < maxPoints; i += 1) {
+    const index = Math.round((i * last) / (maxPoints - 1));
+    if (seen.has(index)) continue;
+    seen.add(index);
+    indexes.push(index);
+  }
+  return indexes.map((index) => rows[index]);
+}
+
+function csvCell(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
 export default function LiveSensors() {
   const [sensors, setSensors] = useState<LiveSensor[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SensorReadingDetail | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const [applied, setApplied] = useState<AppliedRange | null>(null);
+  const [fromInput, setFromInput] = useState("");
+  const [toInput, setToInput] = useState("");
   const [showGraph, setShowGraph] = useState(true);
+  const [page, setPage] = useState(0);
   const [loadingList, setLoadingList] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const sensorsRef = useRef(sensors);
+  const latestRef = useRef<string | null>(null);
+  sensorsRef.current = sensors;
 
   useEffect(() => {
     let cancelled = false;
@@ -104,7 +200,7 @@ export default function LiveSensors() {
         const data = await listLiveSensors();
         if (cancelled) return;
         setSensors(data.sensors);
-        setError(data.error);
+        if (data.error) setError(data.error);
         setSelectedId((current) => {
           if (current && data.sensors.some((sensor) => sensor.device_id === current)) return current;
           return data.sensors[0]?.device_id ?? null;
@@ -127,37 +223,96 @@ export default function LiveSensors() {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) {
+    const sensor = sensorsRef.current.find((item) => item.device_id === selectedId);
+    if (!selectedId || !sensor?.first_at) return;
+    const to = new Date().toISOString();
+    setFromInput(toDatetimeLocal(sensor.first_at));
+    setToInput(toDatetimeLocal(to));
+    setPage(0);
+    setDetail(null);
+    setLoadedKey(null);
+    latestRef.current = null;
+    setApplied({
+      key: `${selectedId}|all|${sensor.first_at}`,
+      from: sensor.first_at,
+      to,
+      followLive: true,
+      readingCount: estimatedCount(sensor, sensor.first_at, to),
+    });
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || !applied) {
       setDetail(null);
       return;
     }
+    const deviceId = selectedId;
     let cancelled = false;
-    setLoadingDetail(true);
+    let acceptAppend = false;
+    const requestKey = applied.key;
 
-    async function loadReadings() {
+    async function load(mode: "replace" | "append") {
+      if (mode === "append" && !acceptAppend) return;
+      if (mode === "replace") setLoadingDetail(true);
+      const from = mode === "append" && latestRef.current
+        ? new Date(Date.parse(latestRef.current) - 1000).toISOString()
+        : applied!.from;
+      const to = applied!.followLive ? new Date().toISOString() : applied!.to;
       try {
-        const data = await getLiveSensorReadings(selectedId as string);
+        const data = await getLiveSensorReadings(deviceId, {
+          from,
+          to,
+          readingCount: mode === "replace" ? applied!.readingCount : undefined,
+        });
         if (cancelled) return;
-        setDetail(data);
-        setError(data.error);
+        if (data.error) {
+          setError(data.error);
+          if (mode === "replace") {
+            setDetail({ device_id: deviceId, total: 0, readings: [] });
+            setLoadedKey(requestKey);
+          }
+          return;
+        }
+        setDetail((current) => {
+          const base = mode === "append" && current ? current.readings : [];
+          const seen = new Set(base.map((reading) => reading.id));
+          const readings = [...base];
+          for (const reading of data.readings) {
+            if (seen.has(reading.id)) continue;
+            seen.add(reading.id);
+            readings.push(reading);
+          }
+          readings.sort((a, b) => Date.parse(a.received_at) - Date.parse(b.received_at) || a.id.localeCompare(b.id));
+          const newest = readings[readings.length - 1]?.received_at ?? null;
+          if (newest) latestRef.current = newest;
+          return {
+            device_id: data.device_id || deviceId,
+            total: readings.length,
+            readings,
+          };
+        });
+        acceptAppend = true;
+        setLoadedKey(requestKey);
+        setError(null);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load readings");
         }
       } finally {
-        if (!cancelled) setLoadingDetail(false);
+        if (!cancelled && mode === "replace") setLoadingDetail(false);
       }
     }
 
-    void loadReadings();
-    const timer = setInterval(() => void loadReadings(), POLL_MS);
+    void load("replace");
+    const timer = applied.followLive ? setInterval(() => void load("append"), POLL_MS) : undefined;
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
-  }, [selectedId]);
+  }, [selectedId, applied]);
 
-  const readings = detail?.readings ?? [];
+  const ready = Boolean(detail && loadedKey && applied && loadedKey === applied.key);
+  const readings = ready ? detail!.readings : [];
   const columns = useMemo(() => {
     const keys = new Set<string>();
     for (const reading of readings) {
@@ -170,55 +325,205 @@ export default function LiveSensors() {
     ];
   }, [readings]);
 
+  const spanMs = applied ? Math.max(0, Date.parse(applied.to) - Date.parse(applied.from)) : 0;
+  const chartRows = useMemo(() => sampleReadings(readings, CHART_POINTS), [readings]);
   const graph = useMemo(() => {
     const keys = seriesKeys(readings);
-    const points = readings.map((reading) => {
+    const points = chartRows.map((reading) => {
       const flat = flatten(reading.payload);
       const point: Record<string, string | number | null> = {
-        label: formatClock(reading.received_at),
+        label: formatClock(reading.received_at, spanMs),
       };
       for (const key of keys) point[key] = chartNumber(flat[key] ?? "");
       return point;
     });
     return { keys, points };
-  }, [readings]);
+  }, [readings, chartRows, spanMs]);
 
+  const newestFirst = useMemo(() => [...readings].reverse(), [readings]);
+  const pageCount = Math.max(1, Math.ceil(newestFirst.length / TABLE_PAGE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = newestFirst.slice(safePage * TABLE_PAGE, (safePage + 1) * TABLE_PAGE);
   const selected = sensors.find((sensor) => sensor.device_id === selectedId) ?? null;
+
+  function applyRange(event?: FormEvent) {
+    event?.preventDefault();
+    if (!selectedId) return;
+    const from = fromDatetimeLocal(fromInput, false);
+    const to = fromDatetimeLocal(toInput, true);
+    if (!from || !to) {
+      setFormError("Choose a start and an end.");
+      return;
+    }
+    if (Date.parse(from) > Date.parse(to)) {
+      setFormError("The start must be before the end.");
+      return;
+    }
+    setFormError(null);
+    setPage(0);
+    setDetail(null);
+    setLoadedKey(null);
+    latestRef.current = null;
+    setApplied({
+      key: `${selectedId}|${from}|${to}`,
+      from,
+      to,
+      followLive: false,
+      readingCount: selected ? estimatedCount(selected, from, to) : undefined,
+    });
+  }
+
+  function showAllStored() {
+    if (!selected?.first_at || !selectedId) return;
+    const to = new Date().toISOString();
+    setFromInput(toDatetimeLocal(selected.first_at));
+    setToInput(toDatetimeLocal(to));
+    setFormError(null);
+    setPage(0);
+    setDetail(null);
+    setLoadedKey(null);
+    latestRef.current = null;
+    setApplied({
+      key: `${selectedId}|all|${selected.first_at}|${to}`,
+      from: selected.first_at,
+      to,
+      followLive: true,
+      readingCount: estimatedCount(selected, selected.first_at, to),
+    });
+  }
+
+  function applyPreset(minutes: number) {
+    if (!selectedId) return;
+    const to = new Date();
+    const from = new Date(to.getTime() - minutes * 60 * 1000);
+    setFromInput(toDatetimeLocal(from.toISOString()));
+    setToInput(toDatetimeLocal(to.toISOString()));
+    setFormError(null);
+    setPage(0);
+    setDetail(null);
+    setLoadedKey(null);
+    latestRef.current = null;
+    setApplied({
+      key: `${selectedId}|preset|${minutes}|${to.toISOString()}`,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      followLive: false,
+      readingCount: selected ? estimatedCount(selected, from.toISOString(), to.toISOString()) : undefined,
+    });
+  }
+
+  function exportCsv() {
+    if (!selected || readings.length === 0) return;
+    const header = columns.length > 0 ? columns : ["received_at"];
+    const lines = readings.map((reading) => {
+      const fields = readingFields(reading);
+      return header.map((column) => csvCell(fields[column] ?? "")).join(",");
+    });
+    const csv = [header.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${selected.device_id || "sensor"}-readings.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <section className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-sm uppercase tracking-wide text-gray-500">Live sensors</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Updates every 5 seconds. A sensor is live when a reading arrived in the last 30 seconds.
+          <h2 className="text-sm uppercase tracking-wide text-text-secondary">Live sensors</h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            Pick a sensor, then a date and time. The graph and table show every reading in that range.
+            A sensor is live when a reading arrived in the last 30 seconds.
           </p>
         </div>
         {selected ? (
           <button
             type="button"
             onClick={() => setShowGraph((current) => !current)}
-            className="rounded-lg border border-brand-dark px-3 py-1.5 text-sm text-brand-dark"
+            className="min-h-12 rounded-xl border border-brand-dark px-4 text-sm text-brand-dark"
           >
             {showGraph ? "Hide graph" : "Visualize"}
           </button>
         ) : null}
       </div>
 
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+      {error || formError ? (
+        <div className="rounded-xl border border-status-error/30 bg-status-error-bg px-4 py-3 text-sm text-status-error">
+          {formError || error}
         </div>
       ) : null}
 
+      <form
+        onSubmit={applyRange}
+        className="space-y-4 rounded-2xl border border-border bg-white p-4"
+      >
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+          <label className="flex flex-col gap-2.5">
+            <span className="text-xs font-medium text-text-secondary">From</span>
+            <input
+              type="datetime-local"
+              value={fromInput}
+              onChange={(event) => setFromInput(event.target.value)}
+              className="min-h-12 w-full rounded-xl border border-border px-3 text-base"
+            />
+          </label>
+          <label className="flex flex-col gap-2.5">
+            <span className="text-xs font-medium text-text-secondary">To</span>
+            <input
+              type="datetime-local"
+              value={toInput}
+              onChange={(event) => setToInput(event.target.value)}
+              className="min-h-12 w-full rounded-xl border border-border px-3 text-base"
+            />
+          </label>
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              type="submit"
+              className="min-h-12 rounded-xl bg-brand-dark px-4 text-sm text-white"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={showAllStored}
+              className="min-h-12 rounded-xl border border-brand-dark px-4 text-sm text-brand-dark"
+            >
+              All stored data
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2.5">
+          <button
+            type="button"
+            onClick={() => applyPreset(60)}
+            className="min-h-12 rounded-xl border border-border px-4 text-sm text-brand-dark"
+          >
+            Last hour
+          </button>
+          <button
+            type="button"
+            onClick={() => applyPreset(24 * 60)}
+            className="min-h-12 rounded-xl border border-border px-4 text-sm text-brand-dark"
+          >
+            Last 24 hours
+          </button>
+          <p className="self-center text-xs text-text-secondary">
+            Times are India Standard Time. All stored data keeps adding new readings.
+          </p>
+        </div>
+      </form>
+
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {loadingList ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500">
+            <div className="rounded-2xl border border-border bg-white p-4 text-sm text-text-secondary">
               Loading sensors…
             </div>
           ) : sensors.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
+            <div className="rounded-2xl border border-dashed border-border bg-brand-surface p-4 text-sm text-text-secondary">
               {error ? "Sensor readings could not be loaded." : "No sensor readings stored yet."}
             </div>
           ) : (
@@ -230,16 +535,17 @@ export default function LiveSensors() {
                   key={id || "unknown"}
                   type="button"
                   onClick={() => setSelectedId(id)}
-                  className={`w-full rounded-xl border px-3 py-3 text-left ${
-                    active ? "border-brand-dark bg-white" : "border-gray-200 bg-white hover:bg-gray-50"
+                  className={`min-h-12 w-full rounded-xl border px-3 py-3 text-left ${
+                    active ? "border-brand-dark bg-white" : "border-border bg-white"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-gray-900">{id || "Unknown sensor"}</span>
+                  <div className="flex items-center justify-between gap-2.5">
+                    <span className="truncate text-sm font-medium text-foreground">{id || "Unknown sensor"}</span>
                     <StatusPill live={sensor.live} />
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">{sensor.reading_count} readings</p>
-                  <p className="text-xs text-gray-500">Last {formatWhen(sensor.last_at)}</p>
+                  <p className="mt-1 text-xs text-text-secondary">{sensor.reading_count} stored readings</p>
+                  <p className="text-xs text-text-secondary">From {formatWhen(sensor.first_at)}</p>
+                  <p className="text-xs text-text-secondary">Last {formatWhen(sensor.last_at)}</p>
                 </button>
               );
             })
@@ -248,29 +554,39 @@ export default function LiveSensors() {
 
         <div className="min-w-0 space-y-4">
           {!selected ? (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">
+            <div className="rounded-2xl border border-dashed border-border bg-brand-surface p-8 text-center text-sm text-text-secondary">
               Select a sensor to see its readings.
             </div>
-          ) : loadingDetail && detail?.device_id !== selectedId ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
-              Loading readings…
+          ) : !ready ? (
+            <div className="rounded-2xl border border-border bg-white p-8 text-center text-sm text-text-secondary">
+              {loadingDetail ? "Loading readings for this time range…" : "Choose a time range and apply it."}
             </div>
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <Metric label="Sensor" value={selected.device_id || "Unknown"} />
                 <Metric label="Status" value={selected.live ? "Live" : "Offline"} />
-                <Metric label="Readings" value={String(detail?.total ?? selected.reading_count)} />
-                <Metric label="Last received" value={formatWhen(selected.last_at)} />
+                <Metric label="Readings in range" value={String(readings.length)} />
+                <Metric label="Stored in total" value={String(selected.reading_count)} />
               </div>
+              <p className="text-sm text-text-secondary">
+                {formatWhen(applied?.from)} to {formatWhen(applied?.followLive ? latestRef.current ?? applied.to : applied?.to)}
+                {applied?.followLive ? " · including new readings" : ""}
+              </p>
 
               {showGraph ? (
                 graph.keys.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">
+                  <div className="rounded-2xl border border-dashed border-border bg-brand-surface p-8 text-center text-sm text-text-secondary">
                     These readings have no numeric series to graph. The raw values are in the table.
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <div className="rounded-2xl border border-border bg-white p-4">
+                    {chartRows.length < readings.length ? (
+                      <p className="mb-2 text-xs text-text-secondary">
+                        Graph plots {chartRows.length.toLocaleString("en-IN")} evenly spaced points from{" "}
+                        {readings.length.toLocaleString("en-IN")} readings. The table lists every reading.
+                      </p>
+                    ) : null}
                     <ResponsiveContainer width="100%" height={320}>
                       <LineChart data={graph.points} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
@@ -297,9 +613,43 @@ export default function LiveSensors() {
                 )
               ) : null}
 
-              <div className="max-h-[32rem] overflow-auto rounded-xl border border-gray-200 bg-white">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <p className="text-sm text-text-secondary">
+                  {readings.length === 0
+                    ? "No readings in this range."
+                    : `Rows ${safePage * TABLE_PAGE + 1}–${Math.min((safePage + 1) * TABLE_PAGE, newestFirst.length)} of ${newestFirst.length}`}
+                </p>
+                <div className="flex flex-wrap gap-2.5">
+                  <button
+                    type="button"
+                    onClick={exportCsv}
+                    disabled={readings.length === 0}
+                    className="min-h-12 rounded-xl border border-brand-dark px-4 text-sm text-brand-dark disabled:opacity-40"
+                  >
+                    Export CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.max(0, current - 1))}
+                    disabled={safePage === 0}
+                    className="min-h-12 rounded-xl border border-border px-4 text-sm text-brand-dark disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+                    disabled={safePage >= pageCount - 1}
+                    className="min-h-12 rounded-xl border border-border px-4 text-sm text-brand-dark disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[32rem] overflow-auto rounded-2xl border border-border bg-white">
                 <table className="min-w-full text-left text-sm">
-                  <thead className="sticky top-0 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                  <thead className="sticky top-0 bg-brand-surface text-xs uppercase tracking-wide text-text-secondary">
                     <tr>
                       {columns.map((column) => (
                         <th key={column} className="whitespace-nowrap px-3 py-2 font-medium">
@@ -309,19 +659,19 @@ export default function LiveSensors() {
                     </tr>
                   </thead>
                   <tbody>
-                    {readings.length === 0 ? (
+                    {pageRows.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-gray-500" colSpan={Math.max(columns.length, 1)}>
-                          No readings for this sensor.
+                        <td className="px-3 py-6 text-text-secondary" colSpan={Math.max(columns.length, 1)}>
+                          No readings for this sensor in the selected time.
                         </td>
                       </tr>
                     ) : (
-                      [...readings].reverse().map((reading) => {
+                      pageRows.map((reading) => {
                         const fields = readingFields(reading);
                         return (
-                          <tr key={reading.id} className="border-t border-gray-100">
+                          <tr key={reading.id} className="border-t border-border">
                             {columns.map((column) => (
-                              <td key={column} className="whitespace-nowrap px-3 py-2 text-gray-800">
+                              <td key={column} className="whitespace-nowrap px-3 py-2 text-foreground">
                                 {fields[column] || "—"}
                               </td>
                             ))}
@@ -332,11 +682,6 @@ export default function LiveSensors() {
                   </tbody>
                 </table>
               </div>
-              {detail && detail.total > readings.length ? (
-                <p className="text-xs text-gray-500">
-                  Showing the latest {readings.length} of {detail.total} readings.
-                </p>
-              ) : null}
             </>
           )}
         </div>
@@ -349,10 +694,10 @@ function StatusPill({ live }: { live: boolean }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs ${
-        live ? "bg-emerald-50 text-emerald-800" : "bg-gray-100 text-gray-600"
+        live ? "bg-status-success-bg text-status-success" : "bg-brand-surface text-text-secondary"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-500" : "bg-gray-400"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-status-success" : "bg-brand-grey"}`} />
       {live ? "Live" : "Offline"}
     </span>
   );
@@ -360,9 +705,9 @@ function StatusPill({ live }: { live: boolean }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-      <p className="text-xs uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="mt-1 truncate text-sm text-gray-900">{value}</p>
+    <div className="rounded-2xl border border-border bg-white px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-text-secondary">{label}</p>
+      <p className="mt-1 truncate text-sm text-foreground">{value}</p>
     </div>
   );
 }

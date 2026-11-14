@@ -37,6 +37,7 @@
   --color-brand-surface: var(--brand-surface);
   --color-brand-green-soft: var(--brand-green-soft);
   --color-text-secondary: var(--text-secondary);
+  --color-border: var(--border);
   --color-status-success: var(--status-success);
   --color-status-success-bg: var(--status-success-bg);
   --color-status-warning: var(--status-warning);
