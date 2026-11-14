@@ -39,7 +39,7 @@ export class SensorReadingsService {
     });
   }
 
-  readings(deviceId: string, limit?: number) {
+  readings(deviceId: string, limit?: number, from?: string, to?: string) {
     return this.invoke<{
       device_id: string;
       total: number;
@@ -49,7 +49,16 @@ export class SensorReadingsService {
       action: 'readings',
       deviceId,
       limit,
+      from: this.isoTime(from),
+      to: this.isoTime(to),
     });
+  }
+
+  private isoTime(value?: string): string | undefined {
+    if (!value?.trim()) return undefined;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) return undefined;
+    return new Date(ms).toISOString();
   }
 
   private async invoke<T>(payload: Record<string, unknown>): Promise<T> {

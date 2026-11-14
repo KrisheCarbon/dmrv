@@ -178,6 +178,60 @@ test('an admin read lists each sensor and its raw readings', async () => {
   assert.equal(body.readings[0].payload.d.t2, '640.0');
 });
 
+test('an admin read can be limited to the time a kiln run was in progress', async () => {
+  const rows = [
+    {
+      id: 'before',
+      device_id: 'Krishe-kiln-01-862288084397726',
+      received_at: '2026-11-13T04:00:00.000Z',
+      payload: { d: { t2: '20' } },
+    },
+    {
+      id: 'during',
+      device_id: 'Krishe-kiln-01-862288084397726',
+      received_at: '2026-11-13T05:30:00.000Z',
+      payload: { d: { t2: '640' } },
+    },
+    {
+      id: 'after',
+      device_id: 'Krishe-kiln-01-862288084397726',
+      received_at: '2026-11-13T08:00:00.000Z',
+      payload: { d: { t2: '40' } },
+    },
+  ];
+  const db = {
+    async query(sql, params = []) {
+      const matched = rows.filter((row) => {
+        if (row.device_id !== params[0]) return false;
+        const at = Date.parse(row.received_at);
+        if (sql.includes('received_at >=')) {
+          const from = Date.parse(params[1]);
+          const to = Date.parse(params[2]);
+          return at >= from && at <= to;
+        }
+        return true;
+      });
+      if (sql.includes('count(*)')) return { rows: [{ n: matched.length }] };
+      return { rows: matched };
+    },
+  };
+  const result = await handle(
+    {
+      krishe_admin: true,
+      action: 'readings',
+      deviceId: 'Krishe-kiln-01-862288084397726',
+      from: '2026-11-13T05:00:00.000Z',
+      to: '2026-11-13T07:00:00.000Z',
+    },
+    db,
+  );
+  const body = JSON.parse(result.body);
+  assert.equal(result.statusCode, 200);
+  assert.equal(body.total, 1);
+  assert.equal(body.readings.length, 1);
+  assert.equal(body.readings[0].id, 'during');
+});
+
 test('an mqtt message is not treated as an admin read', async () => {
   const db = memoryDb();
   const result = await handle(

@@ -119,6 +119,8 @@ export interface PyrolysisBatchDetail extends PyrolysisBatchRecord {
   producer_name: string;
   protocol?: "csi" | "rainbow";
   kiln_photo_url?: string | null;
+  kiln_photo_captured_at?: string | null;
+  hardware_id?: string | null;
   sensor_logs?: PyrolysisSensorLog[];
   run_proof?: RainbowRunProof | null;
   volume_percent?: number | null;

@@ -16,11 +16,15 @@ export class SensorReadingsController {
   readings(
     @Param('deviceId') deviceId: string,
     @Query('limit') limit?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     const parsed = Number(limit);
     return this.sensorReadings.readings(
       deviceId,
       Number.isFinite(parsed) ? parsed : undefined,
+      from,
+      to,
     );
   }
 }

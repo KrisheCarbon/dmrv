@@ -212,23 +212,44 @@ async function listSensors(db) {
   });
 }
 
-async function listReadings(db, deviceId, limit) {
+function cleanTime(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
+function readingWindow(from, to) {
+  const filters = ['device_id = $1'];
+  const extra = [];
+  if (from) {
+    extra.push(from);
+    filters.push(`received_at >= $${extra.length + 1}`);
+  }
+  if (to) {
+    extra.push(to);
+    filters.push(`received_at <= $${extra.length + 1}`);
+  }
+  return { where: filters.join(' and '), extra };
+}
+
+async function listReadings(db, deviceId, limit, from, to) {
   await ready(db);
+  const window = readingWindow(from, to);
   const total = await db.query(
-    `select count(*)::int as n from sensor_payloads where device_id = $1`,
-    [deviceId],
+    `select count(*)::int as n from sensor_payloads where ${window.where}`,
+    [deviceId, ...window.extra],
   );
+  const cap = from || to ? 8000 : MAX_READING_ROWS;
+  const capped = Math.min(Math.max(limit, 1), cap);
   const readings = await db.query(
     `select id, device_id, idempotency_key, received_at, payload
-     from (
-       select id, device_id, idempotency_key, received_at, payload
-       from sensor_payloads
-       where device_id = $1
-       order by received_at desc
-       limit $2
-     ) recent
-     order by received_at asc`,
-    [deviceId, limit],
+     from sensor_payloads
+     where ${window.where}
+     order by received_at asc
+     limit $${window.extra.length + 2}`,
+    [deviceId, ...window.extra, capped],
   );
   return {
     device_id: deviceId,
@@ -246,12 +267,15 @@ async function adminHandle(event, db) {
     if (event.action === 'readings') {
       const deviceId = cleanId(event.deviceId);
       if (!deviceId) return response(400, { error: 'Sensor id is required' });
+      const from = cleanTime(event.from);
+      const to = cleanTime(event.to);
       const requested = Number(event.limit);
+      const cap = from || to ? 8000 : MAX_READING_ROWS;
       const limit = Math.min(
-        Math.max(Number.isFinite(requested) ? requested : MAX_READING_ROWS, 1),
-        MAX_READING_ROWS,
+        Math.max(Number.isFinite(requested) ? requested : cap, 1),
+        cap,
       );
-      return response(200, await listReadings(connection, deviceId, limit));
+      return response(200, await listReadings(connection, deviceId, limit, from, to));
     }
     return response(400, { error: 'Unknown action' });
   } catch (error) {
@@ -333,4 +357,5 @@ module.exports = {
   keysMatch,
   cleanId,
   deviceIdFromTopic,
+  cleanTime,
 };

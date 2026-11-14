@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import PyrolysisPhotoThumb from "./PyrolysisPhotoThumb";
 import { createSignedStorageUrl } from "@/lib/privateStorage";
 import { PYROLYSIS_PHOTOS_BUCKET, formatDateTime, type RainbowRunProof } from "./productionLib";
+import { readSensorAnalysis } from "./sensorAnalysisStore";
+import { QuenchSensorSummary } from "./SensorAnalysisView";
+import type { SensorAnalysis } from "./sensorAnalysis";
 
 function QuenchVideo({
   path,
@@ -27,7 +30,7 @@ function QuenchVideo({
   }, [path]);
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-2">
+    <div id="production-photo-quench-video" className="rounded-xl border border-neutral-200 bg-white p-2">
       <p className="text-sm font-medium text-neutral-900">Quench video</p>
       <p className="text-xs text-neutral-500">
         {duration ? `${duration} long` : "Short video"}
@@ -78,14 +81,16 @@ function ProofPhoto({
   path,
   capturedAt,
   photoLayout,
+  anchor,
 }: {
   label: string;
   path: string | null;
   capturedAt: string | null;
   photoLayout: "drawer" | "page";
+  anchor: string;
 }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-2">
+    <div id={`production-photo-${anchor}`} className="rounded-xl border border-neutral-200 bg-white p-2">
       <p className="text-sm font-medium text-neutral-900">{label}</p>
       <p className="text-xs text-neutral-500">
         {capturedAt ? formatDateTime(capturedAt) : "No timestamp on this photo."}
@@ -97,12 +102,39 @@ function ProofPhoto({
   );
 }
 
+function QuenchSensorBlock({ batchId }: { batchId: string }) {
+  const [analysis, setAnalysis] = useState<SensorAnalysis | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void readSensorAnalysis(batchId).then((saved) => {
+        if (!cancelled) setAnalysis(saved);
+      }).catch(() => undefined);
+    };
+    load();
+    const onSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ batchId?: string }>).detail;
+      if (detail?.batchId === batchId) load();
+    };
+    window.addEventListener("krishe-sensor-analysis", onSaved);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("krishe-sensor-analysis", onSaved);
+    };
+  }, [batchId]);
+
+  return <QuenchSensorSummary analysis={analysis} />;
+}
+
 export default function RainbowRunProofView({
   proof,
   photoLayout,
+  batchId,
 }: {
   proof: RainbowRunProof | null;
   photoLayout: "drawer" | "page";
+  batchId: string;
 }) {
   if (!proof) {
     return (
@@ -122,6 +154,7 @@ export default function RainbowRunProofView({
           {proof.moisture.map((reading) => (
             <ProofPhoto
               key={reading.slot}
+              anchor={`moisture-${reading.slot}`}
               label={
                 reading.reading != null
                   ? `Moisture ${reading.slot}: ${reading.reading}%`
@@ -147,6 +180,7 @@ export default function RainbowRunProofView({
             {proof.layers.map((layer) => (
               <ProofPhoto
                 key={layer.sequence}
+                anchor={`layer-${layer.sequence}`}
                 label={`Layer ${layer.sequence} in the kiln`}
                 path={layer.photo_url ?? null}
                 capturedAt={layer.captured_at ?? null}
@@ -155,6 +189,7 @@ export default function RainbowRunProofView({
             ))}
           </div>
           <ProofPhoto
+            anchor="flame-curtain"
             label="Flame curtain after the last layer"
             path={proof.flame_curtain_photo_url}
             capturedAt={proof.flame_curtain_captured_at}
@@ -170,10 +205,12 @@ export default function RainbowRunProofView({
             ? `Quench lasted ${durationLabel(proof.quench_duration_seconds)}, from the time printed on the first and last photos.`
             : "Photos from the start of quenching to the end, or one short video."}
         </p>
+        <QuenchSensorBlock batchId={batchId} />
         <div className="mt-3 grid gap-3">
           {(proof.quench_photos ?? []).map((photo) => (
             <ProofPhoto
               key={photo.slot}
+              anchor={`quench-${photo.slot}`}
               label={
                 photo.slot === 1
                   ? "Quenching start"
@@ -196,12 +233,14 @@ export default function RainbowRunProofView({
           {!proof.quench_video_url && (proof.quench_photos ?? []).length === 0 ? (
             <>
               <ProofPhoto
+                anchor="quench-start"
                 label="Quenching start"
                 path={proof.quench_start_photo_url}
                 capturedAt={proof.quench_start_captured_at}
                 photoLayout={photoLayout}
               />
               <ProofPhoto
+                anchor="quench-end"
                 label="Quenching end"
                 path={proof.quench_end_photo_url}
                 capturedAt={proof.quench_end_captured_at}

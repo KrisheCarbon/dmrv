@@ -1,6 +1,7 @@
 import { storageRefFromValue, storedObjectUrl } from "@krishecarbon/shared";
 import { readCognitoIdToken } from "@/lib/cognitoSession";
 import { getBackendUrl } from "@/lib/env";
+import { signStorageUrl } from "@/lib/signStorageUrl";
 import { supabase } from "@/lib/supabase";
 
 export const BIOCHAR_PRODUCER_DOCS_BUCKET = "biochar-producers";
@@ -84,10 +85,7 @@ export async function createSignedStorageUrl(
   if (!ref) return null;
 
   try {
-    const data = await storageApi<{ url: string | null }>(
-      `/storage/sign?bucket=${encodeURIComponent(ref.bucket)}&path=${encodeURIComponent(ref.path)}&expires=${expiresInSeconds}`,
-    );
-    return data?.url ?? null;
+    return await signStorageUrl(ref.bucket, ref.path, expiresInSeconds);
   } catch (error) {
     console.error("Failed to create signed URL:", error);
     return null;

@@ -14,6 +14,7 @@ import {
   submitPyrolysisBatchStatus,
 } from "./actions";
 import PyrolysisBatchDetailView from "./PyrolysisBatchDetailView";
+import ProductionHardwareChart from "./ProductionHardwareChart";
 import PyrolysisSensorLogs from "./PyrolysisSensorLogs";
 import ProductionReviewDecisionBar from "./ProductionReviewDecisionBar";
 import StatusBadge from "./StatusBadge";
@@ -250,6 +251,7 @@ export default function PyrolysisBatchReviewPanel({
       </div>
 
       <div className={embedded ? "min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3" : "space-y-3 px-0"}>
+        <ProductionHardwareChart batch={data} compact={embedded && !fullPage} />
         <PyrolysisSensorLogs logs={data.sensor_logs ?? []} />
         <PyrolysisBatchDetailView
           data={data}

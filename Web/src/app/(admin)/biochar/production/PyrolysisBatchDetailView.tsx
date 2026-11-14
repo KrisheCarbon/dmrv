@@ -155,7 +155,7 @@ export default function PyrolysisBatchDetailView({
             {section === "info" ? (
               <div className="mt-3">
                 {data.protocol === "rainbow" || data.kiln_photo_url ? (
-                  <div className="mb-3">
+                  <div id="production-photo-kiln" className="mb-3">
                     <p className="text-sm font-medium text-neutral-900">Kiln photo</p>
                     <p className="mt-0.5 text-xs text-neutral-500">
                       Permanent mark and the cone, taken before this run.
@@ -211,7 +211,7 @@ export default function PyrolysisBatchDetailView({
                   return (
                     <div
                       key={index}
-                      className="rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 text-xs"
+                      className="rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2 text-xs"
                     >
                       <span className="font-medium text-neutral-700">
                         Reading {index + 1}
@@ -263,14 +263,15 @@ export default function PyrolysisBatchDetailView({
                   return (
                     <div
                       key={photoKey}
-                      className="rounded-lg border border-neutral-100 bg-neutral-50 p-2"
+                      id={`production-photo-${photoKey}`}
+                      className="rounded-xl border border-neutral-100 bg-neutral-50 p-2"
                     >
                       <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <p className="truncate text-[11px] font-medium text-neutral-600">
+                        <p className="truncate text-xs font-medium text-text-secondary">
                           {label}
                         </p>
                         {canReview ? (
-                          <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-600">
+                          <label className="flex shrink-0 items-center gap-1.5 text-xs text-text-secondary">
                             <input
                               type="checkbox"
                               checked={Boolean(photoFlags?.[photoKey])}
@@ -282,7 +283,7 @@ export default function PyrolysisBatchDetailView({
                             Flag
                           </label>
                         ) : flagged ? (
-                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                          <span className="rounded-full bg-status-warning-bg px-2 py-0.5 text-xs font-medium text-status-warning">
                             Flagged
                           </span>
                         ) : null}
@@ -299,7 +300,7 @@ export default function PyrolysisBatchDetailView({
             ) : null}
           </section>
           {data.protocol === "rainbow" && section === "info" ? (
-            <RainbowRunProofView proof={data.run_proof ?? null} photoLayout={photoLayout} />
+            <RainbowRunProofView proof={data.run_proof ?? null} photoLayout={photoLayout} batchId={data.id} />
           ) : null}
           </div>
         );
