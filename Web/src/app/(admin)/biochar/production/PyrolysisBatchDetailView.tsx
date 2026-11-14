@@ -245,6 +245,61 @@ export default function PyrolysisBatchDetailView({
               </dl>
             ) : null}
 
+            {section === "sample" ? (
+              <div className="mt-3">
+                <dl>
+                  <DetailRow label="Sample ID">
+                    {data.sample_id?.trim() || workflow.sample_id?.trim() || "—"}
+                  </DetailRow>
+                  {data.protocol === "rainbow" ? (
+                    <DetailRow label="Bag code">
+                      {data.sample_bag_not_used
+                        ? "No sample bag for this run"
+                        : data.sample_bag_code?.trim() || "—"}
+                    </DetailRow>
+                  ) : null}
+                </dl>
+                <div id="production-photo-sample" className="mt-3">
+                  <p className="text-sm font-medium text-neutral-900">Sample photo</p>
+                  <p className="mt-0.5 text-xs text-neutral-500">
+                    {data.sample_photo_metadata?.captured_at
+                      ? `Taken ${formatDateTime(data.sample_photo_metadata.captured_at)}`
+                      : "Photo of the biochar sample from this run."}
+                  </p>
+                  {data.sample_photo_url ? (
+                    <div className="mt-2 max-w-sm">
+                      <PyrolysisPhotoThumb
+                        size={photoLayout}
+                        path={data.sample_photo_url}
+                        label="Sample photo"
+                      />
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-neutral-900">Not uploaded.</p>
+                  )}
+                </div>
+                {data.protocol === "rainbow" && !data.sample_bag_not_used ? (
+                  <div id="production-photo-sample-bag" className="mt-3">
+                    <p className="text-sm font-medium text-neutral-900">Bag photo</p>
+                    <p className="mt-0.5 text-xs text-neutral-500">
+                      Photograph of the original sample bag.
+                    </p>
+                    {data.sample_bag_photo_url ? (
+                      <div className="mt-2 max-w-sm">
+                        <PyrolysisPhotoThumb
+                          size={photoLayout}
+                          path={data.sample_bag_photo_url}
+                          label="Bag photo"
+                        />
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-neutral-900">Not uploaded.</p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {photoKeys.length > 0 ? (
               <div
                 className={`mt-3 grid gap-3 ${

@@ -162,6 +162,6 @@ export function photosForBatchStatusSection(
       key.startsWith("moisture_photo_"),
     ) as PyrolysisBatchStatusPhotoKey[];
   }
-  if (section === "yield") return [];
+  if (section === "yield" || section === "sample") return [];
   return [`stage_${section}` as PyrolysisBatchStatusPhotoKey];
 }
