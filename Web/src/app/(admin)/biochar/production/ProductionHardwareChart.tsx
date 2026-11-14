@@ -233,9 +233,11 @@ export default function ProductionHardwareChart({
     windowStart && windowEnd
       ? `${formatIndiaTime(photoInstantMs(windowStart.at))} – ${formatIndiaTime(photoInstantMs(windowEnd.at))}`
       : null;
+  const readingCount =
+    !loading && readings.length > 0 ? ` ${readings.length.toLocaleString()} readings.` : "";
   let note = kilnTimeKnown
-    ? `Temperature from the kiln photo until the quenching photo${windowLabel ? ` (${windowLabel})` : ""}.`
-    : `Temperature from the first timestamped photo until the quenching photo${windowLabel ? ` (${windowLabel})` : ""}.`;
+    ? `Temperature from the kiln photo until the quenching photo${windowLabel ? ` (${windowLabel})` : ""}.${readingCount}`
+    : `Temperature from the first timestamped photo until the quenching photo${windowLabel ? ` (${windowLabel})` : ""}.${readingCount}`;
   if (!hardwareReady) {
     note = "Reading the IMEI from this kontikki’s hardware id.";
   } else if (!hardwareId) {

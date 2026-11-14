@@ -364,30 +364,6 @@ export function seriesLabel(key: string): string {
   return bare.replaceAll("_", " ");
 }
 
-function downsample(points: HardwareChartPoint[], keys: string[], max: number): HardwareChartPoint[] {
-  if (points.length <= max) return points;
-  const step = Math.ceil(points.length / (max - 2));
-  const picked = new Map<number, HardwareChartPoint>();
-  points.forEach((point, index) => {
-    if (index % step === 0) picked.set(index, point);
-  });
-  const primary = keys[0];
-  let minIndex = 0;
-  let maxIndex = 0;
-  points.forEach((point, index) => {
-    const value = point[primary];
-    const minValue = points[minIndex][primary];
-    const maxValue = points[maxIndex][primary];
-    if (typeof value !== "number") return;
-    if (typeof minValue !== "number" || value < minValue) minIndex = index;
-    if (typeof maxValue !== "number" || value > maxValue) maxIndex = index;
-  });
-  picked.set(minIndex, points[minIndex]);
-  picked.set(maxIndex, points[maxIndex]);
-  picked.set(points.length - 1, points[points.length - 1]);
-  return [...picked.entries()].sort((a, b) => a[0] - b[0]).map(([, point]) => point);
-}
-
 export function hardwareChartSeries(readings: HardwareReading[]): {
   series: HardwareSeries[];
   points: HardwareChartPoint[];
@@ -430,7 +406,7 @@ export function hardwareChartSeries(readings: HardwareReading[]): {
     return hasTemperature ? [point] : [];
   });
 
-  return { series, points: downsample(points, chosen, 720) };
+  return { series, points };
 }
 
 export function photoDots(

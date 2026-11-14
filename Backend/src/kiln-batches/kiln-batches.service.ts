@@ -238,6 +238,16 @@ export class KilnBatchesService {
       throw new ForbiddenException('You do not have access to this batch.');
     }
 
+    const readings = await this.loadTemperatureReadings(batchId);
+
+    return {
+      ...this.mapBatchSummary(batch),
+      readings: readings ?? [],
+    };
+  }
+
+  private async loadTemperatureReadings(batchId: string) {
+    const pageSize = 1000;
     const zoneSelect = [
       'time_offset_seconds',
       'temperature',
@@ -261,33 +271,39 @@ export class KilnBatchesService {
       'utc_epoch',
       'uptime_s',
     ].join(', ');
-    const zoneReadings = await this.supabase
-      .from('kiln_temperature_readings')
-      .select(zoneSelect)
-      .eq('batch_id', batchId)
-      .order('time_offset_seconds', { ascending: true });
-
-    const readingsResult =
-      zoneReadings.error && /column|schema cache/i.test(zoneReadings.error.message)
-        ? await this.supabase
-            .from('kiln_temperature_readings')
-            .select('time_offset_seconds, temperature, recorded_at')
-            .eq('batch_id', batchId)
-            .order('time_offset_seconds', { ascending: true })
-        : zoneReadings;
-
-    if (readingsResult.error) {
-      throw new Error(
-        `Failed to load temperature readings: ${readingsResult.error.message}`,
-      );
+    const basicSelect = 'time_offset_seconds, temperature, recorded_at';
+    const rows: Array<Record<string, unknown>> = [];
+    let select = zoneSelect;
+    for (let from = 0; from < 500_000; from += pageSize) {
+      let result = await this.supabase
+        .from('kiln_temperature_readings')
+        .select(select)
+        .eq('batch_id', batchId)
+        .order('time_offset_seconds', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (
+        result.error &&
+        select !== basicSelect &&
+        /column|schema cache/i.test(result.error.message)
+      ) {
+        select = basicSelect;
+        result = await this.supabase
+          .from('kiln_temperature_readings')
+          .select(select)
+          .eq('batch_id', batchId)
+          .order('time_offset_seconds', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + pageSize - 1);
+      }
+      if (result.error) {
+        throw new Error(`Failed to load temperature readings: ${result.error.message}`);
+      }
+      const chunk = (result.data ?? []) as Array<Record<string, unknown>>;
+      rows.push(...chunk);
+      if (chunk.length < pageSize) break;
     }
-
-    const readings = readingsResult.data;
-
-    return {
-      ...this.mapBatchSummary(batch),
-      readings: readings ?? [],
-    };
+    return rows;
   }
 
   private mapBatchSummary(row: Record<string, unknown>) {

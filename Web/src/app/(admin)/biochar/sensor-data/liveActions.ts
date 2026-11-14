@@ -145,18 +145,34 @@ export async function getProductionHardwareReadings(
   }
 }
 
-async function loadDeviceReadings(deviceId: string, from: string, to: string): Promise<SensorReadingDetail> {
-  const windowed = new URLSearchParams({ limit: "8000", from, to });
-  const data = await backendFetch<SensorReadingDetail>(
-    `/sensor-readings/${encodeURIComponent(deviceId)}?${windowed.toString()}`,
+async function loadWindowReadings(
+  deviceId: string,
+  from: string,
+  to: string,
+): Promise<SensorReadingDetail> {
+  const params = new URLSearchParams({ from, to });
+  const page = await backendFetch<SensorReadingDetail>(
+    `/sensor-readings/${encodeURIComponent(deviceId)}?${params.toString()}`,
     {},
     getSensorApiUrl(),
   );
-  if (data.readings.length > 0) return data;
-  return backendFetch<SensorReadingDetail>(
-    `/sensor-readings/${encodeURIComponent(deviceId)}?limit=8000`,
-    {},
-    getSensorApiUrl(),
+  return {
+    device_id: page.device_id || deviceId,
+    total: Number.isFinite(page.total) ? page.total : page.readings.length,
+    readings: page.readings,
+  };
+}
+
+async function loadDeviceReadings(deviceId: string, from: string, to: string): Promise<SensorReadingDetail> {
+  const direct = await loadWindowReadings(deviceId, from, to);
+  if (direct.readings.length > 0) return direct;
+  const start = Date.parse(from);
+  const end = Date.parse(to);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return direct;
+  return loadWindowReadings(
+    deviceId,
+    new Date(start + IST_STORED_AS_UTC_MS).toISOString(),
+    new Date(end + IST_STORED_AS_UTC_MS).toISOString(),
   );
 }
 

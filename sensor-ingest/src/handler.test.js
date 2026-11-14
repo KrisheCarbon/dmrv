@@ -232,6 +232,49 @@ test('an admin read can be limited to the time a kiln run was in progress', asyn
   assert.equal(body.readings[0].id, 'during');
 });
 
+test('a kiln window returns every reading in the batch', async () => {
+  const rows = Array.from({ length: 5 }, (_, index) => ({
+    id: `row-${index}`,
+    device_id: 'sensor-1',
+    received_at: new Date(Date.UTC(2026, 10, 13, 5, index)).toISOString(),
+    payload: { d: { t2: String(index) } },
+  }));
+  const db = {
+    async query(sql, params = []) {
+      const matched = rows.filter((row) => {
+        if (row.device_id !== params[0]) return false;
+        if (!sql.includes('received_at >=')) return true;
+        const at = Date.parse(row.received_at);
+        return at >= Date.parse(params[1]) && at <= Date.parse(params[2]);
+      });
+      if (sql.includes('count(*)')) return { rows: [{ n: matched.length }] };
+      if (sql.includes('limit')) {
+        const limit = params[params.length - 2];
+        const offset = params[params.length - 1];
+        return { rows: matched.slice(offset, offset + limit) };
+      }
+      return { rows: matched };
+    },
+  };
+  const result = await handle(
+    {
+      krishe_admin: true,
+      action: 'readings',
+      deviceId: 'sensor-1',
+      from: '2026-11-13T05:00:00.000Z',
+      to: '2026-11-13T06:00:00.000Z',
+      limit: 2,
+    },
+    db,
+  );
+  const body = JSON.parse(result.body);
+  assert.equal(result.statusCode, 200);
+  assert.equal(body.total, 5);
+  assert.equal(body.readings.length, 5);
+  assert.equal(body.readings[0].id, 'row-0');
+  assert.equal(body.readings[4].id, 'row-4');
+});
+
 test('an mqtt message is not treated as an admin read', async () => {
   const db = memoryDb();
   const result = await handle(

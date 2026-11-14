@@ -39,16 +39,18 @@ export class SensorReadingsService {
     });
   }
 
-  readings(deviceId: string, limit?: number, from?: string, to?: string) {
+  readings(deviceId: string, limit?: number, from?: string, to?: string, offset?: number) {
     return this.invoke<{
       device_id: string;
       total: number;
+      offset: number;
       readings: SensorReadingRow[];
     }>({
       krishe_admin: true,
       action: 'readings',
       deviceId,
       limit,
+      offset,
       from: this.isoTime(from),
       to: this.isoTime(to),
     });

@@ -234,26 +234,39 @@ function readingWindow(from, to) {
   return { where: filters.join(' and '), extra };
 }
 
-async function listReadings(db, deviceId, limit, from, to) {
+async function listReadings(db, deviceId, limit, offset, from, to) {
   await ready(db);
   const window = readingWindow(from, to);
   const total = await db.query(
     `select count(*)::int as n from sensor_payloads where ${window.where}`,
     [deviceId, ...window.extra],
   );
-  const cap = from || to ? 8000 : MAX_READING_ROWS;
-  const capped = Math.min(Math.max(limit, 1), cap);
-  const readings = await db.query(
-    `select id, device_id, idempotency_key, received_at, payload
-     from sensor_payloads
-     where ${window.where}
-     order by received_at asc
-     limit $${window.extra.length + 2}`,
-    [deviceId, ...window.extra, capped],
-  );
+  const batchWindow = Boolean(from && to);
+  const readings = batchWindow
+    ? await db.query(
+        `select id, device_id, idempotency_key, received_at, payload
+         from sensor_payloads
+         where ${window.where}
+         order by received_at asc, id asc`,
+        [deviceId, ...window.extra],
+      )
+    : await db.query(
+        `select id, device_id, idempotency_key, received_at, payload
+         from sensor_payloads
+         where ${window.where}
+         order by received_at asc, id asc
+         limit $${window.extra.length + 2} offset $${window.extra.length + 3}`,
+        [
+          deviceId,
+          ...window.extra,
+          Math.min(Math.max(limit, 1), MAX_READING_ROWS),
+          Math.max(offset, 0),
+        ],
+      );
   return {
     device_id: deviceId,
     total: Number(total.rows[0]?.n ?? 0),
+    offset: batchWindow ? 0 : Math.max(offset, 0),
     readings: readings.rows,
   };
 }
@@ -270,12 +283,17 @@ async function adminHandle(event, db) {
       const from = cleanTime(event.from);
       const to = cleanTime(event.to);
       const requested = Number(event.limit);
-      const cap = from || to ? 8000 : MAX_READING_ROWS;
-      const limit = Math.min(
-        Math.max(Number.isFinite(requested) ? requested : cap, 1),
-        cap,
-      );
-      return response(200, await listReadings(connection, deviceId, limit, from, to));
+      const requestedOffset = Number(event.offset);
+      const limit = from && to
+        ? Number.MAX_SAFE_INTEGER
+        : Math.min(
+            Math.max(Number.isFinite(requested) ? requested : MAX_READING_ROWS, 1),
+            MAX_READING_ROWS,
+          );
+      const offset = Number.isFinite(requestedOffset) && requestedOffset > 0
+        ? Math.floor(requestedOffset)
+        : 0;
+      return response(200, await listReadings(connection, deviceId, limit, offset, from, to));
     }
     return response(400, { error: 'Unknown action' });
   } catch (error) {
