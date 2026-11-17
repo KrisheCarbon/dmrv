@@ -20,7 +20,10 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net"
+        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net",
+        "EXPO_PUBLIC_COGNITO_REGION": "ap-south-1",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_ID": "ap-south-1_2xPIRaRaf",
+        "EXPO_PUBLIC_COGNITO_CLIENT_ID": "2l94cete5s4e93fqbcvrjdvfui"
       }
     },
     "play-internal": {
@@ -30,14 +33,20 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net"
+        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net",
+        "EXPO_PUBLIC_COGNITO_REGION": "ap-south-1",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_ID": "ap-south-1_2xPIRaRaf",
+        "EXPO_PUBLIC_COGNITO_CLIENT_ID": "2l94cete5s4e93fqbcvrjdvfui"
       }
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net"
+        "EXPO_PUBLIC_BACKEND_URL": "https://d3einqtwag7iu2.cloudfront.net",
+        "EXPO_PUBLIC_COGNITO_REGION": "ap-south-1",
+        "EXPO_PUBLIC_COGNITO_USER_POOL_ID": "ap-south-1_2xPIRaRaf",
+        "EXPO_PUBLIC_COGNITO_CLIENT_ID": "2l94cete5s4e93fqbcvrjdvfui"
       }
     }
   },

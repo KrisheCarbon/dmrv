@@ -3,7 +3,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { backendFetch } from "./backendApi";
 import { uploadStorageObject } from "./objectStorage";
-import { supabase } from "./supabase";
+import { getStoredAuthUser } from "./auth";
 
 export const TRAINING_SESSION_BUCKET = "training-sessions";
 export const INSPECTION_BUCKET = "inspections";
@@ -116,9 +116,7 @@ export async function uploadPicked(
   files: PickedFile[],
   allowed: readonly string[],
 ) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getStoredAuthUser();
   if (!user) throw new Error("You must be signed in.");
   const uploaded = [];
   for (const file of files) {

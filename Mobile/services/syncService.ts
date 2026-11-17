@@ -19,7 +19,7 @@ import { getMixingEntry, syncMixingEntry } from "./mixingService";
 import { getApplicationEntry, syncApplicationEntry } from "./applicationService";
 import { getBiomassCollection, syncBiomassCollection } from "./biomassCollectionService";
 import { syncEncryptedKilnBatches } from "./kiln/kilnSyncService";
-import { supabase } from "./supabase";
+import { getStoredAuthUser } from "./auth";
 import { getUserProfile } from "./userProfile";
 import {
   syncFarmField,
@@ -302,15 +302,13 @@ async function runSyncQueue() {
       return { synced: 0, failed: 0, offline: true };
     }
 
-    const {
-      data: { session }
-    } = await supabase.auth.getSession();
+    const user = await getStoredAuthUser();
 
-    if (!session) {
+    if (!user) {
       return { synced: 0, failed: 0, noSession: true };
     }
 
-    const userId = session.user.id;
+    const userId = user.id;
     await syncTrustedClock();
     let result = { synced: 0, failed: 0 };
 

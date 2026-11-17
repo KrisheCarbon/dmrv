@@ -274,8 +274,8 @@ export default function EditUserModal({
                 </button>
               </div>
               <p className="text-xs text-gray-500">
-                Use this if the setup email never arrived. Share the password,
-                then mark them Active.
+                To change a password, use Send reset code on the Users page.
+                They enter the code on the reset page. This box does not set it.
               </p>
             </div>
 

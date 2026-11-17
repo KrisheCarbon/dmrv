@@ -248,7 +248,7 @@ async function resendSignupEmailOrThrow(id: string, _email: string) {
   return { emailSent: true };
 }
 
-/** Emails an active user a link to set a new password. Their current one keeps working until they do. */
+/** Emails an active user a code to set a new password. Their current one keeps working until they do. */
 async function sendPasswordResetOrThrow(id: string) {
   const actorRole = await getActorRole();
 
@@ -265,7 +265,7 @@ async function sendPasswordResetOrThrow(id: string) {
     throw new Error(
       target.status === "pending_auth"
         ? "This user hasn't finished signup yet. Use Resend email instead."
-        : "This user is disabled. Re-enable them before sending a reset link.",
+        : "This user is disabled. Re-enable them before sending a reset code.",
     );
   }
   const inbox = contactEmail(target.email);
@@ -565,26 +565,12 @@ async function updateUserOrThrow(
 
   if (error) throw new Error(error.message);
 
-  const authUpdate: {
-    user_metadata: { role: string };
-    password?: string;
-    email_confirm?: boolean;
-  } = {
-    user_metadata: { role: form.role },
-  };
-
   if (form.newPassword?.trim()) {
-    authUpdate.password = requirePassword(form.newPassword, "New password");
-    authUpdate.email_confirm = true;
-  } else if (form.status === "active") {
-    authUpdate.email_confirm = true;
+    requirePassword(form.newPassword, "New password");
+    throw new Error(
+      "Profile saved. To change the password, use Send reset code. They enter that code on the reset page.",
+    );
   }
-
-  const { error: authError } = await authAdmin().auth.admin.updateUserById(
-    id,
-    authUpdate,
-  );
-  if (authError) throw new Error(authError.message);
 
   return true;
 }

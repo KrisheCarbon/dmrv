@@ -11,7 +11,7 @@ import {
   Modal,
   ActivityIndicator
 } from "react-native";
-import { supabase } from "../services/supabase";
+import { signOut } from "../services/cognitoSession";
 import {
   clearUserProfileCache,
   getUserProfile,
@@ -431,7 +431,7 @@ export default function HomeScreen({ navigation }) {
         style: "destructive",
         onPress: async () => {
           await clearUserProfileCache();
-          await supabase.auth.signOut();
+          await signOut();
         }
       }
     ]);

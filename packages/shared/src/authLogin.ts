@@ -10,7 +10,7 @@ export const PHONE_LOGIN_EMAIL_DOMAIN = "phone.krishecarbon.invalid";
 export const EMAIL_OTP_LENGTH = 6;
 
 export const OTP_EMAIL_REQUIRED_ERROR =
-  "OTP login is only available for @krishecarbon.com accounts. Sign in with your password instead.";
+  "This account has no email inbox. Sign in with your password.";
 
 export const INVALID_LOGIN_IDENTIFIER_ERROR =
   "Enter a valid email address or 10-digit mobile number.";

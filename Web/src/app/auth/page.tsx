@@ -4,11 +4,10 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  EMAIL_OTP_LENGTH,
   OTP_EMAIL_REQUIRED_ERROR,
   canAccessMobileApp,
   formatRoleLabel,
-  isKrishecarbonEmail,
+  isPhoneLoginEmail,
 } from "@krishecarbon/shared";
 import { fetchOwnProfile } from "@/lib/awsDataBrowser";
 import { supabase } from "@/lib/supabase";
@@ -24,6 +23,7 @@ function AuthForm() {
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
+  const [otpSession, setOtpSession] = useState("");
   const [loading, setLoading] = useState(false);
   const [otpLoading, setOtpLoading] = useState(false);
   const [error, setError] = useState("");
@@ -134,56 +134,76 @@ function AuthForm() {
 
   async function sendOtp() {
     if (!email) {
-      setError("Enter your email first");
-      return;
-    }
-
-    if (!isKrishecarbonEmail(email)) {
-      setError(OTP_EMAIL_REQUIRED_ERROR);
+      setError("Enter your email or mobile number first");
       return;
     }
 
     setOtpLoading(true);
     setError("");
 
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
-      options: { shouldCreateUser: false },
-    });
+    try {
+      const loginEmail = await resolvePasswordLoginEmail(supabase, email);
+      if (isPhoneLoginEmail(loginEmail)) {
+        setError(OTP_EMAIL_REQUIRED_ERROR);
+        setOtpLoading(false);
+        return;
+      }
 
-    setOtpLoading(false);
-
-    if (otpError) {
-      setError(otpError.message);
-      return;
+      const response = await fetch("/api/auth/cognito/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        message?: string;
+        session?: string;
+      } | null;
+      if (!response.ok || !body?.session) {
+        setError(body?.message || "Could not send the email code.");
+        setOtpLoading(false);
+        return;
+      }
+      setEmail(loginEmail);
+      setOtpSession(body.session);
+      setOtpSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send the email code.");
     }
 
-    setOtpSent(true);
+    setOtpLoading(false);
   }
 
   async function verifyOtp() {
     setLoading(true);
     setError("");
 
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: otp,
-      type: "email",
-    });
-
-    if (verifyError) {
-      setError(verifyError.message);
+    try {
+      const response = await fetch("/api/auth/cognito/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          code: otp,
+          session: otpSession,
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as { message?: string } | null;
+      if (!response.ok) {
+        setError(body?.message || "That code doesn't match.");
+        setLoading(false);
+        return;
+      }
+      router.replace("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That code doesn't match.");
       setLoading(false);
-      return;
     }
-
-    await supabase.auth.getSession();
-    router.replace("/");
   }
 
   function resetOtp() {
     setOtpSent(false);
     setOtp("");
+    setOtpSession("");
     setError("");
   }
 
@@ -282,17 +302,17 @@ function AuthForm() {
                 disabled={otpLoading || !email}
                 className="w-full border border-gray-300 text-gray-700 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 transition disabled:opacity-60"
               >
-                {otpLoading ? "Sending OTP…" : "Send OTP to @krishecarbon.com email"}
+                {otpLoading ? "Sending OTP…" : "Email me a sign-in code"}
               </button>
               <p className="text-xs text-gray-400 text-center">
-                Password login works with email or mobile. Email codes are only
-                sent to @krishecarbon.com.
+                Password login works with email or mobile. The sign-in code goes to
+                whatever email is on the account.
               </p>
             </>
           ) : (
             <>
               <p className="text-sm text-gray-500 text-center">
-                A {EMAIL_OTP_LENGTH}-digit code was sent to{" "}
+                A code was sent to{" "}
                 <span className="font-medium text-gray-700">{email}</span>
               </p>
 
@@ -302,12 +322,12 @@ function AuthForm() {
                 </label>
                 <input
                   type="text"
-                  placeholder={`Enter your ${EMAIL_OTP_LENGTH}-digit OTP`}
+                  placeholder="Enter the code from your email"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  maxLength={EMAIL_OTP_LENGTH}
+                  maxLength={8}
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, EMAIL_OTP_LENGTH))}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
                 />
               </div>

@@ -1,30 +1,31 @@
 /**
  * Cognito User Migration trigger.
  *
- * On the first sign-in, Cognito calls this function. The password is checked
- * against Supabase. Cognito then stores its own hash. public.users.id is
- * returned as custom:legacy_id so kiln runs and farms stay attached to the
- * same person.
+ * Cognito calls this the first time a person signs in and is not in the pool
+ * yet. The password they type is checked against the bcrypt hash from the
+ * Supabase backup. On a match, Cognito stores its own hash and keeps
+ * public.users.id in custom:legacy_id.
  *
- * Pool setup before this will run:
- * - Username: email (the same address Supabase uses, including
- *   98xxxxxxxx@phone.krishecarbon.invalid for a phone-only account)
- * - App client with USER_PASSWORD_AUTH
- * - Custom attribute legacy_id (string, mutable)
- * - This function as the User migration trigger
- * - Environment: SUPABASE_URL, SUPABASE_ANON_KEY
- *
- * People with no password (email-code only, or pending_auth) are not migrated
- * here. They need a reset or a new invite after the pool exists.
- * Forgot-password confirms the account exists, then Cognito sends the reset.
+ * Deploy this file together with password-hashes.json and node_modules/bcryptjs.
+ * password-hashes.json is not committed.
  */
+
+import { readFileSync } from 'node:fs';
+import bcrypt from 'bcryptjs';
 
 const PHONE_LOGIN_DOMAIN = 'phone.krishecarbon.invalid';
 
+const accounts = loadAccounts();
+
 export async function handler(event) {
   if (event.triggerSource === 'UserMigration_Authentication') {
-    const user = await signInWithPassword(event.userName, event.request?.password);
-    return confirm(event, user.id, user.email);
+    const email = normalizeEmail(event.userName);
+    const password = event.request?.password ?? '';
+    const account = accounts.get(email);
+    if (!account || !(await bcrypt.compare(password, account.hash))) {
+      throw new Error('Bad credentials');
+    }
+    return confirm(event, account.id, email, false);
   }
 
   if (event.triggerSource === 'UserMigration_ForgotPassword') {
@@ -32,15 +33,39 @@ export async function handler(event) {
     if (!email || email.endsWith(`@${PHONE_LOGIN_DOMAIN}`)) {
       throw new Error('This account has no inbox for a reset email.');
     }
-    const id = await lookupUserId(email);
-    if (!id) throw new Error('User does not exist.');
-    return confirm(event, id, email);
+    const account = accounts.get(email);
+    if (!account) throw new Error('User does not exist.');
+    return confirm(event, account.id, email, true);
   }
 
   return event;
 }
 
-function confirm(event, legacyId, email) {
+/** Used by the local check. Never logs the hash. */
+export async function passwordMatches(email, password) {
+  const account = accounts.get(normalizeEmail(email));
+  if (!account) return false;
+  return bcrypt.compare(password, account.hash);
+}
+
+export function accountCount() {
+  return accounts.size;
+}
+
+function loadAccounts() {
+  const file = new URL('./password-hashes.json', import.meta.url);
+  const body = JSON.parse(readFileSync(file, 'utf8'));
+  const map = new Map();
+  for (const account of body.accounts ?? []) {
+    const email = normalizeEmail(account.email);
+    if (!email || !account.id || !account.hash) continue;
+    if (account.status === 'disabled') continue;
+    map.set(email, { id: account.id, hash: account.hash });
+  }
+  return map;
+}
+
+function confirm(event, legacyId, email, deliverEmail) {
   event.response.userAttributes = {
     email,
     email_verified: 'true',
@@ -48,58 +73,10 @@ function confirm(event, legacyId, email) {
   };
   event.response.finalUserStatus = 'CONFIRMED';
   event.response.messageAction = 'SUPPRESS';
-  event.response.desiredDeliveryMediums = [];
-  return event;
-}
-
-async function signInWithPassword(username, password) {
-  const email = normalizeEmail(username);
-  if (!email || !password) throw new Error('Bad credentials');
-
-  const { url, anon } = supabase();
-  const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: {
-      apikey: anon,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ email, password }),
-  });
-
-  const body = await response.json().catch(() => null);
-  const id = body?.user?.id;
-  const returnedEmail = body?.user?.email;
-  if (!response.ok || typeof id !== 'string') {
-    throw new Error('Bad credentials');
+  if (deliverEmail) {
+    event.response.desiredDeliveryMediums = ['EMAIL'];
   }
-  return { id, email: typeof returnedEmail === 'string' ? returnedEmail : email };
-}
-
-async function lookupUserId(email) {
-  const { url, anon } = supabase();
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const key = service || anon;
-  const response = await fetch(
-    `${url}/rest/v1/users?select=id,status&email=eq.${encodeURIComponent(email)}&limit=1`,
-    {
-      headers: {
-        apikey: key,
-        authorization: `Bearer ${key}`,
-      },
-    },
-  );
-  if (!response.ok) return null;
-  const rows = await response.json().catch(() => []);
-  const row = Array.isArray(rows) ? rows[0] : null;
-  if (!row || row.status === 'disabled' || typeof row.id !== 'string') return null;
-  return row.id;
-}
-
-function supabase() {
-  const url = process.env.SUPABASE_URL?.replace(/\/$/, '');
-  const anon = process.env.SUPABASE_ANON_KEY?.trim();
-  if (!url || !anon) throw new Error('Supabase is not configured for migration.');
-  return { url, anon };
+  return event;
 }
 
 function normalizeEmail(value) {

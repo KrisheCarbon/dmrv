@@ -4,7 +4,7 @@ import {
   parseLoginIdentifier,
 } from "@krishecarbon/shared";
 import { backendFetch, backendPublicFetch } from "./backendApi";
-import { supabase } from "./supabase";
+import { readStoredUser, signOut, type StoredAuthUser } from "./cognitoSession";
 
 export async function resolvePasswordLoginEmail(identifier: string): Promise<string> {
   const parsed = parseLoginIdentifier(identifier);
@@ -28,20 +28,16 @@ export async function resolvePasswordLoginEmail(identifier: string): Promise<str
   return result.email;
 }
 
-/** Cached session user — works offline (unlike getUser(), which validates over the network). */
-export async function getStoredAuthUser() {
-  const {
-    data: { session }
-  } = await supabase.auth.getSession();
-
-  return session?.user ?? null;
+/** Cached session user. Works offline after a Cognito sign-in. */
+export async function getStoredAuthUser(): Promise<StoredAuthUser | null> {
+  return readStoredUser();
 }
 
 export async function assertActiveAccount(userId: string): Promise<boolean> {
   try {
     const profile = await backendFetch<{ id: string; status?: string }>("/auth/me");
     if (profile?.id === userId && profile.status && profile.status !== "active") {
-      await supabase.auth.signOut();
+      await signOut();
       return false;
     }
     return true;

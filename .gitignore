@@ -16,6 +16,12 @@ docs/mobile-farmers-network-site/
 !.env.example
 !**/.env.example
 
+# Partner handout. It contains the live device key.
+sensor-ingest/partner-integration.md
+
+# MQTT device certificate and private key.
+sensor-ingest/mqtt/
+
 # OS
 .DS_Store
 
@@ -37,3 +43,7 @@ Backend/dist/
 
 # Legacy hardware prototypes (separate git repos)
 Hardware/
+
+# Supabase cluster dump and the password hashes taken from it.
+db_cluster-*.backup.gz
+Backend/aws/password-hashes.json

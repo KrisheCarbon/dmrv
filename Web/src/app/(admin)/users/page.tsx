@@ -78,12 +78,12 @@ export default function UsersPage() {
   }, []);
 
   async function handlePasswordReset(row: UserTableRow) {
-    if (!confirm(`Email ${row.email} a link to set a new password?`)) return;
+    if (!confirm(`Email ${row.email} a code to set a new password?`)) return;
 
     setResetLoading(row.id);
     try {
       const { email } = unwrapUserAction(await sendPasswordReset(row.id));
-      alert(`Password reset link sent to ${email}`);
+      alert(`Password reset code sent to ${email}. They enter it on the reset page.`);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Unknown error");
     }
@@ -227,7 +227,7 @@ export default function UsersPage() {
                   disabled={resetLoading === row.id}
                   className="text-green-700 hover:underline text-sm disabled:opacity-50"
                 >
-                  {resetLoading === row.id ? "Sending…" : "Send reset link"}
+                  {resetLoading === row.id ? "Sending…" : "Send reset code"}
                 </button>
               )}
               {editable ? (

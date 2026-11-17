@@ -46,6 +46,11 @@ export default (): ExpoConfig => {
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL ?? "",
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "",
       mapboxToken: process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? "",
+      cognitoRegion: process.env.EXPO_PUBLIC_COGNITO_REGION || "ap-south-1",
+      cognitoUserPoolId:
+        process.env.EXPO_PUBLIC_COGNITO_USER_POOL_ID || "ap-south-1_2xPIRaRaf",
+      cognitoClientId:
+        process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID || "2l94cete5s4e93fqbcvrjdvfui",
       backendUrl: (() => {
         const configured = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
         const stale =

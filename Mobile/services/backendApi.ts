@@ -1,6 +1,6 @@
 import NetInfo from "@react-native-community/netinfo";
 import Constants from "expo-constants";
-import { supabase } from "./supabase";
+import { getIdToken } from "./cognitoSession";
 
 const extra = Constants.expoConfig?.extra as
   | {
@@ -123,7 +123,7 @@ async function probeBackendUrl(url: string): Promise<boolean> {
   return false;
 }
 
-async function resolveBackendUrl(): Promise<string> {
+export async function resolveBackendUrl(): Promise<string> {
   if (cachedBackendUrl) return cachedBackendUrl;
 
   if (!(await deviceIsOnline())) {
@@ -165,35 +165,9 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Reads the current Supabase access token, tolerating brief gaps while a
- * background refresh is in flight (e.g. after a weak-signal stretch or the
- * phone waking from sleep). Only throws once a few short retries — with an
- * explicit refresh attempt in between — all come back empty.
- */
+/** Cognito ID token, refreshed when it is about to expire. */
 async function getAccessToken(): Promise<string> {
-  const RETRY_DELAYS_MS = [300, 800, 1500];
-
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.access_token) {
-      return session.access_token;
-    }
-
-    if (attempt < RETRY_DELAYS_MS.length) {
-      try {
-        await supabase.auth.refreshSession();
-      } catch {
-        // Ignore — we'll re-check getSession() after the delay below.
-      }
-      await wait(RETRY_DELAYS_MS[attempt]);
-    }
-  }
-
-  throw new Error("You must be signed in.");
+  return getIdToken();
 }
 
 async function requestBackend<T>(

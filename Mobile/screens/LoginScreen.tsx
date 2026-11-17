@@ -14,13 +14,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { backendFetch } from "../services/backendApi";
-import { supabase } from "../services/supabase";
+import { sendEmailOtp, signInWithPassword, signOut, verifyEmailOtp } from "../services/cognitoSession";
 import { assertActiveAccount, resolvePasswordLoginEmail } from "../services/auth";
 import {
-  EMAIL_OTP_LENGTH,
   OTP_EMAIL_REQUIRED_ERROR,
   canAccessMobileApp,
-  isKrishecarbonEmail,
+  isPhoneLoginEmail,
 } from "@krishecarbon/shared";
 import { colors, fonts, spacing, radius, logos } from "../constants/theme";
 import PrimaryButton from "../components/PrimaryButton";
@@ -37,6 +36,7 @@ export default function LoginScreen() {
   const [otp, setOtp] = useState("");
   const [mode, setMode] = useState<"password" | "otp">("password");
   const [otpSent, setOtpSent] = useState(false);
+  const [otpSession, setOtpSession] = useState("");
   const [loading, setLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -55,6 +55,7 @@ export default function LoginScreen() {
     setMode(nextMode);
     setOtpSent(false);
     setOtp("");
+    setOtpSession("");
     setPassword("");
   }
 
@@ -66,7 +67,7 @@ export default function LoginScreen() {
       return false;
     }
     if (!profile?.role || canAccessMobileApp(profile.role)) return false;
-    await supabase.auth.signOut();
+    await signOut();
     Alert.alert(
       "Web access only",
       "This account can sign in on the web dashboard. It cannot use the field app.",
@@ -83,18 +84,10 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const loginEmail = await resolvePasswordLoginEmail(email);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password
-      });
+      const user = await signInWithPassword(loginEmail, password);
 
-      if (error) {
-        Alert.alert("Login failed", error.message);
-        return;
-      }
-
-      if (data.user && (await rejectWebOnlyAccount(data.user.id))) return;
-      if (data.user && !(await assertActiveAccount(data.user.id))) {
+      if (await rejectWebOnlyAccount(user.id)) return;
+      if (!(await assertActiveAccount(user.id))) {
         Alert.alert(
           "Account not active",
           "Ask your admin to activate this account from the Users page."
@@ -112,56 +105,58 @@ export default function LoginScreen() {
 
   async function handleSendOtp() {
     if (!email) {
-      Alert.alert("Missing email", "Enter your @krishecarbon.com email to receive a code.");
-      return;
-    }
-
-    if (!isKrishecarbonEmail(email)) {
-      Alert.alert("OTP not available", OTP_EMAIL_REQUIRED_ERROR);
+      Alert.alert("Missing email", "Enter the email or mobile number for the account.");
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
-      options: { shouldCreateUser: false }
-    });
-    setLoading(false);
-
-    if (error) {
-      Alert.alert("Login failed", error.message);
-      return;
+    try {
+      const loginEmail = await resolvePasswordLoginEmail(email);
+      if (isPhoneLoginEmail(loginEmail)) {
+        Alert.alert("No email inbox", OTP_EMAIL_REQUIRED_ERROR);
+        return;
+      }
+      const session = await sendEmailOtp(loginEmail);
+      setEmail(loginEmail);
+      setOtpSession(session);
+      setOtpSent(true);
+    } catch (err) {
+      Alert.alert(
+        "Could not send the code",
+        err instanceof Error ? err.message : "Could not send the email code.",
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setOtpSent(true);
-    Alert.alert("Check your email", "We sent a one-time login code.");
   }
 
   async function handleVerifyOtp() {
     if (!otp) {
-      Alert.alert("Missing code", "Enter the OTP from your email.");
+      Alert.alert("Missing code", "Enter the code from your email.");
+      return;
+    }
+    if (!otpSession) {
+      Alert.alert("Request a new code", "Send the email code again, then enter it.");
       return;
     }
 
     setLoading(true);
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: otp,
-      type: "email"
-    });
-    setLoading(false);
-
-    if (error) {
-      Alert.alert("Invalid code", error.message);
-      return;
-    }
-
-    if (data.user && (await rejectWebOnlyAccount(data.user.id))) return;
-    if (data.user && !(await assertActiveAccount(data.user.id))) {
+    try {
+      const user = await verifyEmailOtp(email.trim().toLowerCase(), otp, otpSession);
+      if (await rejectWebOnlyAccount(user.id)) return;
+      if (!(await assertActiveAccount(user.id))) {
+        Alert.alert(
+          "Account not active",
+          "Ask your admin to activate this account from the Users page.",
+        );
+      }
+    } catch (err) {
       Alert.alert(
-        "Account not active",
-        "Ask your admin to activate this account from the Users page."
+        "Code not accepted",
+        err instanceof Error ? err.message : "That code doesn't match.",
       );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -240,23 +235,17 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>
-            {mode === "password" ? "Email or mobile number" : "Email"}
-          </Text>
+          <Text style={styles.label}>Email or mobile number</Text>
           <TextInput
             style={styles.input}
-            placeholder={
-              mode === "password"
-                ? "you@example.com or 10-digit mobile"
-                : "you@krishecarbon.com"
-            }
+            placeholder="you@example.com or 10-digit mobile"
             placeholderTextColor={colors.smokeLight}
             value={email}
             onChangeText={setEmail}
-            keyboardType={mode === "otp" ? "email-address" : "default"}
+            keyboardType="default"
             autoCapitalize="none"
             autoCorrect={false}
-            textContentType={mode === "otp" ? "emailAddress" : "username"}
+            textContentType="username"
             returnKeyType={mode === "password" || otpSent ? "next" : "done"}
             blurOnSubmit={false}
             editable={mode === "password" || !otpSent}
@@ -298,12 +287,12 @@ export default function LoginScreen() {
               <TextInput
                 ref={otpRef}
                 style={styles.input}
-                placeholder={`Enter your ${EMAIL_OTP_LENGTH}-digit OTP`}
+                placeholder="Enter the code from your email"
                 placeholderTextColor={colors.smokeLight}
                 value={otp}
-                onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, EMAIL_OTP_LENGTH))}
+                onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 8))}
                 keyboardType="number-pad"
-                maxLength={EMAIL_OTP_LENGTH}
+                maxLength={8}
                 returnKeyType="go"
                 onSubmitEditing={handleSubmit}
               />
@@ -312,8 +301,7 @@ export default function LoginScreen() {
 
           {mode === "otp" && !otpSent ? (
             <Text style={styles.hint}>
-              Codes are sent only to @krishecarbon.com emails. Everyone else
-              should use password login.
+              We'll email a sign-in code to the address on this account.
             </Text>
           ) : null}
 

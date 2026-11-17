@@ -4,9 +4,13 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, ActivityIndicator, AppState, type AppStateStatus } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import type { Session } from "@supabase/supabase-js";
 import { colors } from "./constants/theme";
-import { supabase } from "./services/supabase";
+import {
+  refreshSessionIfNeeded,
+  restoreSession,
+  subscribeAuth,
+  type StoredAuthUser,
+} from "./services/cognitoSession";
 import { assertActiveAccount } from "./services/auth";
 import { getDb } from "./database/db";
 import { syncTrustedClock } from "./services/clockSync";
@@ -186,7 +190,7 @@ function MainStack() {
 }
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<StoredAuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [developerOptionsOn, setDeveloperOptionsOn] = useState(
     () => !__DEV__ && isDeveloperOptionsEnabled(),
@@ -201,9 +205,8 @@ export default function App() {
   useEffect(() => {
     void applyExpoUpdateIfAvailable();
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      const nextSession = data.session;
-      if (nextSession && !(await assertActiveAccount(nextSession.user.id))) {
+    restoreSession().then(async (nextSession) => {
+      if (nextSession && !(await assertActiveAccount(nextSession.id))) {
         setSession(null);
         setLoading(false);
         return;
@@ -222,10 +225,8 @@ export default function App() {
       setLoading(false);
     });
 
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      if (newSession && !(await assertActiveAccount(newSession.user.id))) {
+    const unsubscribe = subscribeAuth(async (newSession) => {
+      if (newSession && !(await assertActiveAccount(newSession.id))) {
         setSession(null);
         stopSyncListener();
         stopLocationCache();
@@ -247,27 +248,23 @@ export default function App() {
     });
 
     return () => {
-      subscription.unsubscribe();
+      unsubscribe();
       stopSyncListener();
     };
   }, []);
 
   useEffect(() => {
-    // Supabase's token auto-refresh timer only ticks while explicitly told
-    // the app is active. Without this, a backgrounded/locked phone can let
-    // the access token expire silently, and the next save looks like a
-    // forced logout mid-entry.
+    // Refresh the Cognito ID token when the phone wakes. A locked phone can
+    // otherwise let it expire, and the next save looks like a forced logout.
     function handleAppStateChange(nextState: AppStateStatus) {
       if (nextState === "active") {
-        void supabase.auth.startAutoRefresh();
+        void refreshSessionIfNeeded();
         void applyExpoUpdateIfAvailable();
-      } else {
-        void supabase.auth.stopAutoRefresh();
       }
     }
 
     if (AppState.currentState === "active") {
-      void supabase.auth.startAutoRefresh();
+      void refreshSessionIfNeeded();
     }
 
     const subscription = AppState.addEventListener("change", handleAppStateChange);

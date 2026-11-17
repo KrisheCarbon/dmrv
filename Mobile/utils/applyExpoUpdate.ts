@@ -1,29 +1,24 @@
 import * as Updates from "expo-updates";
 
-const UPDATE_WAIT_MS = 12000;
+let applying = false;
 
-/** Download a published Expo update and restart onto it before the old screens stay on screen. */
+/**
+ * Download a published update and restart onto it.
+ * A slow field network must not abandon the restart: the previous 12 second
+ * cutoff downloaded the new screens and then left the old ones open.
+ */
 export async function applyExpoUpdateIfAvailable(): Promise<void> {
-  if (__DEV__ || !Updates.isEnabled) return;
-
-  let gaveUp = false;
-  const wait = new Promise<void>((resolve) => {
-    setTimeout(() => {
-      gaveUp = true;
-      resolve();
-    }, UPDATE_WAIT_MS);
-  });
-
-  const apply = (async () => {
+  if (__DEV__ || !Updates.isEnabled || applying) return;
+  applying = true;
+  try {
     const check = await Updates.checkForUpdateAsync();
-    if (!check.isAvailable || gaveUp) return;
-    await Updates.fetchUpdateAsync();
-    if (gaveUp) return;
+    if (!check.isAvailable) return;
+    const fetched = await Updates.fetchUpdateAsync();
+    if (!fetched.isNew) return;
     await Updates.reloadAsync();
-  })();
-
-  await Promise.race([
-    apply.catch(() => undefined),
-    wait,
-  ]);
+  } catch {
+    // Stay on this bundle. A finished download still opens on the next cold start.
+  } finally {
+    applying = false;
+  }
 }

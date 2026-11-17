@@ -1,20 +1,18 @@
-import { createClient, type AuthError } from "@supabase/supabase-js";
-import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
-import { getSiteUrl } from "@/lib/siteUrl";
+import { CognitoRequestError, sendForgotPasswordCode } from "@/lib/cognitoApi";
 
-/**
- * Emails a password reset link that opens /reset-password. Uses the implicit flow
- * so the link carries its own tokens and works on any device, not only the browser
- * that asked for it.
- */
-export async function sendPasswordResetEmail(email: string): Promise<AuthError | null> {
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { flowType: "implicit", persistSession: false },
-  });
+export type PasswordResetError = { message: string; status?: number };
 
-  const { error } = await client.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getSiteUrl()}/reset-password`,
-  });
-
-  return error;
+/** Emails a Cognito reset code. The person enters it on the reset page. */
+export async function sendPasswordResetEmail(
+  email: string,
+): Promise<PasswordResetError | null> {
+  try {
+    await sendForgotPasswordCode(email);
+    return null;
+  } catch (error) {
+    if (error instanceof CognitoRequestError) {
+      return { message: error.message, status: error.status };
+    }
+    return { message: "Could not send the reset email." };
+  }
 }
