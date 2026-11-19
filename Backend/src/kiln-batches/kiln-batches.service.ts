@@ -299,7 +299,7 @@ export class KilnBatchesService {
       if (result.error) {
         throw new Error(`Failed to load temperature readings: ${result.error.message}`);
       }
-      const chunk = (result.data ?? []) as Array<Record<string, unknown>>;
+      const chunk = (result.data ?? []) as unknown as Array<Record<string, unknown>>;
       rows.push(...chunk);
       if (chunk.length < pageSize) break;
     }
