@@ -177,6 +177,9 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "biomass_collections", "farm_field_id", "TEXT");
   await addColumnIfMissing(db, "biomass_collections", "field_code", "TEXT");
   await addColumnIfMissing(db, "biomass_collections", "producer_site_id", "TEXT");
+  await addColumnIfMissing(db, "biomass_collection_sources", "loaded_photo_local_uri", "TEXT");
+  await addColumnIfMissing(db, "biomass_collection_sources", "loaded_photo_url", "TEXT");
+  await addColumnIfMissing(db, "biomass_collection_sources", "loaded_photo_metadata_json", "TEXT");
 
   // Farmers Network profile fields (v3) — safe on devices that already have farmers.
   await addColumnIfMissing(db, "farmers", "farmer_code", "TEXT");
@@ -274,6 +277,11 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_photo_metadata_json", "TEXT");
   await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_bag_not_used", "INTEGER NOT NULL DEFAULT 0");
   await addColumnIfMissing(db, "rainbow_pyrolysis_batches", "sample_collected_at", "TEXT");
+  await addColumnIfMissing(db, "mixing_entries", "bag_code", "TEXT");
+  await addColumnIfMissing(db, "mixing_entries", "biochar_kg", "REAL");
+  await addColumnIfMissing(db, "mixing_entries", "buyer_name", "TEXT");
+  await addColumnIfMissing(db, "mixing_pyrolysis_links", "protocol", "TEXT");
+  await addColumnIfMissing(db, "mixing_pyrolysis_links", "production_batch_id", "TEXT");
 
   for (const table of [
     "farmers",

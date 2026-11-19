@@ -73,6 +73,33 @@ function ringsFor(item: BiomassCollectionView, farmers: ApplicationFarmerOption[
 }
 
 function distanceLabel(item: BiomassCollectionView, farmers: ApplicationFarmerOption[]) {
+  const perSource = item.sources
+    .map((source) => {
+      if (!source.loadedPhotoMetadata) return null;
+      const farmer = farmers.find((entry) => entry.id === source.farmId);
+      const boundary =
+        farmer?.fields.find((field) => field.id === source.farmFieldId)?.boundary ?? [];
+      const distanceM =
+        boundary.length >= 3
+          ? nearestBoundaryDistanceMeters(
+              {
+                latitude: source.loadedPhotoMetadata.latitude,
+                longitude: source.loadedPhotoMetadata.longitude,
+              },
+              [boundary],
+            )
+          : null;
+      return describeFarmPhotoDistance(distanceM, {
+        hasGps: Number.isFinite(source.loadedPhotoMetadata.latitude),
+        hasBoundary: boundary.length >= 3,
+      });
+    })
+    .filter((summary): summary is NonNullable<typeof summary> => summary != null);
+  if (perSource.length > 0) {
+    return perSource.reduce((worst, summary) =>
+      (summary.distanceM ?? -1) > (worst.distanceM ?? -1) ? summary : worst,
+    );
+  }
   if (!item.loadedPhotoMetadata || farmers.length === 0) return null;
   const rings = ringsFor(item, farmers);
   const distanceM =
@@ -291,8 +318,8 @@ export default function BiomassCollectionDashboardScreen({ navigation }) {
               <View style={styles.empty}>
                 <Text style={styles.emptyTitle}>No biomass trips yet</Text>
                 <Text style={styles.emptyText}>
-                  Tap + when a tractor is loaded. Add each farm, the acres collected, and the
-                  biomass, then photograph the load and the unloading at the production site.
+                  Tap + when a tractor is loaded. Add each farm, the acres collected, and a
+                  loading photo for that farm, then photograph the unloading at the production site.
                 </Text>
               </View>
             )

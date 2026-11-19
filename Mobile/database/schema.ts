@@ -350,6 +350,9 @@ export const SCHEMA_STATEMENTS: string[] = [
     mixing_photo_local_uri TEXT,
     mixing_photo_url TEXT,
     mixing_photo_metadata_json TEXT,
+    bag_code TEXT,
+    biochar_kg REAL,
+    buyer_name TEXT,
     review_status TEXT,
     reviewer_notes TEXT,
     sync_status TEXT NOT NULL,
@@ -366,7 +369,9 @@ export const SCHEMA_STATEMENTS: string[] = [
     pyrolysis_batch_local_id TEXT,
     kontikki_code TEXT,
     batch_number TEXT,
-    producer_name TEXT
+    producer_name TEXT,
+    protocol TEXT,
+    production_batch_id TEXT
   );`,
   `CREATE INDEX IF NOT EXISTS idx_mixing_links_entry_id ON mixing_pyrolysis_links(mixing_entry_id);`,
   `CREATE INDEX IF NOT EXISTS idx_mixing_links_batch_server_id ON mixing_pyrolysis_links(pyrolysis_batch_server_id);`,
@@ -447,6 +452,9 @@ export const SCHEMA_STATEMENTS: string[] = [
     field_code TEXT,
     acres REAL,
     biomass_tonnes REAL,
+    loaded_photo_local_uri TEXT,
+    loaded_photo_url TEXT,
+    loaded_photo_metadata_json TEXT,
     sort_order INTEGER NOT NULL
   );`,
   `CREATE INDEX IF NOT EXISTS idx_biomass_sources_collection ON biomass_collection_sources(collection_id);`,

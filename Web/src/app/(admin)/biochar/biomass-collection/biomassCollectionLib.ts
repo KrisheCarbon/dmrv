@@ -92,6 +92,7 @@ export function biomassCollectionSearchIndex(record: BiomassCollectionRecord): s
       source.field_code,
       source.acres,
       source.biomass_tonnes,
+      photoMetadataSearchParts(source.loaded_photo_metadata),
     ]),
     formatApplicationAcres(record.farm_area_acres),
     record.producer_name,

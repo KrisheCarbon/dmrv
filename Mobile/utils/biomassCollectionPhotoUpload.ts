@@ -5,7 +5,7 @@ import { getModuleBucket } from "./moduleStorage";
 
 export const BIOMASS_COLLECTION_BUCKET = getModuleBucket("biomassCollection");
 
-export type BiomassCollectionPhotoKind = "loaded" | "unloaded";
+export type BiomassCollectionPhotoKind = "loaded" | "unloaded" | `loaded-${string}`;
 
 /** Uploads one watermarked photo and returns its public URL. Already-uploaded photos pass through. */
 export async function uploadBiomassCollectionPhoto(

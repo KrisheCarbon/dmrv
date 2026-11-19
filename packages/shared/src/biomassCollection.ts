@@ -5,7 +5,7 @@ import {
 } from "./farmersNetwork";
 import type { FieldPhotoMetadata } from "./pyrolysis";
 
-/** Shown beside both photos in the app and on the portal. */
+/** Shown beside each farm's loading photo and the unloading photo. */
 export const BIOMASS_COLLECTION_TRACTOR_NOTICE =
   "The tractor number must be clearly visible in this photo.";
 
@@ -82,6 +82,11 @@ export interface BiomassCollectionSource {
   biomass_tonnes: number | null;
   /** Mapped area of the plot, when the server has it. */
   area_acres?: number | null;
+  /** Photo of the tractor being loaded at this farm. */
+  loaded_photo_url?: string | null;
+  loaded_photo_metadata?: FieldPhotoMetadata | null;
+  /** Metres from this farm's loading photo to that farm's polygon. */
+  loaded_distance_from_farm_m?: number | null;
 }
 
 export interface CreateBiomassCollectionPayload {

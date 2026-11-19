@@ -66,7 +66,7 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [capturing, setCapturing] = useState<"loaded" | "unloaded" | null>(null);
+  const [capturing, setCapturing] = useState<string | null>(null);
   const [collection, setCollection] = useState<BiomassCollectionView | null>(null);
   const [sites, setSites] = useState<BiomassDropSite[]>([]);
   const [sitesLoading, setSitesLoading] = useState(true);
@@ -310,39 +310,86 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
     }
   }
 
-  async function capture(kind: "loaded" | "unloaded") {
-    const chosen = selectedFields();
-    if (kind === "loaded" && chosen.length === 0) {
+  async function captureLoaded(sourceId: string) {
+    const source = sourcesRef.current.find((item) => item.id === sourceId);
+    if (!source?.farmId || !source.farmFieldId) {
       Alert.alert(
         "Select a farm",
-        "Choose the farmer and the farm plot before taking the loaded photo.",
+        "Choose the farmer and the farm plot before taking the loading photo.",
+      );
+      return;
+    }
+    if (!fieldsRef.current[source.farmId]) {
+      await ensureFarmerFields(source.farmId);
+    }
+    const chosen = selectedFields([source]);
+    if (chosen.length === 0) {
+      Alert.alert(
+        "Select a farm",
+        "Choose the farmer and the farm plot before taking the loading photo.",
       );
       return;
     }
 
     try {
-      setCapturing(kind);
+      setCapturing(sourceId);
       const photo = await captureAndSaveFieldPhoto();
       if (!photo) return;
 
-      if (kind === "loaded") {
-        const check = checkLoadedPhotoNearFarm({
-          farmName: chosen.map((item) => `${item.farmer.farmer_name} (${item.field.field_code})`).join(", "),
-          boundaries: chosen.map((item) => item.field.boundary),
-          latitude: photo.metadata.latitude,
-          longitude: photo.metadata.longitude,
-        });
-        if (check.ok === false) {
-          Alert.alert(check.title, check.message);
-          return;
-        }
+      const farm = chosen[0];
+      const check = checkLoadedPhotoNearFarm({
+        farmName: `${farm.farmer.farmer_name} (${farm.field.field_code})`,
+        boundaries: [farm.field.boundary],
+        latitude: photo.metadata.latitude,
+        longitude: photo.metadata.longitude,
+      });
+      if (check.ok === false) {
+        Alert.alert(check.title, check.message);
+        return;
       }
 
-      await save(
-        kind === "loaded"
-          ? { loadedPhotoLocalUri: photo.uri, loadedPhotoMetadata: photo.metadata }
-          : { unloadedPhotoLocalUri: photo.uri, unloadedPhotoMetadata: photo.metadata },
+      const next = sourcesRef.current.map((item) =>
+        item.id === sourceId
+          ? {
+              ...item,
+              loadedPhotoLocalUri: photo.uri,
+              loadedPhotoUrl: null,
+              loadedPhotoMetadata: photo.metadata,
+            }
+          : item,
       );
+      await persistSources(next);
+    } catch (err) {
+      if (err instanceof LocationUnavailableError) {
+        Alert.alert("Location error", err.message);
+        return;
+      }
+      Alert.alert("Camera", err instanceof Error ? err.message : "Could not capture photo.");
+    } finally {
+      setCapturing(null);
+    }
+  }
+
+  function removeLoadedPhoto(sourceId: string) {
+    const next = sourcesRef.current.map((item) =>
+      item.id === sourceId
+        ? {
+            ...item,
+            loadedPhotoLocalUri: null,
+            loadedPhotoUrl: null,
+            loadedPhotoMetadata: null,
+          }
+        : item,
+    );
+    void persistSources(next);
+  }
+
+  async function captureUnloaded() {
+    try {
+      setCapturing("unloaded");
+      const photo = await captureAndSaveFieldPhoto();
+      if (!photo) return;
+      await save({ unloadedPhotoLocalUri: photo.uri, unloadedPhotoMetadata: photo.metadata });
     } catch (err) {
       if (err instanceof LocationUnavailableError) {
         Alert.alert("Location error", err.message);
@@ -355,25 +402,13 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   async function handleSaveLoaded() {
-    await saveBiomassSources(collectionId, sourcesRef.current);
-    const chosen = selectedFields();
-    const check = checkLoadedPhotoNearFarm({
-      farmName: chosen.map((item) => `${item.farmer.farmer_name} (${item.field.field_code})`).join(", "),
-      boundaries: chosen.map((item) => item.field.boundary),
-      latitude: collection?.loadedPhotoMetadata?.latitude,
-      longitude: collection?.loadedPhotoMetadata?.longitude,
-    });
-    if (check.ok === false) {
-      Alert.alert(check.title, check.message);
-      return;
-    }
-
     setBusy(true);
     try {
       if (tractorTimer.current) clearTimeout(tractorTimer.current);
       await updateBiomassCollectionLocal(collectionId, {
         tractorNumber: tractorNumber.trim() || null,
       });
+      await saveBiomassSources(collectionId, sourcesRef.current);
       await saveLoadedStep(collectionId);
       await reload();
       Alert.alert(
@@ -417,24 +452,6 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
   }
 
   const submitted = collection.status === "submitted" || collection.status === "synced";
-  const chosenFields = selectedFields(sources);
-  const loadedDistance = collection.loadedPhotoMetadata
-    ? describeFarmPhotoDistance(
-        chosenFields.length
-          ? nearestBoundaryDistanceMeters(
-              {
-                latitude: collection.loadedPhotoMetadata.latitude,
-                longitude: collection.loadedPhotoMetadata.longitude,
-              },
-              chosenFields.map((item) => item.field.boundary),
-            )
-          : null,
-        {
-          hasGps: Number.isFinite(collection.loadedPhotoMetadata.latitude),
-          hasBoundary: chosenFields.some((item) => item.field.boundary.length >= 3),
-        },
-      )
-    : null;
 
   return (
     <ScreenShell>
@@ -485,6 +502,23 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
                     nextAcres: enteredAcres,
                   })
                 : null;
+            const sourceDistance = source.loadedPhotoMetadata
+              ? describeFarmPhotoDistance(
+                  field && field.boundary.length >= 3
+                    ? nearestBoundaryDistanceMeters(
+                        {
+                          latitude: source.loadedPhotoMetadata.latitude,
+                          longitude: source.loadedPhotoMetadata.longitude,
+                        },
+                        [field.boundary],
+                      )
+                    : null,
+                  {
+                    hasGps: Number.isFinite(source.loadedPhotoMetadata.latitude),
+                    hasBoundary: Boolean(field && field.boundary.length >= 3),
+                  },
+                )
+              : null;
             return (
               <View key={source.id} style={styles.sourceCard}>
                 <View style={styles.stepHeader}>
@@ -516,16 +550,20 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
                   onValueChange={(farmerId) => {
                     const nextFarmer = farmerNames.find((item) => item.id === farmerId);
                     if (farmerId) void ensureFarmerFields(farmerId);
+                    const farmerChanged = farmerId !== source.farmId;
                     const next = sources.map((item) =>
                       item.id === source.id
                         ? {
                             ...item,
                             farmId: farmerId || null,
                             farmName: nextFarmer?.farmer_name ?? null,
-                            farmFieldId: null,
-                            fieldCode: null,
-                            acresText: "",
-                            biomassText: "",
+                            farmFieldId: farmerChanged ? null : item.farmFieldId,
+                            fieldCode: farmerChanged ? null : item.fieldCode,
+                            acresText: farmerChanged ? "" : item.acresText,
+                            biomassText: farmerChanged ? "" : item.biomassText,
+                            loadedPhotoLocalUri: farmerChanged ? null : item.loadedPhotoLocalUri,
+                            loadedPhotoUrl: farmerChanged ? null : item.loadedPhotoUrl,
+                            loadedPhotoMetadata: farmerChanged ? null : item.loadedPhotoMetadata,
                           }
                         : item,
                     );
@@ -556,12 +594,16 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
                       );
                       return;
                     }
+                    const fieldChanged = fieldId !== source.farmFieldId;
                     const next = sources.map((item) =>
                       item.id === source.id
                         ? {
                             ...item,
                             farmFieldId: fieldId || null,
                             fieldCode: nextField?.field_code ?? null,
+                            loadedPhotoLocalUri: fieldChanged ? null : item.loadedPhotoLocalUri,
+                            loadedPhotoUrl: fieldChanged ? null : item.loadedPhotoUrl,
+                            loadedPhotoMetadata: fieldChanged ? null : item.loadedPhotoMetadata,
                           }
                         : item,
                     );
@@ -606,6 +648,42 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
                     void persistSources(sourcesRef.current);
                   }}
                 />
+                {source.farmId ? (
+                  <>
+                    <TractorNotice />
+                    <PyrolysisPhotoSlot
+                      label="Loading photo"
+                      required
+                      localUri={source.loadedPhotoLocalUri}
+                      remoteUrl={source.loadedPhotoUrl}
+                      metadata={source.loadedPhotoMetadata}
+                      capturing={capturing === source.id}
+                      onCapture={() => {
+                        if (!loadingEditable) return;
+                        void captureLoaded(source.id);
+                      }}
+                      onRemove={loadingEditable ? () => removeLoadedPhoto(source.id) : undefined}
+                    />
+                    {sourceDistance ? (
+                      <Text
+                        style={
+                          sourceDistance.outsideLimit
+                            ? styles.distanceOutside
+                            : sourceDistance.distanceM == null
+                              ? styles.distanceUnknown
+                              : styles.distanceInside
+                        }
+                      >
+                        {sourceDistance.outsideLimit
+                          ? "⚠ "
+                          : sourceDistance.distanceM == null
+                            ? ""
+                            : "✓ "}
+                        {sourceDistance.detail}
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
               </View>
             );
           })}
@@ -624,39 +702,6 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
             onChangeText={handleTractorChange}
             editable={loadingEditable}
           />
-
-          <TractorNotice />
-          <PyrolysisPhotoSlot
-            label="Loaded tractor"
-            required
-            localUri={collection.loadedPhotoLocalUri}
-            remoteUrl={collection.loadedPhotoUrl}
-            metadata={collection.loadedPhotoMetadata}
-            capturing={capturing === "loaded"}
-            onCapture={() => {
-              if (!loadingEditable) return;
-              void capture("loaded");
-            }}
-            onRemove={
-              loadingEditable
-                ? () => void save({ loadedPhotoLocalUri: null, loadedPhotoMetadata: null })
-                : undefined
-            }
-          />
-          {loadedDistance ? (
-            <Text
-              style={
-                loadedDistance.outsideLimit
-                  ? styles.distanceOutside
-                  : loadedDistance.distanceM == null
-                    ? styles.distanceUnknown
-                    : styles.distanceInside
-              }
-            >
-              {loadedDistance.outsideLimit ? "⚠ " : loadedDistance.distanceM == null ? "" : "✓ "}
-              {loadedDistance.detail}
-            </Text>
-          ) : null}
 
           {loadingEditable ? (
             <PrimaryButton
@@ -723,7 +768,7 @@ export default function BiomassCollectionEntryScreen({ navigation, route }) {
                 capturing={capturing === "unloaded"}
                 onCapture={() => {
                   if (!unloadingEditable) return;
-                  void capture("unloaded");
+                  void captureUnloaded();
                 }}
                 onRemove={
                   unloadingEditable

@@ -4,9 +4,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   BIOMASS_COLLECTION_TRACTOR_NOTICE,
+  describeFarmPhotoDistance,
   formatBiomassAcres,
   formatBiomassTonnes,
   type BiomassCollectionRecord,
+  type BiomassCollectionSource,
   type FieldPhotoMetadata,
 } from "@krishecarbon/shared";
 import ApplicationMediaThumb from "../application/ApplicationMediaThumb";
@@ -74,6 +76,13 @@ function PhotoMetadata({
       <DetailRow label="Device time">{formatDateTime(metadata.device_time_iso)}</DetailRow>
     </dl>
   );
+}
+
+function sourcePhotoDistance(source: BiomassCollectionSource) {
+  return describeFarmPhotoDistance(source.loaded_distance_from_farm_m, {
+    hasGps: Number.isFinite(source.loaded_photo_metadata?.latitude),
+    hasBoundary: source.loaded_distance_from_farm_m != null,
+  });
 }
 
 function PhotoSection({
@@ -319,14 +328,35 @@ export default function BiomassCollectionPanel({
           </dl>
         </section>
 
-        <PhotoSection
-          title="Loaded at the farm"
-          url={data.loaded_photo_url}
-          metadata={data.loaded_photo_metadata}
-          distanceDetail={distance.distanceM != null ? distance.detail : null}
-          distanceOutside={distance.outsideLimit}
-          layout={layout}
-        />
+        {(data.sources ?? []).filter((source) => source.loaded_photo_url).length > 0
+          ? (data.sources ?? [])
+              .filter((source) => source.loaded_photo_url)
+              .map((source) => {
+                const sourceDistance = sourcePhotoDistance(source);
+                return (
+                  <PhotoSection
+                    key={source.id ?? source.farm_field_id}
+                    title={`Loaded at ${source.farm_name ?? "the farm"}${source.field_code ? ` (${source.field_code})` : ""}`}
+                    url={source.loaded_photo_url ?? ""}
+                    metadata={source.loaded_photo_metadata}
+                    distanceDetail={
+                      sourceDistance.distanceM != null ? sourceDistance.detail : null
+                    }
+                    distanceOutside={sourceDistance.outsideLimit}
+                    layout={layout}
+                  />
+                );
+              })
+          : (
+              <PhotoSection
+                title="Loaded at the farm"
+                url={data.loaded_photo_url}
+                metadata={data.loaded_photo_metadata}
+                distanceDetail={distance.distanceM != null ? distance.detail : null}
+                distanceOutside={distance.outsideLimit}
+                layout={layout}
+              />
+            )}
         <PhotoSection
           title="Unloaded at the production site"
           url={data.unloaded_photo_url}

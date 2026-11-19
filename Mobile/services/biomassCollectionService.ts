@@ -1,10 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   biomassAcresLimitMessage,
+  checkLoadedPhotoNearFarm,
   parseBiomassQuantity,
   toPostgresJson,
   type ApplicationFarmerOption,
   type BiomassCollectionRecord,
+  type BiomassCollectionSource,
   type CreateBiomassCollectionPayload,
   type FieldPhotoMetadata,
 } from "@krishecarbon/shared";
@@ -55,6 +57,9 @@ export type BiomassSourceDraft = {
   fieldCode: string | null;
   acresText: string;
   biomassText: string;
+  loadedPhotoLocalUri: string | null;
+  loadedPhotoUrl: string | null;
+  loadedPhotoMetadata: FieldPhotoMetadata | null;
 };
 
 export type BiomassCollectionView = {
@@ -120,7 +125,9 @@ export function biomassDraftHasContent(item: BiomassCollectionView): boolean {
       source.farmId ||
       source.farmFieldId ||
       source.acresText.trim() ||
-      source.biomassText.trim(),
+      source.biomassText.trim() ||
+      source.loadedPhotoLocalUri ||
+      source.loadedPhotoUrl,
   );
   return Boolean(
     sourceStarted ||
@@ -157,10 +164,30 @@ export function biomassDraftSubtitle(item: BiomassCollectionView): string {
       item.producerName ? `Unload at ${item.producerName}` : "Unload at the production site",
     ].join(" · ");
   }
+  const started = (item.sources ?? []).filter(
+    (source) =>
+      source.farmId ||
+      source.farmFieldId ||
+      source.acresText.trim() ||
+      source.biomassText.trim() ||
+      source.loadedPhotoLocalUri ||
+      source.loadedPhotoUrl,
+  );
+  const photosReady =
+    started.length > 0 &&
+    started.every((source) => source.loadedPhotoLocalUri || source.loadedPhotoUrl);
+  const photoLabel =
+    started.length > 0
+      ? photosReady
+        ? "Photos taken"
+        : "Still loading"
+      : item.loadedPhotoLocalUri || item.loadedPhotoUrl
+        ? "Photo taken"
+        : "Still loading";
   return [
     farmLine === "Farm not set" ? "Farm not chosen" : farmLine,
     item.tractorNumber?.trim() ? `Tractor ${item.tractorNumber.trim()}` : null,
-    item.loadedPhotoLocalUri || item.loadedPhotoUrl ? "Photo taken" : "Still loading",
+    photoLabel,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -174,6 +201,9 @@ function sourceFromRow(row: {
   field_code: string | null;
   acres: number | null;
   biomass_tonnes: number | null;
+  loaded_photo_local_uri?: string | null;
+  loaded_photo_url?: string | null;
+  loaded_photo_metadata_json?: string | null;
 }): BiomassSourceDraft {
   return {
     id: row.id,
@@ -184,6 +214,9 @@ function sourceFromRow(row: {
     acresText: row.acres != null && row.acres > 0 ? String(row.acres) : "",
     biomassText:
       row.biomass_tonnes != null && row.biomass_tonnes > 0 ? String(row.biomass_tonnes) : "",
+    loadedPhotoLocalUri: row.loaded_photo_local_uri ?? null,
+    loadedPhotoUrl: row.loaded_photo_url ?? null,
+    loadedPhotoMetadata: parseMetadata(row.loaded_photo_metadata_json),
   };
 }
 
@@ -201,6 +234,9 @@ async function sourcesForCollections(collectionIds: string[]): Promise<Map<strin
     field_code: string | null;
     acres: number | null;
     biomass_tonnes: number | null;
+    loaded_photo_local_uri: string | null;
+    loaded_photo_url: string | null;
+    loaded_photo_metadata_json: string | null;
   }>(
     `SELECT * FROM biomass_collection_sources
      WHERE collection_id IN (${placeholders})
@@ -219,7 +255,24 @@ export function toBiomassCollectionView(
   row: BiomassCollection,
   sources: BiomassSourceDraft[] = [],
 ): BiomassCollectionView {
-  const first = sources.find((source) => source.farmId) ?? null;
+  const hydrated = sources.map((source) => ({ ...source }));
+  const anyPhoto = hydrated.some((source) => source.loadedPhotoLocalUri || source.loadedPhotoUrl);
+  if (!anyPhoto && (row.loadedPhotoLocalUri || row.loadedPhotoUrl) && hydrated.length > 0) {
+    const index = Math.max(
+      0,
+      hydrated.findIndex((source) => source.farmId),
+    );
+    const target = hydrated[index];
+    if (target) {
+      hydrated[index] = {
+        ...target,
+        loadedPhotoLocalUri: row.loadedPhotoLocalUri,
+        loadedPhotoUrl: row.loadedPhotoUrl,
+        loadedPhotoMetadata: parseMetadata(row.loadedPhotoMetadataJson),
+      };
+    }
+  }
+  const first = hydrated.find((source) => source.farmId) ?? null;
   return {
     id: row.id,
     serverId: row.serverId,
@@ -229,7 +282,7 @@ export function toBiomassCollectionView(
     farmName: first?.farmName ?? row.farmName,
     farmFieldId: first?.farmFieldId ?? row.farmFieldId,
     fieldCode: first?.fieldCode ?? row.fieldCode,
-    sources,
+    sources: hydrated,
     producerId: row.producerId,
     producerSiteId: row.producerSiteId,
     producerName: row.producerName,
@@ -461,13 +514,53 @@ export function newBiomassSourceDraft(): BiomassSourceDraft {
     fieldCode: null,
     acresText: "",
     biomassText: "",
+    loadedPhotoLocalUri: null,
+    loadedPhotoUrl: null,
+    loadedPhotoMetadata: null,
   };
 }
 
 function sourceLineStarted(source: BiomassSourceDraft): boolean {
   return Boolean(
-    source.farmId || source.farmFieldId || source.acresText.trim() || source.biomassText.trim(),
+    source.farmId ||
+      source.farmFieldId ||
+      source.acresText.trim() ||
+      source.biomassText.trim() ||
+      source.loadedPhotoLocalUri ||
+      source.loadedPhotoUrl,
   );
+}
+
+/** Keeps the trip-level loaded photo aligned with the first farm that has one. */
+async function mirrorPrimaryLoadedPhoto(collectionId: string, sources: BiomassSourceDraft[]) {
+  const primary =
+    sources.find(
+      (source) => source.loadedPhotoLocalUri || source.loadedPhotoUrl || source.loadedPhotoMetadata,
+    ) ?? null;
+  let row: BiomassCollection;
+  try {
+    row = await getBiomassCollection(collectionId);
+  } catch {
+    return;
+  }
+  const nextUri = primary?.loadedPhotoLocalUri ?? null;
+  const nextMeta = primary?.loadedPhotoMetadata ?? null;
+  const sameUri = nextUri === (row.loadedPhotoLocalUri ?? null);
+  const sameMeta =
+    JSON.stringify(nextMeta) === (row.loadedPhotoMetadataJson ?? "null") ||
+    (nextMeta == null && !row.loadedPhotoMetadataJson);
+  if (sameUri && sameMeta) return;
+  if (!nextUri && primary?.loadedPhotoUrl && primary.loadedPhotoUrl === row.loadedPhotoUrl && sameMeta) {
+    return;
+  }
+  try {
+    await updateBiomassCollectionLocal(collectionId, {
+      loadedPhotoLocalUri: nextUri,
+      loadedPhotoMetadata: nextMeta,
+    });
+  } catch (err) {
+    throw readableBiomassSaveError(err);
+  }
 }
 
 /** One write at a time. Choosing a farmer, leaving the screen, and blurring a field all save the same lines. */
@@ -519,6 +612,11 @@ async function writeBiomassSources(collectionId: string, sources: BiomassSourceD
           field_code: source.fieldCode,
           acres: parseBiomassQuantity(source.acresText),
           biomass_tonnes: parseBiomassQuantity(source.biomassText),
+          loaded_photo_local_uri: source.loadedPhotoLocalUri,
+          loaded_photo_url: source.loadedPhotoUrl,
+          loaded_photo_metadata_json: source.loadedPhotoMetadata
+            ? JSON.stringify(source.loadedPhotoMetadata)
+            : null,
           sort_order: sortOrder,
         });
         await db.runAsync(sql.replace(/^INSERT INTO /, "INSERT OR REPLACE INTO "), args);
@@ -539,6 +637,8 @@ async function writeBiomassSources(collectionId: string, sources: BiomassSourceD
   } catch (err) {
     throw readableBiomassSaveError(err);
   }
+
+  await mirrorPrimaryLoadedPhoto(collectionId, sources);
 }
 
 export function saveBiomassSources(
@@ -720,7 +820,12 @@ export function validateLoadedStep(
   const errors: string[] = [];
   const started = view.sources.filter(
     (source) =>
-      source.farmId || source.farmFieldId || source.acresText.trim() || source.biomassText.trim(),
+      source.farmId ||
+      source.farmFieldId ||
+      source.acresText.trim() ||
+      source.biomassText.trim() ||
+      source.loadedPhotoLocalUri ||
+      source.loadedPhotoUrl,
   );
   if (started.length === 0) errors.push("Add a farm.");
   const seen = new Set<string>();
@@ -768,9 +873,19 @@ export function validateLoadedStep(
       if (message) errors.push(message);
       added[field.id] = (added[field.id] ?? 0) + acres;
     }
-  }
-  if (!view.loadedPhotoLocalUri && !view.loadedPhotoUrl) {
-    errors.push("Take the photo of the loaded tractor.");
+    if (!source.loadedPhotoLocalUri && !source.loadedPhotoUrl) {
+      errors.push(`Take the loading photo for ${label}.`);
+    } else if (!source.loadedPhotoMetadata) {
+      errors.push(`The loading photo for ${label} needs its time and GPS. Take it again.`);
+    } else if (field) {
+      const check = checkLoadedPhotoNearFarm({
+        farmName: label,
+        boundaries: [field.boundary],
+        latitude: source.loadedPhotoMetadata.latitude,
+        longitude: source.loadedPhotoMetadata.longitude,
+      });
+      if (check.ok === false) errors.push(check.message);
+    }
   }
   return errors;
 }
@@ -852,20 +967,9 @@ export async function syncBiomassCollection(row: BiomassCollection) {
   if (!view.farmId || !view.farmFieldId || !view.producerId || !view.producerSiteId) {
     throw new Error("Farmer, farm plot, and dropping site are required before sync.");
   }
-  if (!view.loadedPhotoMetadata || !view.unloadedPhotoMetadata) {
-    throw new Error("Both photos need their time and GPS before sync.");
+  if (!view.unloadedPhotoMetadata) {
+    throw new Error("The unloaded photo needs its time and GPS before sync.");
   }
-
-  const loadedUrl = await uploadBiomassCollectionPhoto(
-    row.id,
-    "loaded",
-    view.loadedPhotoLocalUri,
-    view.loadedPhotoUrl,
-  );
-  await db.runAsync("UPDATE biomass_collections SET loaded_photo_url = ? WHERE id = ?", [
-    loadedUrl,
-    row.id,
-  ]);
 
   const unloadedUrl = await uploadBiomassCollectionPhoto(
     row.id,
@@ -878,16 +982,53 @@ export async function syncBiomassCollection(row: BiomassCollection) {
     row.id,
   ]);
 
-  const sources = view.sources
-    .map((source) => ({
-      farm_id: source.farmId ?? "",
+  const sources: BiomassCollectionSource[] = [];
+  for (const source of view.sources) {
+    if (!source.farmId || !source.farmFieldId) continue;
+    if (!source.loadedPhotoMetadata) {
+      throw new Error(
+        `The loading photo for ${source.farmName ?? "a farm"} needs its time and GPS before sync.`,
+      );
+    }
+    const url = await uploadBiomassCollectionPhoto(
+      row.id,
+      `loaded-${source.id}`,
+      source.loadedPhotoLocalUri,
+      source.loadedPhotoUrl,
+    );
+    await db.runAsync("UPDATE biomass_collection_sources SET loaded_photo_url = ? WHERE id = ?", [
+      url,
+      source.id,
+    ]);
+    sources.push({
+      farm_id: source.farmId,
       farm_name: source.farmName,
-      farm_field_id: source.farmFieldId ?? "",
+      farm_field_id: source.farmFieldId,
       field_code: source.fieldCode,
       acres: parseBiomassQuantity(source.acresText) ?? 0,
       biomass_tonnes: parseBiomassQuantity(source.biomassText),
-    }))
-    .filter((source) => source.farm_id && source.farm_field_id);
+      loaded_photo_url: url,
+      loaded_photo_metadata: source.loadedPhotoMetadata,
+    });
+  }
+
+  const primary = sources[0];
+  const loadedUrl =
+    primary?.loaded_photo_url ??
+    (await uploadBiomassCollectionPhoto(
+      row.id,
+      "loaded",
+      view.loadedPhotoLocalUri,
+      view.loadedPhotoUrl,
+    ));
+  const loadedMeta = primary?.loaded_photo_metadata ?? view.loadedPhotoMetadata;
+  if (!loadedUrl || !loadedMeta) {
+    throw new Error("Each farm needs a loading photo with time and GPS before sync.");
+  }
+  await db.runAsync("UPDATE biomass_collections SET loaded_photo_url = ? WHERE id = ?", [
+    loadedUrl,
+    row.id,
+  ]);
 
   const payload: CreateBiomassCollectionPayload = {
     farm_id: view.farmId,
@@ -899,9 +1040,9 @@ export async function syncBiomassCollection(row: BiomassCollection) {
     producer_site_id: view.producerSiteId,
     producer_name: view.producerName,
     tractor_number: view.tractorNumber,
-    loaded_at: view.loadedPhotoMetadata.captured_at,
+    loaded_at: loadedMeta.captured_at,
     loaded_photo_url: loadedUrl,
-    loaded_photo_metadata: view.loadedPhotoMetadata,
+    loaded_photo_metadata: loadedMeta,
     unloaded_at: view.unloadedPhotoMetadata.captured_at,
     unloaded_photo_url: unloadedUrl,
     unloaded_photo_metadata: view.unloadedPhotoMetadata,

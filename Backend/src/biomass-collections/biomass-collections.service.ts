@@ -196,6 +196,8 @@ export class BiomassCollectionsService {
           field_code: source.field_code?.trim() || null,
           acres: source.acres,
           biomass_tonnes: source.biomass_tonnes,
+          loaded_photo_url: source.loaded_photo_url?.trim() || null,
+          loaded_photo_metadata: source.loaded_photo_metadata ?? null,
         })),
       );
       if (sourceError) {
@@ -217,6 +219,8 @@ export class BiomassCollectionsService {
       field_code: source.field_code ?? null,
       acres: Number(source.acres),
       biomass_tonnes: parseBiomassQuantity(source.biomass_tonnes),
+      loaded_photo_url: source.loaded_photo_url?.trim() || null,
+      loaded_photo_metadata: source.loaded_photo_metadata ?? null,
     }));
   }
 
@@ -242,7 +246,7 @@ export class BiomassCollectionsService {
     payload: CreateBiomassCollectionPayload,
     sources: BiomassCollectionSource[],
   ) {
-    const chosen = sources.length
+    const chosen: BiomassCollectionSource[] = sources.length
       ? sources
       : [
           {
@@ -252,12 +256,35 @@ export class BiomassCollectionsService {
             field_code: payload.field_code,
             acres: 0,
             biomass_tonnes: null,
+            loaded_photo_url: null,
+            loaded_photo_metadata: null,
           },
         ];
     const plots = await this.plotsForFarms(
       user,
       chosen.map((source) => source.farm_id),
     );
+    const withOwnPhoto = chosen.filter((source) => source.loaded_photo_metadata);
+    if (withOwnPhoto.length > 0) {
+      if (withOwnPhoto.length !== chosen.length) {
+        throw new BadRequestException('Take a loading photo for every farm.');
+      }
+      for (const source of withOwnPhoto) {
+        const field = (plots.get(source.farm_id) ?? []).find((item) => item.id === source.farm_field_id);
+        if (!field) {
+          throw new BadRequestException('Select the farmer and the farm plot.');
+        }
+        const check = checkLoadedPhotoNearFarm({
+          farmName: `${source.farm_name ?? 'Farm'} (${field.field_code})`,
+          boundaries: [field.boundary],
+          latitude: source.loaded_photo_metadata?.latitude,
+          longitude: source.loaded_photo_metadata?.longitude,
+        });
+        if (!check.ok) throw new BadRequestException(check.message);
+      }
+      return;
+    }
+
     const boundaries: GeoPoint[][] = [];
     const names: string[] = [];
     for (const source of chosen) {
@@ -365,6 +392,24 @@ export class BiomassCollectionsService {
       for (const source of record.sources ?? []) {
         source.area_acres = plots.get(source.farm_field_id)?.acres ?? null;
       }
+      const sourcePhotoDistances: number[] = [];
+      let sourcePhotoGps = false;
+      let sourcePhotoBoundary = false;
+      for (const source of record.sources ?? []) {
+        const photoPoint = this.photoPoint(source.loaded_photo_metadata);
+        const sourcePlot = plots.get(source.farm_field_id);
+        if (!photoPoint) {
+          source.loaded_distance_from_farm_m = null;
+          continue;
+        }
+        sourcePhotoGps = true;
+        if (sourcePlot) sourcePhotoBoundary = true;
+        const distanceM = sourcePlot
+          ? nearestBoundaryDistanceMeters(photoPoint, [sourcePlot.ring])
+          : null;
+        source.loaded_distance_from_farm_m = distanceM;
+        if (distanceM != null) sourcePhotoDistances.push(distanceM);
+      }
       const sourcePlots = (record.sources ?? [])
         .map((source) => plots.get(source.farm_field_id))
         .filter((plot): plot is { ring: GeoPoint[]; acres: number } => Boolean(plot));
@@ -376,11 +421,17 @@ export class BiomassCollectionsService {
           : record.farm_id
             ? (fallback.get(record.farm_id) ?? [])
             : [];
-      const point = this.photoPoint(record.loaded_photo_metadata);
-      const distanceM = point ? nearestBoundaryDistanceMeters(point, rings) : null;
+      const point = sourcePhotoGps ? null : this.photoPoint(record.loaded_photo_metadata);
+      const distanceM = sourcePhotoGps
+        ? sourcePhotoDistances.length > 0
+          ? Math.max(...sourcePhotoDistances)
+          : null
+        : point
+          ? nearestBoundaryDistanceMeters(point, rings)
+          : null;
       const summary = describeFarmPhotoDistance(distanceM, {
-        hasBoundary: rings.length > 0,
-        hasGps: point != null,
+        hasBoundary: sourcePhotoGps ? sourcePhotoBoundary : rings.length > 0,
+        hasGps: sourcePhotoGps || point != null,
       });
       return {
         ...record,
@@ -406,7 +457,9 @@ export class BiomassCollectionsService {
       const chunk = ids.slice(offset, offset + 80);
       const { data, error } = await this.supabase
         .from('biomass_collection_sources')
-        .select('id, biomass_collection_id, farm_id, farm_name, farm_field_id, field_code, acres, biomass_tonnes')
+        .select(
+          'id, biomass_collection_id, farm_id, farm_name, farm_field_id, field_code, acres, biomass_tonnes, loaded_photo_url, loaded_photo_metadata',
+        )
         .in('biomass_collection_id', chunk);
       if (error) throw new BadRequestException(error.message);
       for (const row of data ?? []) {
@@ -423,6 +476,9 @@ export class BiomassCollectionsService {
             row.biomass_tonnes == null || row.biomass_tonnes === ''
               ? null
               : Number(row.biomass_tonnes),
+          loaded_photo_url: (row.loaded_photo_url as string | null) ?? null,
+          loaded_photo_metadata:
+            (row.loaded_photo_metadata as BiomassCollectionSource['loaded_photo_metadata']) ?? null,
         });
         sourcesByCollection.set(collectionId, list);
       }
@@ -481,6 +537,10 @@ export class BiomassCollectionsService {
     }
     if (!payload.producer_id) {
       throw new BadRequestException('Select the production site where it was unloaded.');
+    }
+    const withPhoto = sources.filter((source) => source.loaded_photo_url?.trim());
+    if (withPhoto.length > 0 && withPhoto.length !== sources.length) {
+      throw new BadRequestException('Take a loading photo for every farm.');
     }
     if (!payload.loaded_at || !payload.loaded_photo_url?.trim()) {
       throw new BadRequestException('The loaded tractor photo is required.');
